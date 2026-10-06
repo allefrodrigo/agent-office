@@ -1,0 +1,36 @@
+appId: dev.allef.agentoffice
+productName: Agent Office
+directories:
+  buildResources: resources
+  output: dist
+files:
+  - out/**
+  - package.json
+  # The SDK's platform package carries a full Claude Code binary (~220 MB).
+  # Release builds use the user's installed `claude` instead (see src/main/claude-path.ts).
+  # To bundle it, delete this line; asarUnpack below keeps it executable.
+  - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
+asarUnpack:
+  - node_modules/@anthropic-ai/claude-agent-sdk-*/**
+mac:
+  category: public.app-category.developer-tools
+  # Only the SDK binary for the build machine's CPU is installed, so build each
+  # arch on (or with npm --cpu for) that arch. See README.
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  darkModeSupport: true
+  # Ad-hoc signature: runs locally without depending on whatever certificate is
+  # in the keychain. For distribution, set your Developer ID here and notarize.
+  identity: '-'
+  # Hardened runtime is only needed for notarization (and then requires entitlements).
+  hardenedRuntime: false
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
