@@ -7,9 +7,15 @@ Inspirado no Habbo Hotel (visual isométrico) e no Gather (escritório virtual).
 ## O que faz
 
 - **Contratar agente**: escolha nome, pasta do projeto, tarefa, modelo e modo de permissão. O agente sobe pelo elevador, senta numa mesa livre e começa.
+- **Chamar agente** (botão `>_` ou a etiqueta "Chamar agente" no seu computador): escolha só a pasta, sem tarefa nem formulário. O agente chega e o painel abre para você digitar, como abrir o `claude` no terminal. Usa o modelo e o modo de permissão padrão das Configurações.
+- **Contexto do agente**: o painel mostra quanto da janela de contexto a conversa ocupa (os mesmos números do `/context`), e a lista de agentes tem uma barrinha. **Compactar** resume a conversa (`/compact`); **Limpar** começa uma conversa nova com o mesmo agente (`/clear`), sem demitir.
+- **Limites do plano**: no canto de cima, as janelas de 5h, da semana e por modelo (ex.: Fable), como no `/usage`, com o horário em que renovam. Atualiza a cada 3 minutos e depois de cada tarefa, sem gastar tokens.
+- **Conversa entre sessões**: quando uma sessão do terminal manda mensagem para outra (`SendMessage`), o agente dela anda até a mesa do destinatário e mostra a primeira linha num balão. O nome de cada sessão vem de `~/.claude/sessions/*.json` (formato interno do Claude Code; se mudar, só some a animação).
+- **Sistema**: abaixo dos limites do plano, CPU e RAM do Mac (RAM contada como no Monitor de Atividade), quanto o próprio escritório usa e a soma de todos os processos `claude` (agentes e sessões do terminal). Atualiza a cada 3 segundos.
 - **Permissões**: no modo "Pedir permissão", antes de editar arquivos ou rodar comandos o agente vai até você. O cartão mostra o comando ou o diff, com os botões Permitir, Sempre permitir e Negar (negar aceita uma instrução do que fazer em vez disso).
 - **Perguntas e planos**: o `AskUserQuestion` vira um cartão com opções; o `ExitPlanMode` mostra o plano para aprovar ou pedir mudanças.
 - **Resultados**: ao terminar, o agente leva o relatório até você. Depois de "Recebido", ele vai relaxar no lounge.
+- **Quadro de tickets** (botão do quadro ou tecla `T`): kanban com Backlog, A fazer, Fazendo, Revisão e Feito. Cada ticket traz pasta do projeto, contexto, critérios de aceite, tags, pontos e prazo. "Delegar" entrega o ticket a um agente livre ou contrata um novo: ele recebe o ticket completo (o painel mostra "O que o agente lê"), marca os critérios, comenta e, ao terminar, o relatório vira comentário e o ticket vai para Revisão. Você aprova ou pede ajustes. Os agentes do escritório também usam o quadro sozinhos (ferramentas `mcp__office__*`): basta pedir "abra um ticket para isso" ou "liste os tickets em aberto". Só pessoas movem para Feito, e tickets nunca rodam no modo "Sem pedir nada". Os tickets ficam em `userData/tickets.json`.
 - **Central de resume** (botão do relógio): lista as sessões recentes do Claude Code nesta máquina, do terminal ou do escritório, com busca. "Chamar" traz a sessão de volta como agente, com o histórico e o mesmo modelo; ele espera no lounge até receber a próxima instrução. Também abre a sessão no Terminal (Mac) ou copia o `claude --resume <id>`.
 - **Lounge**: agentes livres sentam nos sofás e pufes ou jogam pebolim, fliperama e pingue-pongue.
 - **Conversar**: clique no agente para abrir o painel com o log ao vivo e mandar novas instruções. A sessão continua de onde parou, inclusive depois de reiniciar o app.
@@ -61,6 +67,9 @@ src/
                         e instalador dos hooks em ~/.claude/settings.json
     sessions.ts         central de resume: lista sessões (listSessions do SDK), importa o histórico,
                         abre no Terminal
+    peers.ts            acha a sessão pelo nome usado no SendMessage (~/.claude/sessions)
+    system.ts           CPU e memória do Mac, do app e dos processos claude
+    usage.ts            limites do plano (5h, semana, por modelo) pelo SDK, sem mandar prompt
     claude-path.ts      encontra o executável do Claude Code
     session-process.ts  descobre o PID do claude de cada sessão do terminal (pela conexão do hook) e o encerra
     store.ts            persistência (userData/office.json)

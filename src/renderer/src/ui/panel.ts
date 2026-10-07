@@ -1,8 +1,10 @@
-import type { AgentSummary, LogEntry } from '@shared/types'
+import { ATTACH_KIND_LABEL, ATTACH_LIMITS, formatBytes, kindFromName, limitError } from '@shared/attachments'
+import type { AgentSummary, AttachmentInput, AttachmentKind, LogEntry } from '@shared/types'
 import type { State } from '../state'
 import { formatCost, h, icon } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
+import { cleanError } from './modals'
 import { portrait } from './portrait'
 
 export interface PanelActions {
@@ -20,6 +22,12 @@ export class AgentPanel {
   private feed: HTMLDivElement
   private composer: HTMLDivElement
   private input: HTMLTextAreaElement
+  private picker: HTMLInputElement
+  private chips: HTMLDivElement
+  /** Files waiting to go with the next message. */
+  private files: PendingFile[] = []
+  private terminal = false
+  private sending = false
   agentId: string | null = null
   private stickToBottom = true
 
@@ -42,13 +50,47 @@ export class AgentPanel {
       }
       e.stopPropagation()
     })
+    this.input.addEventListener('paste', (e) => {
+      const files = [...(e.clipboardData?.files ?? [])]
+      if (!files.length) return
+      e.preventDefault()
+      this.attach(files)
+    })
+    this.picker = h('input', { type: 'file', multiple: true, class: 'hidden' })
+    this.picker.addEventListener('change', () => {
+      this.attach([...(this.picker.files ?? [])])
+      this.picker.value = ''
+    })
+    this.chips = h('div', { class: 'composer-files hidden' })
     this.composer = h(
       'div',
       { class: 'composer' },
-      this.input,
-      h('button', { class: 'btn btn-primary btn-icon', title: 'Enviar (Enter)', onclick: () => this.send() }, icon('send', 16)),
+      this.chips,
+      h(
+        'div',
+        { class: 'composer-row' },
+        h('button', { class: 'btn btn-icon', title: 'Anexar arquivos (ou arraste, ou cole uma imagem)', onclick: () => this.picker.click() }, icon('clip', 16)),
+        this.input,
+        h('button', { class: 'btn btn-primary btn-icon', title: 'Enviar (Enter)', onclick: () => this.send() }, icon('send', 16)),
+      ),
+      this.picker,
     )
     this.el = h('div', { class: 'panel card hidden' }, this.head, this.banner, this.feed, this.composer)
+    this.el.addEventListener('dragover', (e) => {
+      if (!e.dataTransfer?.types.includes('Files') || this.terminal) return
+      e.preventDefault()
+      this.el.classList.add('drop-target')
+    })
+    this.el.addEventListener('dragleave', (e) => {
+      if (!this.el.contains(e.relatedTarget as Node | null)) this.el.classList.remove('drop-target')
+    })
+    this.el.addEventListener('drop', (e) => {
+      this.el.classList.remove('drop-target')
+      if (!e.dataTransfer?.files.length || this.terminal) return
+      e.preventDefault()
+      this.attach([...e.dataTransfer.files])
+      this.input.focus()
+    })
     root.append(this.el)
 
     state.onLog((agentId, entry) => {
@@ -108,6 +150,7 @@ export class AgentPanel {
     } else this.banner.className = 'panel-banner hidden'
 
     const terminal = a.source === 'terminal'
+    this.terminal = terminal
     this.composer.classList.toggle('disabled', terminal)
     this.input.disabled = terminal
     this.input.placeholder = terminal
@@ -139,6 +182,7 @@ export class AgentPanel {
         a.model ? h('span', { class: 'meta-item' }, a.model) : null,
         a.costUsd ? h('span', { class: 'meta-item' }, formatCost(a.costUsd)) : null,
       ),
+      ...(a.source === 'office' && a.context ? [this.contextMeter(a, busy)] : []),
       h(
         'div',
         { class: 'panel-actions' },
@@ -153,20 +197,122 @@ export class AgentPanel {
     )
   }
 
+  /** How full the agent's memory is, with ways to free it. */
+  private contextMeter(a: AgentSummary, busy: boolean): HTMLElement {
+    const c = a.context!
+    const level = contextLevel(c.percent)
+    const hint =
+      level === 'full'
+        ? 'Quase cheio. Ao encher, o Claude compacta sozinho e pode esquecer detalhes. Compacte agora ou limpe se a próxima tarefa for outra.'
+        : level === 'warn'
+          ? 'Enchendo. Se a próxima tarefa não tem a ver com esta, limpe.'
+          : null
+    return h(
+      'div',
+      { class: `ctx ctx-${level}` },
+      h(
+        'div',
+        { class: 'ctx-row' },
+        h('span', { class: 'ctx-label' }, 'Contexto'),
+        h('div', { class: 'ctx-bar' }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, c.percent)}%` })),
+        h('span', { class: 'ctx-num', title: `${c.used.toLocaleString('pt-BR')} de ${c.max.toLocaleString('pt-BR')} tokens` }, `${c.percent}%`),
+        h('button', {
+          class: 'btn btn-small',
+          title: 'Resume a conversa até aqui (/compact). O agente continua sabendo o essencial.',
+          disabled: busy,
+          onclick: () => window.office.compact(a.id),
+        }, 'Compactar'),
+        h('button', {
+          class: 'btn btn-small',
+          title: 'Começa uma conversa nova com o mesmo agente (/clear).',
+          onclick: () => this.clear(a),
+        }, 'Limpar'),
+      ),
+      hint ? h('div', { class: 'ctx-hint' }, hint) : null,
+    )
+  }
+
+  private async clear(a: AgentSummary): Promise<void> {
+    if (!confirm(`Limpar a memória de ${a.name}? Ele continua no escritório, mas esquece esta conversa. O histórico fica salvo na Central de resume.`)) return
+    await window.office.clearContext(a.id)
+  }
+
   private async fire(a: AgentSummary): Promise<void> {
     if (!confirm(`Demitir ${a.name}? A sessão para e o agente vai embora pelo elevador.`)) return
     await window.office.fire(a.id)
     this.close()
   }
 
+  private attach(list: File[]): void {
+    if (this.terminal) return
+    for (const file of list) {
+      if (this.files.length >= ATTACH_LIMITS.count) {
+        this.actions.toast(`Dá para mandar até ${ATTACH_LIMITS.count} anexos por vez. Envie estes e anexe o resto na próxima mensagem.`, 'err')
+        break
+      }
+      const path = window.office.pathForFile(file)
+      // Pasted screenshots all arrive as "image.png".
+      const name = path || file.name !== 'image.png' ? file.name || 'anexo' : `imagem-colada-${new Date().toTimeString().slice(0, 8).replace(/:/g, '')}.png`
+      // One paste can list the same screenshot twice; a file can also be dropped again by mistake.
+      const key = path || `${file.type}:${file.size}:${file.lastModified}`
+      if (this.files.some((f) => f.key === key)) continue
+      const kind = kindFromName(name, file.type)
+      // A big text file from disk is fine: it goes as a path. The main process re-checks everything by content.
+      const err = kind === 'image' || kind === 'pdf' || (kind === 'text' && !path) ? limitError(name, kind, file.size) : null
+      if (err) {
+        this.actions.toast(err, 'err')
+        continue
+      }
+      this.files.push({ id: crypto.randomUUID(), key, file, name, path, kind })
+    }
+    this.renderChips()
+  }
+
+  private renderChips(): void {
+    this.chips.classList.toggle('hidden', !this.files.length)
+    this.chips.replaceChildren(
+      ...this.files.map((f) =>
+        h(
+          'span',
+          { class: 'file-chip', title: f.path || f.name },
+          icon(f.kind === 'image' ? 'image' : 'file', 13),
+          h('span', { class: 'file-chip-name' }, f.name),
+          h('span', { class: 'file-chip-size' }, formatBytes(f.file.size)),
+          h(
+            'button',
+            {
+              class: 'file-chip-x',
+              title: 'Remover anexo',
+              onclick: () => {
+                this.files = this.files.filter((x) => x.id !== f.id)
+                this.renderChips()
+              },
+            },
+            icon('x', 12),
+          ),
+        ),
+      ),
+    )
+  }
+
   private async send(): Promise<void> {
     const text = this.input.value.trim()
-    if (!text || !this.agentId) return
-    this.input.value = ''
+    if ((!text && !this.files.length) || !this.agentId || this.sending) return
+    const files = this.files
+    this.sending = true
     try {
-      await window.office.send(this.agentId, text)
+      const attachments: AttachmentInput[] = await Promise.all(
+        files.map(async (f) => (f.path ? { name: f.name, mime: f.file.type, path: f.path } : { name: f.name, mime: f.file.type, dataBase64: await toBase64(f.file) })),
+      )
+      await window.office.send(this.agentId, text, attachments)
+      // Cleared only once it went, so a rejected file can be removed and the rest sent again.
+      if (this.input.value.trim() === text) this.input.value = ''
+      this.files = this.files.filter((f) => !files.includes(f))
+      this.renderChips()
     } catch (err) {
-      this.actions.toast(String(err), 'err')
+      this.actions.toast(cleanError(err), 'err')
+    } finally {
+      this.sending = false
     }
   }
 
@@ -181,7 +327,24 @@ export class AgentPanel {
 function entryView(e: LogEntry): HTMLElement {
   switch (e.kind) {
     case 'user':
-      return h('div', { class: 'entry entry-user' }, h('div', { class: 'entry-bubble' }, e.text))
+      return h(
+        'div',
+        { class: 'entry entry-user' },
+        h(
+          'div',
+          { class: 'entry-bubble' },
+          e.text,
+          e.attachments?.length
+            ? h(
+                'div',
+                { class: 'entry-files' },
+                e.attachments.map((a) =>
+                  h('span', { class: 'file-chip', title: `${ATTACH_KIND_LABEL[a.kind]} · ${formatBytes(a.size)}` }, icon(a.kind === 'image' ? 'image' : 'file', 12), h('span', { class: 'file-chip-name' }, a.name)),
+                ),
+              )
+            : null,
+        ),
+      )
     case 'assistant':
       return h('div', { class: 'entry entry-assistant' }, renderMarkdown(e.text))
     case 'tool':
@@ -201,6 +364,30 @@ function entryView(e: LogEntry): HTMLElement {
     default:
       return h('div', { class: 'entry entry-system' }, e.text)
   }
+}
+
+export function contextLevel(percent: number): 'ok' | 'warn' | 'full' {
+  return percent >= 85 ? 'full' : percent >= 60 ? 'warn' : 'ok'
+}
+
+interface PendingFile {
+  id: string
+  /** Same key = same file: the path, or type/size/time for pasted data. */
+  key: string
+  file: File
+  name: string
+  /** '' when the file has no place on disk (pasted). */
+  path: string
+  kind: AttachmentKind
+}
+
+function toBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(String(r.result).replace(/^data:[^,]*,/, ''))
+    r.onerror = () => reject(new Error(`Não consegui ler ${file.name}. Anexe de novo.`))
+    r.readAsDataURL(file)
+  })
 }
 
 function shortPath(p: string): string {

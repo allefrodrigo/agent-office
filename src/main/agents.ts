@@ -1,12 +1,14 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
-import { query, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import { query, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentResult,
   AgentStatus,
   AgentSummary,
   AskQuestion,
+  AttachmentInfo,
+  AttachmentInput,
   HireRequest,
   LogEntry,
   OfficeEvent,
@@ -15,12 +17,17 @@ import type {
   PermissionRequest,
 } from '@shared/types'
 import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
+import { buildMessage } from './attachments'
 import { findClaude } from './claude-path'
+import { sessionIdForName } from './peers'
 import type { Store } from './store'
 
 const LOG_LIMIT = 400
 const PERSISTED_LOG = 150
 export const DESK_COUNT = 10
+
+/** A plain string, or content blocks when the message carries attachments. */
+type Prompt = SDKUserMessage['message']['content']
 
 /** Async queue that feeds user messages into a streaming-input query. */
 class InputQueue implements AsyncIterable<SDKUserMessage> {
@@ -28,8 +35,8 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private waiting: ((r: IteratorResult<SDKUserMessage>) => void) | null = null
   private closed = false
 
-  push(text: string): void {
-    const msg: SDKUserMessage = { type: 'user', message: { role: 'user', content: text }, parent_tool_use_id: null }
+  push(content: Prompt): void {
+    const msg: SDKUserMessage = { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null }
     if (this.waiting) {
       const w = this.waiting
       this.waiting = null
@@ -62,6 +69,8 @@ interface Agent {
   query?: Query
   /** Session already exists on disk, so the next start must resume it. */
   started: boolean
+  /** Running /compact: its result is housekeeping, not a report for the player. */
+  compacting?: boolean
 }
 
 interface Pending {
@@ -73,6 +82,8 @@ export class AgentManager extends EventEmitter {
   private agents = new Map<string, Agent>()
   private pending = new Map<string, Pending>()
   private results: AgentResult[]
+  /** In-process tools every office agent gets (the ticket board), built per agent. */
+  officeTools?: (agent: AgentSummary) => McpSdkServerConfigWithInstance
 
   constructor(private store: Store) {
     super()
@@ -111,11 +122,12 @@ export class AgentManager extends EventEmitter {
 
   // ---------- office agents (Claude Agent SDK) ----------
 
-  hire(req: HireRequest): AgentSummary {
+  /** `display` is what the log shows when the prompt itself is long (a ticket brief). */
+  hire(req: HireRequest, display?: string): AgentSummary {
     const id = randomUUID()
     const summary: AgentSummary = {
       id,
-      name: req.name.trim() || 'Agente',
+      name: req.name.trim() || this.freeName(),
       source: 'office',
       cwd: req.cwd,
       model: req.model || undefined,
@@ -131,7 +143,7 @@ export class AgentManager extends EventEmitter {
     const agent: Agent = { summary, log: [], started: false }
     this.agents.set(id, agent)
     this.upsert(agent)
-    this.addLog(agent, 'user', req.task)
+    this.addLog(agent, 'user', display ?? req.task)
     this.run(agent, req.task)
     return summary
   }
@@ -139,42 +151,99 @@ export class AgentManager extends EventEmitter {
   /** An office agent for a saved session; it waits in the lounge until it gets an instruction. */
   recall(sessionId: string, cwd: string, log: LogEntry[], defaults: { model?: string; permissionMode: OfficePermissionMode }): AgentSummary {
     for (const a of this.agents.values()) if (a.summary.sessionId === sessionId) return a.summary
-    const used = new Set([...this.agents.values()].map((a) => a.summary.name))
+    // started = true: the next message resumes the saved conversation.
+    return this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults)
+  }
+
+  /** A new agent with no task yet, like typing `claude` in a folder: it waits for your first message. */
+  summon(cwd: string, defaults: { model?: string; permissionMode: OfficePermissionMode }): AgentSummary {
+    return this.idleAgent(randomUUID(), cwd, [], false, 'Esperando a primeira instrução', defaults)
+  }
+
+  private idleAgent(
+    sessionId: string,
+    cwd: string,
+    log: LogEntry[],
+    started: boolean,
+    activity: string,
+    defaults: { model?: string; permissionMode: OfficePermissionMode },
+  ): AgentSummary {
     const id = randomUUID()
     const summary: AgentSummary = {
       id,
-      name: AGENT_NAMES.find((n) => !used.has(n)) ?? basename(cwd) ?? 'Agente',
+      name: this.freeName(basename(cwd) || 'Agente'),
       source: 'office',
       cwd,
       model: defaults.model || undefined,
       permissionMode: defaults.permissionMode,
       status: 'idle',
-      activity: 'De volta, esperando instruções',
+      activity,
       desk: this.freeDesk(),
       look: lookFromSeed(sessionId),
       costUsd: 0,
       createdAt: Date.now(),
       sessionId,
     }
-    // started = true: the next message resumes the saved conversation.
-    const agent: Agent = { summary, log, started: true }
+    const agent: Agent = { summary, log, started }
     this.agents.set(id, agent)
     this.upsert(agent)
     return summary
   }
 
-  sendMessage(id: string, text: string): void {
+  /** Throws, before anything is sent, when an attachment can't go. */
+  sendMessage(id: string, text: string, display?: string, attachments: AttachmentInput[] = []): void {
     const agent = this.agents.get(id)
     if (!agent || agent.summary.source !== 'office') return
-    this.addLog(agent, 'user', text)
+    const { content, infos } = attachments.length ? buildMessage(text, attachments) : { content: text, infos: [] }
+    this.addLog(agent, 'user', display ?? text, undefined, undefined, infos.length ? infos : undefined)
     // A new instruction replaces any undelivered result.
     this.dropResults(id)
     if (agent.input && agent.query) {
-      agent.input.push(text)
+      agent.input.push(content)
       this.setStatus(agent, 'working', 'Lendo suas instruções')
     } else {
-      this.run(agent, text)
+      this.run(agent, content)
     }
+  }
+
+  compact(id: string): void {
+    const agent = this.agents.get(id)
+    if (!agent || agent.summary.source !== 'office' || !agent.started || this.busy(agent)) return
+    agent.compacting = true
+    this.addLog(agent, 'system', 'Compactando: resumindo a conversa para liberar contexto…')
+    this.dropResults(id)
+    if (agent.input && agent.query) agent.input.push('/compact')
+    else this.run(agent, '/compact')
+    this.setStatus(agent, 'working', 'Organizando a memória')
+  }
+
+  /** Same agent, brand-new conversation: closes the session and starts the next one from zero. */
+  clearContext(id: string): void {
+    const agent = this.agents.get(id)
+    if (!agent || agent.summary.source !== 'office') return
+    this.cancelAgentRequests(id)
+    this.dropResults(id)
+    agent.input?.close()
+    agent.query?.close()
+    agent.input = undefined
+    agent.query = undefined
+    agent.started = false
+    agent.compacting = false
+    agent.summary.sessionId = randomUUID()
+    agent.summary.context = undefined
+    this.addLog(agent, 'system', 'Contexto limpo. A próxima mensagem começa uma conversa nova.')
+    this.setStatus(agent, 'idle', 'Memória limpa, esperando instruções')
+    this.upsert(agent)
+  }
+
+  isBusy(id: string): boolean {
+    const agent = this.agents.get(id)
+    return !!agent && this.busy(agent)
+  }
+
+  private busy(agent: Agent): boolean {
+    const st = agent.summary.status
+    return st === 'working' || st === 'starting' || st === 'waiting'
   }
 
   async interrupt(id: string): Promise<void> {
@@ -205,7 +274,7 @@ export class AgentManager extends EventEmitter {
     this.persist()
   }
 
-  private run(agent: Agent, prompt: string): void {
+  private run(agent: Agent, prompt: Prompt): void {
     const s = agent.summary
     const claude = findClaude()
     if (!claude) {
@@ -240,8 +309,10 @@ export class AgentManager extends EventEmitter {
           preset: 'claude_code',
           append:
             `Your name in this office is ${s.name}. Your final message for each task is handed to the user in person as a report: ` +
-            'open with the outcome in one or two sentences, then list the key details. Reply in the language the user wrote in.',
+            'open with the outcome in one or two sentences, then list the key details. Reply in the language the user wrote in. ' +
+            'The office has a kanban board of tickets (keys like AO-12); use the mcp__office__ tools to read, open, comment on and move tickets when asked or when you are working on one.',
         },
+        ...(this.officeTools ? { mcpServers: { office: this.officeTools(s) } } : {}),
         // Lets the terminal bridge ignore hook events coming from office-managed sessions.
         env: { ...process.env, AGENT_OFFICE_MANAGED: '1' },
         canUseTool: (tool, toolInput, opts) => this.askPlayer(agent, tool, toolInput, opts),
@@ -281,10 +352,20 @@ export class AgentManager extends EventEmitter {
           if (agent.summary.status === 'starting') this.setStatus(agent, 'working', 'Lendo a tarefa')
         } else if (msg.subtype === 'status' && msg.status === 'compacting') {
           this.setStatus(agent, agent.summary.status, 'Organizando a memória')
+        } else if (msg.subtype === 'compact_boundary') {
+          const { trigger, pre_tokens, post_tokens } = msg.compact_metadata
+          const freed = post_tokens !== undefined ? ` de ${kTokens(pre_tokens)} para ${kTokens(post_tokens)}` : ''
+          this.addLog(agent, 'system', `${trigger === 'auto' ? 'O contexto encheu e foi compactado sozinho' : 'Conversa compactada'}${freed}.`)
+          if (post_tokens !== undefined && agent.summary.context) this.setContext(agent, post_tokens, agent.summary.context.max)
         }
         return
       case 'assistant': {
         if (msg.parent_tool_use_id) return // subagent chatter
+        // Live estimate between the exact readings taken after each turn.
+        const u = msg.message.usage
+        if (u && agent.summary.context) {
+          this.setContext(agent, u.input_tokens + (u.cache_read_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + u.output_tokens, agent.summary.context.max)
+        }
         for (const block of msg.message.content) {
           if (block.type === 'text' && block.text.trim()) {
             this.addLog(agent, 'assistant', block.text)
@@ -315,6 +396,13 @@ export class AgentManager extends EventEmitter {
         const isError = msg.subtype !== 'success' || msg.is_error
         const text = msg.subtype === 'success' ? msg.result : msg.errors.join('\n') || `Parei: ${msg.subtype}`
         agent.summary.costUsd = msg.total_cost_usd
+        this.readContext(agent)
+        if (agent.compacting) {
+          agent.compacting = false
+          if (isError) this.addLog(agent, 'error', `Não consegui compactar: ${text}`)
+          this.setStatus(agent, 'idle', isError ? 'Não conseguiu compactar' : 'Memória organizada, esperando instruções')
+          return
+        }
         this.deliver(agent, { text, isError, costUsd: msg.total_cost_usd, durationMs: msg.duration_ms, turns: msg.num_turns })
         return
       }
@@ -329,6 +417,8 @@ export class AgentManager extends EventEmitter {
     input: Record<string, unknown>,
     opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; decisionReason?: string },
   ): Promise<PermissionResult> {
+    // The board is the office's own tool: no need to walk over and ask.
+    if (tool.startsWith('mcp__office__')) return Promise.resolve({ behavior: 'allow', updatedInput: input })
     return new Promise((resolve) => {
       const id = this.requestDecision(agent.summary.id, permissionFromTool(tool, input, opts.decisionReason, !!opts.suggestions?.length), (d) => {
         if (d.behavior === 'deny') {
@@ -440,6 +530,15 @@ export class AgentManager extends EventEmitter {
     return undefined
   }
 
+  /** A terminal session messaged another session (SendMessage): show them talking. */
+  terminalChat(fromId: string, input: Record<string, unknown>): void {
+    const text = typeof input.message === 'string' ? input.message.split('\n').find((l) => l.trim())?.trim() : undefined
+    if (!text || typeof input.to !== 'string') return
+    const sessionId = sessionIdForName(input.to)
+    const to = sessionId ? this.findTerminal(sessionId) : undefined
+    this.send({ type: 'agent:chat', fromId, toId: to && to.id !== fromId ? to.id : null, text: text.slice(0, 140) })
+  }
+
   terminalPrompt(agentId: string, prompt: string): void {
     const agent = this.agents.get(agentId)
     if (!agent) return
@@ -515,10 +614,34 @@ export class AgentManager extends EventEmitter {
 
   // ---------- helpers ----------
 
+  private freeName(fallback = 'Agente'): string {
+    const used = new Set([...this.agents.values()].map((a) => a.summary.name))
+    return AGENT_NAMES.find((n) => !used.has(n)) ?? fallback
+  }
+
   private freeDesk(): number {
     const used = new Set([...this.agents.values()].map((a) => a.summary.desk))
     for (let i = 0; i < 64; i++) if (!used.has(i)) return i
     return used.size
+  }
+
+  /** Exact reading, the same numbers /context shows. */
+  private readContext(agent: Agent): void {
+    const q = agent.query
+    q?.getContextUsage({ detail: 'summary' })
+      .then((c) => {
+        if (agent.query === q) this.setContext(agent, c.totalTokens, c.rawMaxTokens)
+      })
+      .catch(() => undefined)
+  }
+
+  private setContext(agent: Agent, used: number, max: number): void {
+    if (!(max > 0)) return
+    const percent = Math.round((used / max) * 100)
+    const prev = agent.summary.context
+    if (prev && prev.percent === percent && prev.max === max) return
+    agent.summary.context = { used, max, percent }
+    this.upsert(agent)
   }
 
   private setStatus(agent: Agent, status: AgentStatus, activity: string): void {
@@ -538,8 +661,8 @@ export class AgentManager extends EventEmitter {
     if (agent.summary.source === 'office') this.persist()
   }
 
-  private addLog(agent: Agent, kind: LogEntry['kind'], text: string, tool?: string, isError?: boolean): void {
-    const entry: LogEntry = { id: randomUUID(), t: Date.now(), kind, text, tool, isError }
+  private addLog(agent: Agent, kind: LogEntry['kind'], text: string, tool?: string, isError?: boolean, attachments?: AttachmentInfo[]): void {
+    const entry: LogEntry = { id: randomUUID(), t: Date.now(), kind, text, tool, isError, attachments }
     agent.log.push(entry)
     if (agent.log.length > LOG_LIMIT) agent.log.splice(0, agent.log.length - LOG_LIMIT)
     this.send({ type: 'agent:log', agentId: agent.summary.id, entry })
@@ -551,6 +674,10 @@ export class AgentManager extends EventEmitter {
       .filter((a) => a.summary.source === 'office')
       .map((a) => ({ summary: a.summary, log: a.log.slice(-PERSISTED_LOG) }))
   }
+}
+
+function kTokens(n: number): string {
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
 }
 
 export function toolDetail(tool: string, input: Record<string, unknown>): string {

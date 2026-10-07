@@ -62,6 +62,16 @@ $env:AGENT_OFFICE_DEMO=1; npm run dev
 
 Quando ele precisar de você, vai até a sua sala e um cartão abre com **Permitir**, **Sempre permitir** ou **Negar**. Ao terminar, ele traz o resultado.
 
+### Chamar um agente sem tarefa
+
+Para conversar como no terminal, sem preencher o formulário:
+
+1. Clique no botão `>_` da barra de baixo, ou na etiqueta **Chamar agente** em cima do seu computador.
+2. Escolha a pasta.
+3. O agente chega e o painel dele abre. Digite o que quer.
+
+Ele usa o modelo e o modo de permissão padrão das Configurações.
+
 ### Retomar uma sessão antiga
 
 1. Clique no botão do relógio (**Central de resume**).
@@ -112,7 +122,7 @@ Cada agente aguenta 3 tiros (os corações aparecem no crachá e voltam depois d
 npm run dist:mac
 ```
 
-O instalador sai em `dist/Agent Office-0.1.0-arm64.dmg`. Abra o `.dmg` e arraste o app para **Aplicativos**.
+O instalador sai em `dist/Agent Office-<versão>-arm64.dmg`. Abra o `.dmg` e arraste o app para **Aplicativos**.
 
 O build não tem assinatura da Apple. Em outro Mac, a primeira abertura é bloqueada: clique com o botão direito no app e escolha **Abrir**.
 

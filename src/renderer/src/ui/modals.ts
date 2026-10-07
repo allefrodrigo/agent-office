@@ -4,7 +4,7 @@ import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
 import { portrait } from './portrait'
 
-const LAST_CWD = 'agent-office:last-cwd'
+export const LAST_CWD = 'agent-office:last-cwd'
 
 const MODES: { value: OfficePermissionMode; label: string; hint: string }[] = [
   { value: 'default', label: 'Pedir permissão', hint: 'Ele vem até você antes de editar arquivos ou rodar comandos.' },
@@ -21,7 +21,7 @@ const MODELS = [
   { value: 'haiku', label: 'Haiku' },
 ]
 
-function modal(title: string, body: HTMLElement[], footer: HTMLElement[], onClose: () => void): HTMLDivElement {
+export function modal(title: string, body: HTMLElement[], footer: HTMLElement[], onClose: () => void): HTMLDivElement {
   const box = h(
     'div',
     { class: 'modal card' },
@@ -40,7 +40,7 @@ function modal(title: string, body: HTMLElement[], footer: HTMLElement[], onClos
   return backdrop
 }
 
-function field(label: string, control: HTMLElement, hint?: HTMLElement | string): HTMLElement {
+export function field(label: string, control: HTMLElement, hint?: HTMLElement | string): HTMLElement {
   return h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), control, hint ? h('span', { class: 'field-hint' }, hint) : null)
 }
 
@@ -62,6 +62,75 @@ export function confirmDialog(
     el.classList.add('backdrop-confirm')
     root.append(el)
     ok.focus()
+  })
+}
+
+const LAST_SUMMON_MODE = 'agent-office:summon-mode'
+
+/**
+ * "Chamar agente": just a folder and how much freedom the agent gets. Resolves the
+ * choice, or null if the player gave up.
+ */
+export function openSummon(root: HTMLElement, state: State): Promise<{ cwd: string; permissionMode: OfficePermissionMode } | null> {
+  return new Promise((resolve) => {
+    let cwd = localStorage.getItem(LAST_CWD) ?? ''
+    const cwdLabel = h('span', { class: 'path-label' }, cwd || 'Nenhuma pasta escolhida')
+    const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
+    const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
+    const saved = localStorage.getItem(LAST_SUMMON_MODE)
+    mode.value = MODES.some((m) => m.value === saved) ? saved! : state.settings.defaultPermissionMode
+    const modeHint = h('span', {})
+    const syncHint = () => {
+      const m = MODES.find((x) => x.value === mode.value)!
+      modeHint.textContent = m.hint
+      modeHint.className = m.value === 'bypassPermissions' ? 'warn' : ''
+    }
+    mode.addEventListener('change', syncHint)
+    syncHint()
+
+    let done = false
+    const finish = (v: { cwd: string; permissionMode: OfficePermissionMode } | null) => {
+      if (done) return
+      done = true
+      el.remove()
+      resolve(v)
+    }
+    const go = h('button', { class: 'btn btn-primary' }, icon('terminal', 15), 'Chamar')
+    const submit = async () => {
+      if (!cwd) {
+        const p = await window.office.pickFolder()
+        if (!p) return
+        cwd = p
+        cwdLabel.textContent = p
+      }
+      if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
+      localStorage.setItem(LAST_CWD, cwd)
+      localStorage.setItem(LAST_SUMMON_MODE, mode.value)
+      finish({ cwd, permissionMode: mode.value as OfficePermissionMode })
+    }
+    pick.addEventListener('click', async () => {
+      const p = await window.office.pickFolder(cwd || undefined)
+      if (p) {
+        cwd = p
+        cwdLabel.textContent = p
+      }
+    })
+    go.addEventListener('click', () => void submit())
+    const el = modal(
+      'Chamar agente',
+      [
+        field('Pasta do projeto', h('div', { class: 'path-row' }, cwdLabel, pick)),
+        field('Permissões', mode, modeHint),
+        h('div', { class: 'field-hint' }, 'Sem tarefa: ele chega e o painel abre para você digitar.'),
+      ],
+      [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), go],
+      () => finish(null),
+    )
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLButtonElement)) void submit()
+    })
+    root.append(el)
+    go.focus()
   })
 }
 
@@ -237,7 +306,11 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
         h('div', { class: 'bridge-row' }, bridgeStatus, bridgeBtn),
       ),
     ],
-    [h('button', { class: 'btn', onclick: close }, 'Cancelar'), save],
+    [
+      h('span', { class: 'app-version', title: `Build de ${__APP_BUILD__}` }, `Agent Office v${__APP_VERSION__} · build ${__APP_BUILD__}`),
+      h('button', { class: 'btn', onclick: close }, 'Cancelar'),
+      save,
+    ],
     close,
   )
   root.append(el)
@@ -394,6 +467,6 @@ function clip(s: string, n: number): string {
   return s.length > n ? s.slice(0, n - 1) + '…' : s
 }
 
-function cleanError(err: unknown): string {
+export function cleanError(err: unknown): string {
   return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err)
 }

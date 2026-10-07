@@ -1,4 +1,4 @@
-import type { AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, Settings } from '@shared/types'
+import type { AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -8,9 +8,12 @@ export class State {
   permissions = new Map<string, PermissionRequest>()
   results = new Map<string, AgentResult>()
   logs = new Map<string, LogEntry[]>()
+  tickets = new Map<string, Ticket>()
   settings: Settings
   bridge: BridgeStatus
   platform: string
+  usage: PlanUsage
+  system: SystemStats | null
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
 
@@ -18,9 +21,12 @@ export class State {
     for (const a of initial.agents) this.agents.set(a.id, a)
     for (const p of initial.permissions) this.permissions.set(p.id, p)
     for (const r of initial.results) this.results.set(r.id, r)
+    for (const t of initial.tickets) this.tickets.set(t.id, t)
     this.settings = initial.settings
     this.bridge = initial.bridge
     this.platform = initial.platform
+    this.usage = initial.usage
+    this.system = initial.system
   }
 
   onChange(cb: Listener): () => void {
@@ -52,6 +58,12 @@ export class State {
         for (const l of this.logListeners) l(e.agentId, e.entry)
         return
       }
+      case 'usage':
+        this.usage = e.usage
+        break
+      case 'system':
+        this.system = e.system
+        break
       case 'permission:new':
         this.permissions.set(e.request.id, e.request)
         break
@@ -69,6 +81,12 @@ export class State {
         break
       case 'settings':
         this.settings = e.settings
+        break
+      case 'ticket:upsert':
+        this.tickets.set(e.ticket.id, e.ticket)
+        break
+      case 'ticket:removed':
+        this.tickets.delete(e.ticketId)
         break
     }
     this.changed()
@@ -89,6 +107,18 @@ export class State {
       permissions: [...this.permissions.values()].filter((p) => p.agentId === agentId).sort((a, b) => a.createdAt - b.createdAt),
       results: [...this.results.values()].filter((r) => r.agentId === agentId),
     }
+  }
+
+  /** The ticket an agent is working on, if any. */
+  ticketFor(agentId: string): Ticket | undefined {
+    for (const t of this.tickets.values()) if (t.assignee?.id === agentId && t.status === 'doing') return t
+    return undefined
+  }
+
+  get reviewCount(): number {
+    let n = 0
+    for (const t of this.tickets.values()) if (t.status === 'review') n++
+    return n
   }
 
   get inboxCount(): number {

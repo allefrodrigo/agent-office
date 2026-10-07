@@ -167,6 +167,7 @@ export class Bridge {
           text: describeTool(tool, input.tool_input ?? {}),
           tool,
         })
+        if (tool === 'SendMessage') this.manager.terminalChat(agent.id, input.tool_input ?? {})
         return reply(200)
       }
       case 'PostToolUseFailure':

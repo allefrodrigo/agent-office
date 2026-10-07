@@ -1,12 +1,17 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { OfficeAPI, OfficeEvent } from '@shared/types'
 
 const api: OfficeAPI = {
   getState: () => ipcRenderer.invoke('office:getState'),
   getLog: (id) => ipcRenderer.invoke('office:getLog', id),
   hire: (req) => ipcRenderer.invoke('office:hire', req),
-  send: (id, text) => ipcRenderer.invoke('office:send', id, text),
+  summon: (cwd, mode) => ipcRenderer.invoke('office:summon', cwd, mode),
+  send: (id, text, attachments) => ipcRenderer.invoke('office:send', id, text, attachments ?? []),
+  pathForFile: (file) => webUtils.getPathForFile(file),
   interrupt: (id) => ipcRenderer.invoke('office:interrupt', id),
+  compact: (id) => ipcRenderer.invoke('office:compact', id),
+  clearContext: (id) => ipcRenderer.invoke('office:clearContext', id),
+  refreshUsage: () => ipcRenderer.invoke('office:refreshUsage'),
   fire: (id) => ipcRenderer.invoke('office:fire', id),
   closeTerminal: (id) => ipcRenderer.invoke('office:closeTerminal', id),
   listSessions: () => ipcRenderer.invoke('office:listSessions'),
@@ -14,10 +19,17 @@ const api: OfficeAPI = {
   openInTerminal: (id) => ipcRenderer.invoke('office:openInTerminal', id),
   respond: (d) => ipcRenderer.invoke('office:respond', d),
   ackResult: (id) => ipcRenderer.invoke('office:ackResult', id),
-  pickFolder: () => ipcRenderer.invoke('office:pickFolder'),
+  pickFolder: (defaultPath) => ipcRenderer.invoke('office:pickFolder', defaultPath),
   installBridge: () => ipcRenderer.invoke('office:installBridge'),
   uninstallBridge: () => ipcRenderer.invoke('office:uninstallBridge'),
   saveSettings: (patch) => ipcRenderer.invoke('office:saveSettings', patch),
+  createTicket: (draft) => ipcRenderer.invoke('office:createTicket', draft),
+  updateTicket: (id, patch) => ipcRenderer.invoke('office:updateTicket', id, patch),
+  moveTicket: (id, status, beforeId) => ipcRenderer.invoke('office:moveTicket', id, status, beforeId),
+  commentTicket: (id, text) => ipcRenderer.invoke('office:commentTicket', id, text),
+  deleteTicket: (id) => ipcRenderer.invoke('office:deleteTicket', id),
+  assignTicket: (id, who) => ipcRenderer.invoke('office:assignTicket', id, who),
+  delegateTicket: (id, target) => ipcRenderer.invoke('office:delegateTicket', id, target),
   openExternal: (url) => ipcRenderer.invoke('office:openExternal', url),
   revealPath: (p) => ipcRenderer.invoke('office:revealPath', p),
   onEvent: (cb) => {

@@ -1,10 +1,11 @@
 import './styles.css'
 import { Game } from './game'
 import { State } from './state'
+import { Board } from './ui/board'
 import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
-import { confirmDialog, openHire, openResume, openSettings } from './ui/modals'
+import { confirmDialog, openHire, openResume, openSettings, openSummon } from './ui/modals'
 
 async function boot(): Promise<void> {
   const state = new State(await window.office.getState())
@@ -34,6 +35,20 @@ async function boot(): Promise<void> {
     if (r.ok) toast(`A sessão de ${a.name} foi encerrada.`, 'err')
     else toast(r.message ?? 'Não consegui fechar a sessão.', 'err')
     return r.ok
+  }
+
+  /** Pick a folder (and how free the agent is) and an agent shows up there, waiting for your first message. */
+  const summon = async () => {
+    const choice = await openSummon(ui, state)
+    if (!choice) return
+    try {
+      const a = await window.office.summon(choice.cwd, choice.permissionMode)
+      toast(`${a.name} chegou. Diga o que fazer.`, 'ok')
+      panel.open(a.id).then(() => panel.focusInput())
+      game.focusAgent(a.id)
+    } catch (err) {
+      toast(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err), 'err')
+    }
   }
 
   const openItem = (agentId: string, itemId?: string) => {
@@ -71,6 +86,7 @@ async function boot(): Promise<void> {
         .then(() => toast(`${name} levou o terceiro tiro e saiu do escritório. A sessão foi encerrada.`, 'err'))
         .catch((err) => toast(String(err), 'err'))
     },
+    onComputer: () => void summon(),
     onKnockout: (id) => {
       closeTerminal(id).then((closed) => {
         if (!closed) game.revive(id)
@@ -91,6 +107,11 @@ async function boot(): Promise<void> {
     bridge: () => openSettings(ui, state, toast),
     zoom: (d) => game.zoom(d),
     dropGun: () => game.dropGun(),
+    summon: () => void summon(),
+    board: (ticketId) => {
+      if (ticketId) board.open(ticketId)
+      else board.toggle()
+    },
     resume: () =>
       openResume(ui, state, {
         openAgent: (id) => {
@@ -115,6 +136,21 @@ async function boot(): Promise<void> {
     toast,
   })
 
+  const board = new Board(ui, state, {
+    openAgent: (id) => {
+      panel.open(id)
+      game.focusAgent(id)
+    },
+    toast,
+  })
+
+  // T opens the board, like a shortcut in any kanban.
+  window.addEventListener('keydown', (e) => {
+    const a = document.activeElement
+    if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
+    if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
+  })
+
   // Remember which card the player closed without deciding.
   const closeDialog = dialog.close.bind(dialog)
   dialog.close = () => {
@@ -127,6 +163,7 @@ async function boot(): Promise<void> {
     hud.render()
     panel.render()
     dialog.sync()
+    board.render()
     if (state.settings.pixelSize !== pixelSize) {
       pixelSize = state.settings.pixelSize
       game.setPixelSize(pixelSize)
@@ -134,7 +171,19 @@ async function boot(): Promise<void> {
   })
 
   window.office.onEvent((e) => {
+    if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
+    // Every 3 s: redraw only its card, not the whole HUD.
+    if (e.type === 'system') {
+      state.system = e.system
+      return hud.renderSystem()
+    }
+    const before = e.type === 'ticket:upsert' ? state.tickets.get(e.ticket.id) : undefined
     state.apply(e)
+    if (e.type === 'ticket:upsert' && e.ticket.status !== before?.status) {
+      const by = e.ticket.activity.at(-1)?.actor
+      if (e.ticket.status === 'review' && by?.kind === 'agent') toast(`${by.name} entregou o ${e.ticket.key}. Está esperando sua revisão no quadro.`, 'ok')
+      else if (!before && e.ticket.reporter.kind === 'agent') toast(`${e.ticket.reporter.name} abriu o ${e.ticket.key}: ${e.ticket.title}`, 'info')
+    }
     if (e.type === 'permission:new') {
       const a = state.agents.get(e.request.agentId)
       if (a) toast(`${a.name} está indo até a sua sala.`, 'info')
@@ -144,7 +193,7 @@ async function boot(): Promise<void> {
     }
   })
 
-  if (import.meta.env.DEV) Object.assign(window, { __game: game, __state: state, __panel: panel, __dialog: dialog })
+  if (import.meta.env.DEV) Object.assign(window, { __game: game, __state: state, __panel: panel, __dialog: dialog, __board: board })
 
   // Full frame rate while the window has focus; ~20 fps in the background to save battery.
   let last = performance.now()

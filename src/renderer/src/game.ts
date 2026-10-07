@@ -9,7 +9,7 @@ import { Overlays, Tag, type BubbleKind } from './world/overlays'
 import type { ScreenMode } from './world/screens'
 import { Effects, pickupGun, sfx } from './world/weapons'
 
-type Goal = 'desk' | 'boss' | 'hang' | 'leave'
+type Goal = 'desk' | 'boss' | 'hang' | 'leave' | 'chat'
 
 interface Actor {
   id: string
@@ -27,6 +27,11 @@ interface Actor {
   /** A short reaction bubble ("Ai!") that overrides the status bubble until this time. */
   shoutUntil: number
   shout: string
+  shoutKind: BubbleKind
+  /** Walking over to talk to another agent (SendMessage); status changes wait until this time. */
+  chatUntil: number
+  /** Wall-clock ms since the agent has had nothing to do; null while busy. */
+  restSince: number | null
 }
 
 export interface GameHooks {
@@ -40,12 +45,16 @@ export interface GameHooks {
   onKill(agentId: string): void
   /** A terminal agent was knocked out (it cannot be fired from here). */
   onKnockout(agentId: string): void
+  /** Player clicked their own computer: call an agent. */
+  onComputer(): void
 }
 
 const MAX_HP = 3
 const HP_REGEN_S = 12
 const GUN_HOME = { x: 3.4, y: 0.98, z: 16.35 }
 const OUCH = ['Ai!', 'Ei! Tô trabalhando!', 'Isso dói!', 'Calma, chefe!', 'Ouch!', 'Pra que isso?']
+/** An idle agent waits at its desk this long before wandering off to the lounge. */
+const LOUNGE_AFTER_MS = 3 * 60_000
 
 const SPAWN_POINT = { x: L.ELEVATOR.x, z: 0.45 }
 const OVERFLOW_TILES: [number, number][] = [
@@ -130,6 +139,12 @@ export class Game {
     gunTag.setDot('gun')
     this.gun = { root: gunRoot, spin, tag: gunTag, baseY: GUN_HOME.y }
 
+    // the player's own computer calls a new agent
+    const pc = new THREE.Object3D()
+    pc.position.set(3.3, 1.35, L.BOSS_DESK.z + 0.5)
+    this.engine.scene.add(pc)
+    this.overlays.add(new Tag(pc, 'Chamar agente', false, () => hooks.onComputer())).setDot('term')
+
     for (const a of state.agents.values()) this.addActor(a, false)
     state.onChange(() => this.sync())
     this.bindInput(container)
@@ -152,7 +167,9 @@ export class Game {
   private addActor(a: AgentSummary, animate: boolean): void {
     const avatar = new Avatar(a.look, a.id)
     const tag = this.overlays.add(new Tag(avatar.anchor, a.name, false, () => (this.armed ? this.shootAt(a.id, null) : this.hooks.onAgentClick(a.id))))
-    const actor: Actor = { id: a.id, avatar, tag, goal: null, arrived: false, spot: null, hang: null, waveUntil: 0, down: false, shoutUntil: 0, shout: '' }
+    const actor: Actor = { id: a.id, avatar, tag, goal: null, arrived: false, spot: null, hang: null, waveUntil: 0, down: false, shoutUntil: 0, shout: '', shoutKind: 'error', chatUntil: 0, restSince: null }
+    // agents already idle when the office opens (restored sessions) start in the lounge
+    if (!animate && this.resting(a)) actor.restSince = 0
     this.actors.set(a.id, actor)
     this.engine.scene.add(avatar.root)
     if (animate) {
@@ -196,30 +213,35 @@ export class Game {
     setTimeout(() => shrink(this.time), delayMs)
   }
 
-  private desired(a: AgentSummary): Goal {
+  /** Nothing to do and nothing to deliver. */
+  private resting(a: AgentSummary): boolean {
     const items = this.state.itemsFor(a.id)
-    if (items.permissions.length || items.results.length) return 'boss'
-    switch (a.status) {
-      case 'waiting':
-        return 'boss'
-      case 'done':
-      case 'error':
-      case 'idle':
-        return 'hang'
-      default:
-        return 'desk'
+    if (items.permissions.length || items.results.length) return false
+    return a.status === 'done' || a.status === 'error' || a.status === 'idle'
+  }
+
+  private desired(actor: Actor, a: AgentSummary): Goal {
+    if (this.resting(a)) {
+      actor.restSince ??= Date.now()
+      return Date.now() - actor.restSince >= LOUNGE_AFTER_MS ? 'hang' : 'desk'
     }
+    actor.restSince = null
+    const items = this.state.itemsFor(a.id)
+    if (items.permissions.length || items.results.length || a.status === 'waiting') return 'boss'
+    return 'desk'
   }
 
   private reconcile(actor: Actor, instant = false): void {
     const a = this.state.agents.get(actor.id)
     if (!a || actor.goal === 'leave' || actor.down) return
+    // mid-conversation: keep talking; the update loop hands the agent back when it ends
+    if (this.time < actor.chatUntil) return
     actor.tag.setName(a.name)
     actor.tag.setDot(a.status)
     if (actor.avatar.look !== a.look && JSON.stringify(actor.avatar.look) !== JSON.stringify(a.look)) actor.avatar.setLook(a.look)
     this.screenFor(a)?.setMode(screenMode(a))
 
-    const goal = this.desired(a)
+    const goal = this.desired(actor, a)
     if (goal !== actor.goal) {
       actor.goal = goal
       actor.arrived = false
@@ -326,7 +348,7 @@ export class Game {
 
   private bubble(actor: Actor, a: AgentSummary): void {
     if (this.time < actor.shoutUntil) {
-      actor.tag.setBubble(actor.shout, 'error')
+      actor.tag.setBubble(actor.shout, actor.shoutKind)
       return
     }
     const items = this.state.itemsFor(a.id)
@@ -403,6 +425,64 @@ export class Game {
     this.route(this.player, target, chair ? L.BOSS_SEAT : null, () => {
       if (chair) this.sitPlayer()
     })
+  }
+
+  /**
+   * One session messaged another: the sender walks to the recipient's spot and
+   * says the first line of the message. Without a recipient in the office it
+   * just says it where it is.
+   */
+  chat(fromId: string, toId: string | null, text: string): void {
+    const from = this.actors.get(fromId)
+    if (!from || from.down || from.goal === 'leave') return
+    const to = toId ? this.actors.get(toId) : undefined
+    const line = `✉ ${text.length > 70 ? text.slice(0, 69) + '…' : text}`
+    from.shout = line
+    from.shoutKind = 'talk'
+    from.shoutUntil = this.time + 8
+    from.tag.setBubble(from.shout, 'talk')
+    if (!to || to.down || to.goal === 'leave') return
+
+    const spot = this.besideTile(to.avatar.position, from.avatar.position)
+    if (!spot) return
+    from.goal = 'chat'
+    from.arrived = false
+    from.spot = null
+    from.hang = null
+    from.avatar.setProp('none')
+    from.chatUntil = this.time + 30 // walking; trimmed on arrival
+    this.route(from.avatar, spot, null, () => {
+      if (from.goal !== 'chat') return
+      from.arrived = true
+      from.chatUntil = this.time + 6
+      from.shoutUntil = Math.max(from.shoutUntil, from.chatUntil)
+      from.tag.setBubble(from.shout, 'talk')
+      from.avatar.faceTowards(to.avatar.position.x, to.avatar.position.z)
+      from.avatar.pose = 'talk'
+    })
+  }
+
+  /** A free tile next to a position, the closest one to where you come from. */
+  private besideTile(target: THREE.Vector3, from: THREE.Vector3): [number, number] | null {
+    const [ax, az] = tileOf(target)
+    const grid = this.office.grid
+    const [px, pz] = tileOf(from)
+    let best: [number, number] | null = null
+    let bestD = Infinity
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (!dx && !dz) continue
+        const x = ax + dx
+        const z = az + dz
+        if (!grid.walkable(x, z)) continue
+        const d = Math.hypot(x - px, z - pz) + (dz > 0 ? 0 : 0.5)
+        if (d < bestD) {
+          bestD = d
+          best = [x, z]
+        }
+      }
+    }
+    return best ?? grid.nearestWalkable(ax, az)
   }
 
   /** Walks the player next to an agent. */
@@ -622,6 +702,15 @@ export class Game {
     if (this.recheck <= 0) {
       this.recheck = 0.4
       this.checkVisitors()
+      for (const actor of this.actors.values()) {
+        if (actor.chatUntil && this.time >= actor.chatUntil) {
+          actor.chatUntil = 0
+          actor.goal = null
+          this.reconcile(actor)
+          continue
+        }
+        if (actor.goal === 'desk' && actor.restSince !== null && Date.now() - actor.restSince >= LOUNGE_AFTER_MS) this.reconcile(actor)
+      }
     }
 
     if (this.follow) this.engine.target.set(this.player.position.x, 0, this.player.position.z)
@@ -778,6 +867,7 @@ export class Game {
     actor.tag.setHearts(rec.hp, MAX_HP)
     if (rec.hp > 0) {
       actor.shout = OUCH[Math.floor(Math.random() * OUCH.length)]
+      actor.shoutKind = 'error'
       actor.shoutUntil = this.time + 1.4
       this.bubble(actor, a)
       return
@@ -810,6 +900,7 @@ export class Game {
     this.hp.delete(actor.id)
     actor.tag.setHearts(null)
     actor.shout = 'Ufa! Valeu, chefe!'
+    actor.shoutKind = 'error'
     actor.shoutUntil = this.time + 2.5
     this.reconcile(actor)
   }
