@@ -4,3 +4,11 @@ dist/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# opensquad: artefatos de execução e preferências pessoais
+squads/*/output/*
+!squads/*/output/.gitkeep
+squads/*/state.json
+_opensquad/_memory/preferences.md
+_opensquad/logs/
+_opensquad/_browser_profile/

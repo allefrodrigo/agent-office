@@ -1,0 +1,113 @@
+squad:
+  code: "agent-office-squad"
+  name: "Squad Agent Office"
+  description: >
+    Squad de produto e engenharia que descobre, especifica, constrói, testa,
+    protege, documenta, publica e divulga o Agent Office, seguindo o pipeline
+    do AIOX (analyst → pm → ux → architect → sm → po → dev → qa → devops)
+    com checkpoints humanos em toda decisão.
+  icon: "🏢"
+  version: "1.0.0"
+  created: "2026-10-07"
+  # ids na ordem do squad-party.csv (lido pelo dashboard do opensquad)
+  agents:
+    - orchestrator
+    - analyst
+    - product-manager
+    - product-owner
+    - scrum-master
+    - ux-designer
+    - world-designer
+    - content-designer
+    - architect
+    - claude-integration-engineer
+    - desktop-engineer
+    - world-engineer
+    - ui-engineer
+    - qa-engineer
+    - security-engineer
+    - release-engineer
+    - devrel
+
+company: "_opensquad/_memory/company.md"
+preferences: "_opensquad/_memory/preferences.md"
+memory: "_memory/memories.md"
+runs: "_memory/runs.md"
+
+domain: "mixed"
+target_audience: "Desenvolvedores que usam Claude Code com várias sessões em paralelo (macOS e Windows)"
+repository: "."   # o squad trabalha no próprio repositório agent-office
+execution_mode: "interactive"   # modos AIOX: yolo | interactive | preflight — este squad usa interactive
+
+skills:
+  - web_search
+  - web_fetch
+
+data:
+  # obrigatórios do opensquad
+  - pipeline/data/research-brief.md
+  - pipeline/data/domain-framework.md
+  - pipeline/data/quality-criteria.md
+  - pipeline/data/output-examples.md
+  - pipeline/data/anti-patterns.md
+  # conhecimento do produto
+  - pipeline/data/product-dossier.md
+  - pipeline/data/benchmark-landscape.md
+  - pipeline/data/architecture-map.md
+  - pipeline/data/engineering-standards.md
+  - pipeline/data/security-checklist.md
+  - pipeline/data/product-voice.md
+  # processo (AIOX + execução)
+  - pipeline/data/aiox-pipeline-map.md
+  - pipeline/data/story-template.md
+  - pipeline/data/run-conventions.md
+
+agents:
+  - { id: orchestrator,                name: "Otávio Orquestra",    icon: "🎼", file: agents/orchestrator.agent.md }
+  - { id: analyst,                     name: "Bruna Benchmark",     icon: "🔭", file: agents/analyst.agent.md }
+  - { id: product-manager,             name: "Rita Roadmap",        icon: "🗺️", file: agents/product-manager.agent.md }
+  - { id: product-owner,               name: "Priscila Prioridade", icon: "🎯", file: agents/product-owner.agent.md }
+  - { id: scrum-master,                name: "Kauã Kanban",         icon: "🌊", file: agents/scrum-master.agent.md }
+  - { id: ux-designer,                 name: "Úrsula Usabilidade",  icon: "🧭", file: agents/ux-designer.agent.md }
+  - { id: world-designer,              name: "Iuri Isométrico",     icon: "🧱", file: agents/world-designer.agent.md }
+  - { id: content-designer,            name: "Lívia Linguagem",     icon: "✍️", file: agents/content-designer.agent.md }
+  - { id: architect,                   name: "Artur Arquitetura",   icon: "🏛️", file: agents/architect.agent.md }
+  - { id: claude-integration-engineer, name: "Henrique Hook",       icon: "🪝", file: agents/claude-integration-engineer.agent.md }
+  - { id: desktop-engineer,            name: "Eduardo Electron",    icon: "🖥️", file: agents/desktop-engineer.agent.md }
+  - { id: world-engineer,              name: "Vitor Voxel",         icon: "🧊", file: agents/world-engineer.agent.md }
+  - { id: ui-engineer,                 name: "Fernanda Front",      icon: "🎛️", file: agents/ui-engineer.agent.md }
+  - { id: qa-engineer,                 name: "Tânia Teste",         icon: "✅", file: agents/qa-engineer.agent.md }
+  - { id: security-engineer,           name: "Sílvia Sandbox",      icon: "🛡️", file: agents/security-engineer.agent.md }
+  - { id: release-engineer,            name: "Diego Deploy",        icon: "🚀", file: agents/release-engineer.agent.md }
+  - { id: devrel,                      name: "Camila Comunidade",   icon: "📣", file: agents/devrel.agent.md }
+
+pipeline:
+  entry: pipeline/pipeline.yaml
+  # espelho dos ids de pipeline.yaml, para o runner contar o total de steps
+  steps:
+    - step-01
+    - step-02
+    - step-03
+    - step-04
+    - step-05
+    - step-06
+    - step-07
+    - step-08
+    - step-09
+    - step-10
+    - step-11
+    - step-12
+    - step-13
+    - step-14
+    - step-15
+    - step-16
+    - step-17
+    - step-18
+    - step-19
+    - step-20
+    - step-21
+    - step-22
+    - step-23
+    - step-24
+
+output_dir: output/
