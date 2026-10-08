@@ -1,11 +1,17 @@
+import type { SquadProgress } from '@shared/types'
 import type { AgentManager } from './agents'
 import { permissionFromTool } from './agents'
+import type { SquadDefinition } from './squads'
 
 /**
  * Demo mode (AGENT_OFFICE_DEMO=1): fills the office with simulated agents so the
  * world can be previewed without spending tokens. Demo agents are not persisted.
  */
-export function startDemo(manager: AgentManager): void {
+export function startDemo(manager: AgentManager, squads: SquadDefinition[] = []): void {
+  // With a squad folder set, the biggest squad plays a cycle on the squad floor too.
+  const squad = [...squads].sort((a, b) => b.members.length - a.members.length)[0]
+  if (squad) setTimeout(() => startSquadDemo(manager, squad), 1500)
+
   const tools: [string, Record<string, unknown>][] = [
     ['Read', { file_path: 'src/app.tsx' }],
     ['Grep', { pattern: 'useEffect' }],
@@ -38,6 +44,24 @@ export function startDemo(manager: AgentManager): void {
     })
   }, 3000)
 
+  // Linus keeps calling subagents, so the helpers show up next to his desk.
+  let round = 0
+  const helpers = () => {
+    const files = ['agents.ts', 'bridge.ts', 'tickets.ts', 'store.ts', 'usage.ts']
+    const count = 2 + (round % 3)
+    for (let k = 0; k < count; k++) {
+      const taskId = `demo-sub-${round}-${k}`
+      const base = { type: 'system', uuid: taskId, session_id: 'demo' } as const
+      manager.demoTask(ids[3], { ...base, subtype: 'task_started', task_id: taskId, description: `Contar linhas de ${files[k]}`, subagent_type: 'Explore', task_type: 'local_agent', is_backgrounded: true } as never)
+      setTimeout(() => {
+        manager.demoTask(ids[3], { ...base, subtype: 'task_notification', task_id: taskId, status: 'completed', output_file: '', summary: '', usage: { total_tokens: 9000 + k * 700, tool_uses: 2, duration_ms: 4000 } } as never)
+      }, 2500 + Math.random() * 7000)
+    }
+    round++
+    setTimeout(helpers, 16000)
+  }
+  setTimeout(helpers, 2000)
+
   setTimeout(() => {
     manager.terminalResult(
       ids[2],
@@ -50,4 +74,85 @@ function describe(tool: string, input: Record<string, unknown>): string {
   const v = Object.values(input)[0]
   const s = String(v ?? '')
   return `${tool === 'Bash' ? 'Rodando' : tool === 'Read' ? 'Lendo' : tool === 'Edit' ? 'Editando' : tool === 'Write' ? 'Escrevendo' : 'Buscando'} ${s.split('/').pop()}`
+}
+
+/**
+ * A simulated orchestrator walks the squad's pipeline: checkpoints come to you as
+ * questions, consecutive subagent steps run together (up to 7, like the lentes) and
+ * one member fails, so every animation of the squad floor shows up.
+ */
+function startSquadDemo(manager: AgentManager, squad: SquadDefinition): void {
+  const id = manager.demoOrchestrator(squad).id
+  const steps = squad.steps
+  const total = steps.length
+  const member = (mid?: string) => squad.members.find((m) => m.id === mid)
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const progress = (i: number, status = 'running'): SquadProgress => ({ current: i + 1, total, label: steps[i].name, status, type: steps[i].type, agent: steps[i].agent })
+  let tasks = 0
+  let failed = false
+
+  const ask = (i: number) =>
+    new Promise<void>((resolve) => {
+      manager.demoStep(id, progress(i), 'working', `Checkpoint: ${steps[i].name}`)
+      const question = `Passo ${i + 1} · ${steps[i].name}: posso seguir? (demonstração)`
+      manager.requestDecision(
+        id,
+        {
+          kind: 'question',
+          toolName: 'AskUserQuestion',
+          title: 'Tenho uma pergunta',
+          detail: '',
+          input: {},
+          questions: [{ question, header: 'Checkpoint', multiSelect: false, options: [{ label: 'Seguir', description: 'Aprova e continua o ciclo' }, { label: 'Seguir com ajustes', description: 'Continua e anota o pedido' }] }],
+          canAlwaysAllow: false,
+          context: `${squad.name} · Passo ${i + 1}/${total} · ${steps[i].name}`,
+        },
+        () => resolve(),
+      )
+    })
+
+  const work = (i: number, ms: number, fail: boolean) =>
+    new Promise<void>((resolve) => {
+      const task = `demo-squad-${tasks++}`
+      const base = { type: 'system', uuid: task, session_id: 'demo' } as const
+      manager.demoTask(id, { ...base, subtype: 'task_started', task_id: task, description: steps[i].name, subagent_type: steps[i].agent, task_type: 'local_agent' } as never)
+      setTimeout(() => {
+        manager.demoTask(id, { ...base, subtype: 'task_progress', task_id: task, description: steps[i].name, usage: { total_tokens: 8000 + Math.round(Math.random() * 20000), tool_uses: 3, duration_ms: ms / 2 }, last_tool_name: 'Read' } as never)
+      }, ms / 2)
+      setTimeout(() => {
+        const status = fail ? 'failed' : 'completed'
+        manager.demoTask(id, { ...base, subtype: 'task_notification', task_id: task, status, output_file: '', summary: fail ? 'Não achei o arquivo de entrada do passo (falha simulada).' : '', usage: { total_tokens: 24000, tool_uses: 6, duration_ms: ms } } as never)
+        resolve()
+      }, ms)
+    })
+
+  const cycle = async (): Promise<void> => {
+    for (let i = 0; i < total; i++) {
+      const s = steps[i]
+      if (s.type === 'checkpoint') {
+        await ask(i)
+        continue
+      }
+      const m = member(s.agent)
+      if (!m) continue
+      if (m.execution === 'inline') {
+        manager.demoStep(id, progress(i), 'working', `${m.icon} ${m.name}: ${s.name}`)
+        await wait(8000)
+        continue
+      }
+      // consecutive subagent steps run in parallel, as the runner does with the lentes
+      const group = [i]
+      while (group.length < 7 && steps[group.at(-1)! + 1]?.type === 'agent' && member(steps[group.at(-1)! + 1].agent)?.execution === 'subagent') group.push(group.at(-1)! + 1)
+      manager.demoStep(id, progress(i), 'working', group.length > 1 ? `Chamando ${group.length} membros em paralelo` : `Chamando ${m.icon} ${m.name}`)
+      const failAt = !failed && group.length >= 3 ? group[2] : -1
+      if (failAt >= 0) failed = true
+      await Promise.all(group.map((k) => work(k, 7000 + Math.random() * 9000, k === failAt)))
+      i = group.at(-1)!
+    }
+    manager.demoStep(id, { current: total, total, label: steps[total - 1]?.name ?? '', status: 'completed' }, 'idle', 'Ciclo concluído')
+    await wait(20000)
+    failed = false
+    return cycle()
+  }
+  void cycle()
 }

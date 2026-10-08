@@ -14,6 +14,8 @@ export class Dialog {
   private el: HTMLDivElement
   itemId: string | null = null
   agentId: string | null = null
+  /** Squad and step a request comes from, shown above the card body. */
+  private context: string | undefined
 
   constructor(
     root: HTMLElement,
@@ -38,6 +40,7 @@ export class Dialog {
     const items = this.state.itemsFor(agentId)
     const perm = itemId ? items.permissions.find((p) => p.id === itemId) : items.permissions[0]
     const result = itemId ? items.results.find((r) => r.id === itemId) : items.results[0]
+    this.context = perm?.context
     if (perm) this.showPermission(agent, perm)
     else if (result && (!itemId || result.id === itemId)) this.showResult(agent, result)
     else return false
@@ -66,6 +69,7 @@ export class Dialog {
         h('div', { class: 'dialog-who' }, h('div', { class: 'dialog-name' }, agent.name), h('div', { class: 'dialog-sub' }, subtitle)),
         h('button', { class: 'icon-btn', title: 'Depois (Esc)', onclick: () => this.close() }, icon('x', 18)),
       ),
+      h('div', { class: this.context ? 'dialog-context' : 'hidden' }, this.context ?? ''),
       h('div', { class: 'dialog-body' }, ...body),
       h('div', { class: 'dialog-actions' }, ...buttons),
     )

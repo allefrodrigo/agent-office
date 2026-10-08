@@ -1,8 +1,9 @@
 import type { AgentStatus, AgentSummary } from '@shared/types'
 import type { State } from '../state'
 import { formatCost, h, icon, timeAgo } from './dom'
-import { contextLevel } from './panel'
+import { contextLevel, helpersChip } from './panel'
 import { portrait } from './portrait'
+import type { Radio } from './radio'
 
 export interface HudActions {
   openAgent(id: string): void
@@ -17,6 +18,8 @@ export interface HudActions {
   resume(): void
   summon(): void
   board(ticketId?: string): void
+  /** Take the elevator to a floor (0 = térreo). */
+  goFloor(n: number): void
 }
 
 /** 1.2 GB, 640 MB */
@@ -64,11 +67,15 @@ export class Hud {
   private system: HTMLDivElement
   private boardBtn: HTMLButtonElement
   private boardBadge: HTMLSpanElement
+  private floorsEl: HTMLDivElement
+  private floorNames: string[] = ['Térreo']
+  private floor = 0
 
   constructor(
     root: HTMLElement,
     private state: State,
     private actions: HudActions,
+    radio: Radio,
   ) {
     const mac = state.platform === 'darwin'
     this.stats = h('div', { class: 'brand-stats' })
@@ -107,6 +114,7 @@ export class Hud {
       h('button', { class: 'dock-btn', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
       h('button', { class: 'dock-btn', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
       this.bridgeBtn,
+      radio.button,
       h('button', { class: 'dock-btn', title: 'Configurações', onclick: () => actions.settings() }, icon('gear')),
     )
     const zoom = h(
@@ -122,6 +130,7 @@ export class Hud {
       'Airsoft na mão: clique num agente para atirar · WASD anda',
       h('button', { class: 'btn btn-small', onclick: () => actions.dropGun() }, h('kbd', {}, 'Q'), 'Largar'),
     )
+    this.floorsEl = h('div', { class: 'floors card hidden' })
     this.usage = h('div', { class: 'usage card' })
     this.system = h('div', { class: 'usage card hidden' })
     const side = h('div', { class: 'hud-side' + (mac ? ' hud-side-mac' : '') }, this.usage, this.system)
@@ -138,7 +147,7 @@ export class Hud {
       h('button', { class: 'btn', onclick: () => actions.board() }, icon('kanban', 16), 'Abrir o quadro de tickets'),
       h('div', { class: 'empty-hint' }, 'Clique no chão para andar · WASD · arraste com o botão direito · roda do mouse = zoom'),
     )
-    root.append(brand, side, this.roster, dock, zoom, this.inbox, this.toasts, this.empty, this.armed)
+    root.append(brand, side, this.roster, dock, zoom, this.floorsEl, this.inbox, this.toasts, this.empty, this.armed)
     document.addEventListener('pointerdown', (e) => {
       if (!this.inbox.classList.contains('hidden') && !this.inbox.contains(e.target as Node) && !this.inboxBtn.contains(e.target as Node)) {
         this.inbox.classList.add('hidden')
@@ -176,6 +185,51 @@ export class Hud {
     if (!this.inbox.classList.contains('hidden')) this.renderInbox()
     this.renderUsage()
     this.renderSystem()
+    this.renderFloors()
+  }
+
+  /** Floors the elevator serves and the one the player is on. */
+  setFloors(names: string[], current: number): void {
+    this.floorNames = names
+    this.floor = current
+    this.renderFloors()
+  }
+
+  /** Agents busy or waiting on a floor: orchestrators upstairs, everyone else downstairs. */
+  private floorActivity(n: number): { count: number; waiting: boolean } {
+    let count = 0
+    let waiting = false
+    for (const a of this.state.agents.values()) {
+      const items = this.state.itemsFor(a.id)
+      const pending = items.permissions.length + items.results.length > 0 || a.status === 'waiting'
+      // An orchestrator with something for you takes the elevator to wherever you are.
+      const floor = a.role !== 'orchestrator' ? 0 : pending ? this.floor : 1
+      if (floor !== n) continue
+      if (pending || a.status === 'working' || a.status === 'starting' || a.subagents?.length) count++
+      waiting ||= pending
+    }
+    return { count, waiting }
+  }
+
+  /** Elevator panel: one button per floor, top floor first, with a badge for activity elsewhere. */
+  private renderFloors(): void {
+    const names = this.floorNames
+    this.floorsEl.classList.toggle('hidden', names.length < 2)
+    if (names.length < 2) return
+    const rows = names
+      .map((name, n) => {
+        const act = this.floorActivity(n)
+        const badge = n !== this.floor && act.count ? h('span', { class: `badge${act.waiting ? '' : ' badge-review'}`, title: act.waiting ? 'Alguém esperando você neste andar' : 'Agentes trabalhando neste andar' }, String(act.count)) : null
+        return h(
+          'button',
+          { class: `floor-btn${n === this.floor ? ' on' : ''}${badge && act.waiting ? ' pulse' : ''}`, title: n === this.floor ? `Você está no ${name}` : `Ir para ${name} pelo elevador`, onclick: () => this.actions.goFloor(n) },
+          h('span', { class: 'floor-num' }, n === 0 ? 'T' : String(n)),
+          h('span', { class: 'floor-name' }, name),
+          badge,
+        )
+      })
+      .reverse()
+    this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), ...rows)
   }
 
   /** CPU and memory: the Mac, the office itself, and every claude process. */
@@ -265,6 +319,7 @@ export class Hud {
           h('span', { class: `dot dot-${a.status}` }),
           h('span', { class: 'name' }, a.name),
           a.source === 'terminal' ? h('span', { class: 'chip chip-term' }, 'terminal') : null,
+          helpersChip(a, true),
           this.ticketChip(a.id),
         ),
         h('div', { class: 'roster-activity' }, pending ? (items.permissions.length ? 'Esperando sua decisão' : 'Quer te entregar o resultado') : a.activity),

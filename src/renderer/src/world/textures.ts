@@ -159,33 +159,113 @@ export function rugTexture(w: number, h: number, base: string, border: string, a
   return pixelTexture(c)
 }
 
-export function windowTexture(seed: number): THREE.CanvasTexture {
-  const [c, ctx] = canvas(48, 32)
-  const g = ctx.createLinearGradient(0, 0, 0, 32)
-  g.addColorStop(0, '#7fc4f0')
-  g.addColorStop(1, '#cdeafc')
-  ctx.fillStyle = g
-  ctx.fillRect(0, 0, 48, 32)
-  const r = rng(seed)
-  ctx.fillStyle = '#ffffff'
-  for (let i = 0; i < 2; i++) {
-    const cx = Math.floor(r() * 40)
-    const cy = 3 + Math.floor(r() * 8)
-    ctx.fillRect(cx, cy, 9, 2)
-    ctx.fillRect(cx + 2, cy - 1, 5, 1)
+export type SkyPhase = 'night' | 'dawn' | 'day' | 'dusk'
+
+// Brasília time, not the system's, so every machine sees the same sky.
+const BRT_HOUR = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Sao_Paulo', hour: 'numeric', hourCycle: 'h23' })
+
+export function skyPhase(now = new Date()): SkyPhase {
+  const h = Number(BRT_HOUR.format(now))
+  if (h >= 19 || h < 5) return 'night'
+  if (h < 7) return 'dawn'
+  if (h < 17) return 'day'
+  return 'dusk'
+}
+
+interface SkyPalette {
+  sky: [string, string]
+  cloud: string | null
+  buildings: [string, string]
+  lit: string
+  litChance: number
+}
+
+const SKIES: Record<SkyPhase, SkyPalette> = {
+  day: { sky: ['#7fc4f0', '#cdeafc'], cloud: '#ffffff', buildings: ['#8aa4c4', '#7b94b6'], lit: '#e8f3fb', litChance: 0.4 },
+  dawn: { sky: ['#f7a8b8', '#ffd59e'], cloud: '#ffe9e0', buildings: ['#7d6f98', '#6f6390'], lit: '#ffe9a8', litChance: 0.3 },
+  dusk: { sky: ['#5b4b8a', '#f39c5a'], cloud: '#f7b6a0', buildings: ['#4a3f6b', '#3f3660'], lit: '#ffd76a', litChance: 0.45 },
+  night: { sky: ['#0b1030', '#1f2a5c'], cloud: null, buildings: ['#1c2140', '#232a4d'], lit: '#ffd76a', litChance: 0.65 },
+}
+
+const SKY_CHECK_MS = 60_000
+
+/** Window view whose sky follows the hour in Brasília. Redraws only when the phase changes. */
+export class WindowSky {
+  readonly texture: THREE.CanvasTexture
+  private ctx: CanvasRenderingContext2D
+  private phase: SkyPhase
+  private checkedAt = 0
+
+  constructor(private seed: number) {
+    const [c, ctx] = canvas(48, 32)
+    this.ctx = ctx
+    this.texture = pixelTexture(c)
+    this.phase = skyPhase()
+    this.checkedAt = Date.now()
+    this.draw()
   }
-  // skyline
-  let x = 0
-  while (x < 48) {
-    const bw = 4 + Math.floor(r() * 6)
-    const bh = 6 + Math.floor(r() * 14)
-    ctx.fillStyle = r() < 0.5 ? '#8aa4c4' : '#7b94b6'
-    ctx.fillRect(x, 32 - bh, bw, bh)
-    ctx.fillStyle = '#e8f3fb'
-    for (let wy = 32 - bh + 2; wy < 31; wy += 3) for (let wx = x + 1; wx < x + bw - 1; wx += 2) if (r() < 0.4) ctx.fillRect(wx, wy, 1, 1)
-    x += bw + 1
+
+  /** Cheap per-frame call: looks at the clock once a minute (wall time, so background tabs still catch up). */
+  update(): void {
+    const now = Date.now()
+    if (now - this.checkedAt < SKY_CHECK_MS) return
+    this.checkedAt = now
+    const phase = skyPhase(new Date(now))
+    if (phase === this.phase) return
+    this.phase = phase
+    this.draw()
+    this.texture.needsUpdate = true
   }
-  return pixelTexture(c)
+
+  private draw(): void {
+    const ctx = this.ctx
+    const p = SKIES[this.phase]
+    const g = ctx.createLinearGradient(0, 0, 0, 32)
+    g.addColorStop(0, p.sky[0])
+    g.addColorStop(1, p.sky[1])
+    ctx.fillStyle = g
+    ctx.fillRect(0, 0, 48, 32)
+    // same seed every phase, so clouds/skyline stay put and only the colors change
+    const r = rng(this.seed)
+    for (let i = 0; i < 2; i++) {
+      const cx = Math.floor(r() * 40)
+      const cy = 3 + Math.floor(r() * 8)
+      if (!p.cloud) continue
+      ctx.fillStyle = p.cloud
+      ctx.fillRect(cx, cy, 9, 2)
+      ctx.fillRect(cx + 2, cy - 1, 5, 1)
+    }
+    if (this.phase === 'night') this.drawNightSky()
+    // skyline
+    let x = 0
+    while (x < 48) {
+      const bw = 4 + Math.floor(r() * 6)
+      const bh = 6 + Math.floor(r() * 14)
+      ctx.fillStyle = r() < 0.5 ? p.buildings[0] : p.buildings[1]
+      ctx.fillRect(x, 32 - bh, bw, bh)
+      ctx.fillStyle = p.lit
+      for (let wy = 32 - bh + 2; wy < 31; wy += 3) for (let wx = x + 1; wx < x + bw - 1; wx += 2) if (r() < p.litChance) ctx.fillRect(wx, wy, 1, 1)
+      x += bw + 1
+    }
+  }
+
+  private drawNightSky(): void {
+    const ctx = this.ctx
+    const r = rng(this.seed * 31 + 7)
+    for (let i = 0; i < 14; i++) {
+      ctx.fillStyle = r() < 0.3 ? '#fff6c8' : '#cfd8ff'
+      ctx.fillRect(Math.floor(r() * 48), Math.floor(r() * 16), 1, 1)
+    }
+    // crescent moon
+    const mx = 6 + Math.floor(r() * 34)
+    const my = 3 + Math.floor(r() * 4)
+    ctx.fillStyle = '#f4f1d0'
+    ctx.fillRect(mx + 1, my, 3, 1)
+    ctx.fillRect(mx, my + 1, 5, 3)
+    ctx.fillRect(mx + 1, my + 4, 3, 1)
+    ctx.fillStyle = '#0e1436' // sky color at moon height
+    ctx.fillRect(mx + 2, my + 1, 3, 3)
+  }
 }
 
 export function booksTexture(seed: number): THREE.CanvasTexture {

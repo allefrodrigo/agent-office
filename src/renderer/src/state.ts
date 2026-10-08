@@ -1,4 +1,4 @@
-import type { AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SystemStats, Ticket } from '@shared/types'
+import type { AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -14,6 +14,7 @@ export class State {
   platform: string
   usage: PlanUsage
   system: SystemStats | null
+  squads: SquadInfo[]
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
 
@@ -27,6 +28,7 @@ export class State {
     this.platform = initial.platform
     this.usage = initial.usage
     this.system = initial.system
+    this.squads = initial.squads
   }
 
   onChange(cb: Listener): () => void {
@@ -88,6 +90,9 @@ export class State {
       case 'ticket:removed':
         this.tickets.delete(e.ticketId)
         break
+      case 'squads':
+        this.squads = e.squads
+        break
     }
     this.changed()
   }
@@ -119,6 +124,14 @@ export class State {
     let n = 0
     for (const t of this.tickets.values()) if (t.status === 'review') n++
     return n
+  }
+
+  /** Name of the squad floor: the one in settings, or the folder's name ("apetit-studios" -> "Apetit Studios"). */
+  get squadFloorName(): string {
+    const custom = this.settings.squadFloorName.trim()
+    if (custom) return custom
+    const base = this.settings.squadFolder.split(/[\\/]/).filter(Boolean).pop() ?? ''
+    return base.replace(/[-_]+/g, ' ').replace(/\b\p{L}/gu, (c) => c.toUpperCase()) || 'Squads'
   }
 
   get inboxCount(): number {

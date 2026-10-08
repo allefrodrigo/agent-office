@@ -5,7 +5,8 @@ import { Board } from './ui/board'
 import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
-import { confirmDialog, openHire, openResume, openSettings, openSummon } from './ui/modals'
+import { Radio } from './ui/radio'
+import { confirmDialog, openHire, openResume, openRunSquad, openSettings, openSummon } from './ui/modals'
 
 async function boot(): Promise<void> {
   const state = new State(await window.office.getState())
@@ -55,6 +56,8 @@ async function boot(): Promise<void> {
     if (!dialog.open(agentId, itemId)) panel.open(agentId)
   }
 
+  const radio = new Radio(document.getElementById('overlay')!)
+
   const game = new Game(document.getElementById('world')!, document.getElementById('overlay')!, state, {
     onAgentClick: (id) => {
       const items = state.itemsFor(id)
@@ -87,6 +90,13 @@ async function boot(): Promise<void> {
         .catch((err) => toast(String(err), 'err'))
     },
     onComputer: () => void summon(),
+    onRunSquad: () =>
+      openRunSquad(ui, state, toast, (a) => {
+        panel.open(a.id)
+        game.focusAgent(a.id)
+      }),
+    onFloor: (n) => hud.setFloors(game.floors, n),
+    onTv: () => void radio.toggle(),
     onKnockout: (id) => {
       closeTerminal(id).then((closed) => {
         if (!closed) game.revive(id)
@@ -108,6 +118,7 @@ async function boot(): Promise<void> {
     zoom: (d) => game.zoom(d),
     dropGun: () => game.dropGun(),
     summon: () => void summon(),
+    goFloor: (n) => game.goFloor(n),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -120,7 +131,9 @@ async function boot(): Promise<void> {
         },
         toast,
       }),
-  })
+  }, radio)
+
+  radio.attach({ corners: () => game.tvCorners(), setOn: (on) => game.setTvOn(on) })
 
   const panel = new AgentPanel(ui, state, {
     goTo: (id) => game.goToAgent(id),
@@ -158,8 +171,11 @@ async function boot(): Promise<void> {
     closeDialog()
   }
 
+  hud.setFloors(game.floors, game.currentFloor)
+
   let pixelSize = state.settings.pixelSize
   state.onChange(() => {
+    game.setSquads(state.squads, state.squadFloorName)
     hud.render()
     panel.render()
     dialog.sync()
@@ -172,6 +188,7 @@ async function boot(): Promise<void> {
 
   window.office.onEvent((e) => {
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
+    if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
     // Every 3 s: redraw only its card, not the whole HUD.
     if (e.type === 'system') {
       state.system = e.system
@@ -193,7 +210,7 @@ async function boot(): Promise<void> {
     }
   })
 
-  if (import.meta.env.DEV) Object.assign(window, { __game: game, __state: state, __panel: panel, __dialog: dialog, __board: board })
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, { __game: game, __state: state, __panel: panel, __dialog: dialog, __board: board })
 
   // Full frame rate while the window has focus; ~20 fps in the background to save battery.
   let last = performance.now()
@@ -203,6 +220,7 @@ async function boot(): Promise<void> {
     const dt = Math.min(0.05, (now - last) / 1000)
     last = now
     game.update(dt)
+    radio.update()
   }
   requestAnimationFrame(frame)
 }

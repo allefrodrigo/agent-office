@@ -40,6 +40,73 @@ export interface AgentSummary {
   sessionId?: string
   /** How full the conversation is, as in /context. Unknown until the first turn ends. */
   context?: ContextUsage
+  /** Subagents (Agent tool) running for this agent right now. */
+  subagents?: SubagentInfo[]
+  /** Runs a squad cycle on the squad floor instead of working at a desk downstairs. */
+  role?: 'orchestrator'
+  /** Squad code, for orchestrators. */
+  squad?: string
+  /** Where the cycle is, read from squads/<code>/state.json. */
+  squadStep?: SquadProgress
+}
+
+export interface SubagentInfo {
+  id: string
+  description: string
+  /** Agent type, e.g. "Explore" or "general-purpose". */
+  type?: string
+  startedAt: number
+  /** Running in the background: only background_tasks_changed reports it ending. */
+  background: boolean
+  tokens?: number
+  lastTool?: string
+  /** Squad member id, when an orchestrator called one of its own team. */
+  member?: string
+}
+
+// ---------- squads (Opensquad) ----------
+
+/** A member of an Opensquad squad, without its prompt. */
+export interface SquadMember {
+  id: string
+  name: string
+  icon: string
+  title: string
+  /** subagent = called with the Agent tool; inline = the orchestrator plays the part in its own conversation. */
+  execution: 'subagent' | 'inline'
+  /** Sector on the squad floor: `setor:` in squad.yaml, or "Equipe". */
+  sector: string
+}
+
+export interface SquadStep {
+  id: string
+  name: string
+  type: 'agent' | 'checkpoint'
+  agent?: string
+}
+
+export interface SquadInfo {
+  code: string
+  name: string
+  icon: string
+  description: string
+  /** Project folder (the one holding squads/). */
+  cwd: string
+  members: SquadMember[]
+  steps: SquadStep[]
+}
+
+export interface SquadProgress {
+  /** 1-based; 0 before the first step. */
+  current: number
+  total: number
+  /** Step name ("Spec"), or the label the runner wrote. */
+  label: string
+  /** running, completed, failed… as written by the runner. */
+  status: string
+  type?: 'agent' | 'checkpoint'
+  /** Member id of the current step. */
+  agent?: string
 }
 
 export interface ContextUsage {
@@ -98,6 +165,8 @@ export interface PermissionRequest {
   questions?: AskQuestion[]
   plan?: string
   reason?: string
+  /** Where the request comes from, e.g. "Ciclo de Produto · Passo 1 · Foco da semana". */
+  context?: string
   canAlwaysAllow: boolean
   createdAt: number
 }
@@ -155,6 +224,10 @@ export interface Settings {
   defaultPermissionMode: OfficePermissionMode
   notifications: boolean
   bridgePort: number
+  /** Project folder with squads/<code>/squad.yaml; '' = no squad floor. */
+  squadFolder: string
+  /** Name of the squad floor in the elevator and HUD; '' = taken from the folder name. */
+  squadFloorName: string
 }
 
 // ---------- tickets (kanban) ----------
@@ -277,6 +350,8 @@ export interface OfficeState {
   platform: string
   usage: PlanUsage
   system: SystemStats | null
+  /** Squads in settings.squadFolder. */
+  squads: SquadInfo[]
 }
 
 export type OfficeEvent =
@@ -295,6 +370,9 @@ export type OfficeEvent =
   | { type: 'agent:chat'; fromId: string; toId: string | null; text: string }
   | { type: 'ticket:upsert'; ticket: Ticket }
   | { type: 'ticket:removed'; ticketId: string }
+  | { type: 'squads'; squads: SquadInfo[] }
+  /** A squad member (subagent) finished; failures carry what went wrong. */
+  | { type: 'member:ended'; agentId: string; taskId: string; member: string; status: 'completed' | 'failed' | 'stopped'; summary?: string }
 
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
@@ -339,5 +417,11 @@ export interface OfficeAPI {
   delegateTicket(ticketId: string, target: DelegateTarget): Promise<AgentSummary>
   openExternal(url: string): Promise<void>
   revealPath(path: string): Promise<void>
+  /** YouTube video ID of the current Claude FM live. */
+  radioVideo(): Promise<string>
+  /** Squads found in squads/<code>/squad.yaml of a folder; empty when there are none. */
+  listSquads(cwd: string): Promise<SquadInfo[]>
+  /** An orchestrator that runs one cycle of the squad with its own team only. */
+  runSquad(cwd: string, code: string, permissionMode: OfficePermissionMode, note?: string): Promise<AgentSummary>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

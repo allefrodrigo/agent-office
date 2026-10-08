@@ -1,5 +1,5 @@
 import { AGENT_NAMES, HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
-import type { Look, OfficePermissionMode, SessionEntry } from '@shared/types'
+import type { AgentSummary, Look, OfficePermissionMode, SessionEntry } from '@shared/types'
 import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
 import { portrait } from './portrait'
@@ -253,6 +253,35 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
     h('span', { class: `dot ${b.installed && b.listening ? 'dot-working' : b.installed ? 'dot-error' : 'dot-stopped'}` }),
     b.installed ? (b.listening ? `Conectado (porta ${b.port})` : `Hooks instalados, servidor parado${b.error ? `: ${b.error}` : ''}`) : 'Desconectado',
   )
+  // squad floor: a project folder with squads/<code>/squad.yaml
+  let squadFolder = s.squadFolder
+  const squadLabel = h('span', { class: 'path-label' }, squadFolder || 'Nenhuma pasta: o escritório fica só no térreo')
+  const squadPick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
+  const squadClear = h('button', { class: 'btn', type: 'button', title: 'Tirar o andar de squads' }, icon('x', 15))
+  const floorName = h('input', { class: 'input', value: s.squadFloorName, maxlength: 32, placeholder: 'Nome do andar (ex.: Apetit Studios)' })
+  const squadHint = h('span', {})
+  const checkSquads = async () => {
+    if (!squadFolder) return void (squadHint.textContent = '')
+    const found = await window.office.listSquads(squadFolder)
+    squadHint.textContent = found.length
+      ? `${found.length === 1 ? '1 squad' : `${found.length} squads`}: ${found.map((q) => `${q.icon} ${q.name} (${q.members.length} membros)`).join(' · ')}`
+      : 'Nenhum squads/<code>/squad.yaml nessa pasta.'
+    squadHint.className = found.length ? '' : 'warn'
+  }
+  squadPick.addEventListener('click', async () => {
+    const p = await window.office.pickFolder(squadFolder || undefined)
+    if (!p) return
+    squadFolder = p
+    squadLabel.textContent = p
+    void checkSquads()
+  })
+  squadClear.addEventListener('click', () => {
+    squadFolder = ''
+    squadLabel.textContent = 'Nenhuma pasta: o escritório fica só no térreo'
+    void checkSquads()
+  })
+  void checkSquads()
+
   const bridgeBtn = h('button', { class: 'btn' }, b.installed ? 'Desconectar' : 'Conectar')
   bridgeBtn.addEventListener('click', async () => {
     const next = b.installed ? await window.office.uninstallBridge() : await window.office.installBridge()
@@ -270,6 +299,8 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       notifications: notify.checked,
       defaultModel: model.value,
       defaultPermissionMode: mode.value as OfficePermissionMode,
+      squadFolder,
+      squadFloorName: floorName.value.trim(),
     })
     close()
   })
@@ -294,6 +325,15 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       ),
       h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', model), field('Permissão padrão', mode)),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
+      h(
+        'div',
+        { class: 'bridge-box' },
+        h('div', { class: 'bridge-title' }, icon('users', 16), 'Andar de squads (Opensquad)'),
+        h('div', { class: 'field-hint' }, 'Uma pasta de projeto com squads/<code>/squad.yaml ganha um andar próprio. Lá, um orquestrador roda o ciclo de cada squad só com a equipe dele.'),
+        h('div', { class: 'path-row' }, squadLabel, squadPick, squadClear),
+        h('span', { class: 'field-hint' }, squadHint),
+        field('Nome do andar', floorName),
+      ),
       h(
         'div',
         { class: 'bridge-box' },
@@ -469,4 +509,78 @@ function clip(s: string, n: number): string {
 
 export function cleanError(err: unknown): string {
   return err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err)
+}
+
+const RUN_MODES = MODES.filter((m) => m.value !== 'bypassPermissions')
+const LAST_RUN_MODE = 'agent-office:squad-mode'
+
+/**
+ * "Rodar ciclo": pick a squad of the floor and an orchestrator comes up to the
+ * Diretoria to run its pipeline. Squad cycles never run with "Sem pedir nada".
+ */
+export function openRunSquad(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, onStarted: (a: AgentSummary) => void): void {
+  const squads = state.squads
+  if (!squads.length) return toast('Configure a pasta de squads nas configurações.', 'err')
+  const running = new Map([...state.agents.values()].filter((a) => a.role === 'orchestrator').map((a) => [`${a.cwd}|${a.squad}`, a]))
+  let chosen = squads[0]
+  const cards = squads.map((q) => {
+    const busy = running.get(`${q.cwd}|${q.code}`)
+    const inline = q.members.filter((m) => m.execution === 'inline').length
+    const card = h(
+      'button',
+      { class: 'squad-card', type: 'button' },
+      h('span', { class: 'squad-icon' }, q.icon),
+      h(
+        'span',
+        { class: 'squad-main' },
+        h('span', { class: 'squad-name' }, q.name, busy && busy.status !== 'idle' && busy.status !== 'done' ? h('span', { class: 'chip chip-wait' }, 'rodando') : null),
+        h('span', { class: 'squad-meta' }, `${q.members.length} membros${inline ? ` (${inline} inline)` : ''} · ${q.steps.length} passos · ${q.steps.filter((x) => x.type === 'checkpoint').length} checkpoints`),
+        q.description ? h('span', { class: 'squad-desc' }, q.description) : null,
+      ),
+    )
+    card.addEventListener('click', () => {
+      chosen = q
+      paint()
+    })
+    return card
+  })
+  const paint = () => cards.forEach((c, i) => c.classList.toggle('on', squads[i] === chosen))
+  paint()
+
+  const mode = h('select', { class: 'input' }, ...RUN_MODES.map((m) => h('option', { value: m.value }, m.label)))
+  const saved = localStorage.getItem(LAST_RUN_MODE)
+  mode.value = RUN_MODES.some((m) => m.value === saved) ? saved! : RUN_MODES.some((m) => m.value === state.settings.defaultPermissionMode) ? state.settings.defaultPermissionMode : 'default'
+  const modeHint = h('span', {})
+  const syncHint = () => (modeHint.textContent = RUN_MODES.find((x) => x.value === mode.value)!.hint)
+  mode.addEventListener('change', syncHint)
+  syncHint()
+  const note = h('textarea', { class: 'input', rows: 2, placeholder: 'Recado para o orquestrador (opcional)' })
+
+  const close = () => el.remove()
+  const go = h('button', { class: 'btn btn-primary' }, '▶ Rodar ciclo')
+  go.addEventListener('click', async () => {
+    go.setAttribute('disabled', '')
+    try {
+      localStorage.setItem(LAST_RUN_MODE, mode.value)
+      const a = await window.office.runSquad(chosen.cwd, chosen.code, mode.value as OfficePermissionMode, note.value)
+      close()
+      toast(`${a.name} subiu para a Diretoria e começou o ciclo.`, 'ok')
+      onStarted(a)
+    } catch (err) {
+      go.removeAttribute('disabled')
+      toast(cleanError(err), 'err')
+    }
+  })
+  const el = modal(
+    `Rodar ciclo · ${state.squadFloorName}`,
+    [
+      h('div', { class: 'squad-list' }, ...cards),
+      field('Permissões', mode, modeHint),
+      field('Recado', note, 'Os checkpoints do ciclo descem até a sua sala como perguntas. Sem resposta, o ciclo espera.'),
+    ],
+    [h('button', { class: 'btn', onclick: close }, 'Cancelar'), go],
+    close,
+  )
+  root.append(el)
+  go.focus()
 }

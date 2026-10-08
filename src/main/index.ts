@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,7 @@ import { TicketDesk } from './delegate'
 import { startDemo } from './demo'
 import { loadShellPath } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
+import { findSquad, isDir, loadSquads, squadInfo } from './squads'
 import { Store } from './store'
 import { SystemMonitor } from './system'
 import { UsageMonitor } from './usage'
@@ -47,8 +48,22 @@ function createWindow(): BrowserWindow {
   w.webContents.on('will-navigate', (e) => e.preventDefault())
 
   if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else w.loadFile(join(here, '../renderer/index.html'))
+  // Screenshot runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera.
+  else w.loadFile(join(here, '../renderer/index.html'), headless ? { query: { shots: '1' } } : undefined)
   return w
+}
+
+// Claude FM's live restarts now and then under a new video ID; clau.de/radio always points at the current one.
+const RADIO_FALLBACK = 'tRsQsTMvPNg'
+async function radioVideo(): Promise<string> {
+  try {
+    const res = await fetch('https://clau.de/radio', { redirect: 'manual', signal: AbortSignal.timeout(5000) })
+    const id = new URL(res.headers.get('location') ?? '').searchParams.get('v') ?? ''
+    if (/^[\w-]{11}$/.test(id)) return id
+  } catch {
+    // offline or the short link moved: keep the last known stream
+  }
+  return RADIO_FALLBACK
 }
 
 function notify(store: Store, title: string, body: string): void {
@@ -88,10 +103,14 @@ app.whenReady().then(async () => {
 
   const nameOf = (agentId: string) => manager.list().find((a) => a.id === agentId)?.name ?? 'Agente'
 
+  // The squad floor shows the squads of one folder (settings.squadFolder).
+  const readSquads = () => (isDir(store.settings.squadFolder) ? loadSquads(store.settings.squadFolder).map(squadInfo) : [])
+  let squads = readSquads()
+
   manager.on('event', (e: OfficeEvent) => {
     broadcast(e)
     if (e.type === 'permission:new') {
-      notify(store, `${nameOf(e.request.agentId)} está indo até você`, e.request.title)
+      notify(store, `${nameOf(e.request.agentId)} está indo até você`, e.request.context ? `${e.request.context}: ${e.request.title}` : e.request.title)
       if (process.platform === 'darwin' && !win?.isFocused()) app.dock?.bounce('informational')
     } else if (e.type === 'result:new') {
       notify(store, `${nameOf(e.result.agentId)} terminou`, e.result.text.slice(0, 140))
@@ -128,6 +147,7 @@ app.whenReady().then(async () => {
     platform: process.platform,
     usage: usage.current(),
     system: system.current(),
+    squads,
   }))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
   ipcMain.handle('office:getLog', (_e, id: string) => manager.getLog(String(id)))
@@ -221,8 +241,13 @@ app.whenReady().then(async () => {
     }
   })
   ipcMain.handle('office:saveSettings', (_e, patch: Partial<Settings>) => {
+    const folder = store.settings.squadFolder
     store.settings = { ...store.settings, ...patch, bridgePort: store.settings.bridgePort }
     broadcast({ type: 'settings', settings: store.settings })
+    if (store.settings.squadFolder !== folder) {
+      squads = readSquads()
+      broadcast({ type: 'squads', squads })
+    }
     return store.settings
   })
   ipcMain.handle('office:createTicket', (_e, draft: TicketDraft) => board.create(draft, player()))
@@ -259,10 +284,32 @@ app.whenReady().then(async () => {
   ipcMain.handle('office:revealPath', (_e, p: string) => {
     if (typeof p === 'string' && existsSync(p)) shell.showItemInFolder(p)
   })
+  ipcMain.handle('office:radioVideo', () => radioVideo())
+  ipcMain.handle('office:listSquads', (_e, cwd: unknown) => (isDir(cwd) ? loadSquads(cwd).map(squadInfo) : []))
+  ipcMain.handle('office:runSquad', (_e, cwd: unknown, code: unknown, mode: unknown, note: unknown) => {
+    if (!isDir(cwd)) throw new Error('Essa pasta de squads não existe mais.')
+    const squad = typeof code === 'string' ? findSquad(cwd, code) : undefined
+    if (!squad) throw new Error(`Não achei o squad ${String(code)} em ${cwd}/squads.`)
+    const extra = typeof note === 'string' ? note.trim().slice(0, 2000) : ''
+    return manager.runSquad(
+      squadInfo(squad),
+      `Rode um ciclo do squad ${squad.name} (squads/${squad.code}), do primeiro passo do pipeline até o fim.${extra ? `\n\nRecado de ${store.settings.playerName}: ${extra}` : ''}`,
+      `Rodar um ciclo de ${squad.icon} ${squad.name}${extra ? `\n\n${extra}` : ''}`,
+      {
+        model: store.settings.defaultModel,
+        // Same rule as tickets: a cycle reaches real systems, so it never runs with "bypass".
+        permissionMode: DELEGATE_MODES.includes(mode as OfficePermissionMode) ? (mode as OfficePermissionMode) : 'default',
+      },
+    )
+  })
+  // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
+  session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (d, cb) => {
+    cb({ requestHeaders: { ...d.requestHeaders, Referer: 'https://agent-office.local/' } })
+  })
 
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(here, '../../resources/icon.png'))
   win = createWindow()
-  if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager)
+  if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, isDir(store.settings.squadFolder) ? loadSquads(store.settings.squadFolder) : [])
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
 

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
+import { watch, type FSWatcher } from 'node:fs'
 import { basename } from 'node:path'
 import { query, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
@@ -15,11 +16,15 @@ import type {
   OfficePermissionMode,
   PermissionDecision,
   PermissionRequest,
+  SquadInfo,
+  SquadProgress,
+  SubagentInfo,
 } from '@shared/types'
 import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
 import { buildMessage } from './attachments'
 import { findClaude } from './claude-path'
 import { sessionIdForName } from './peers'
+import { findSquad, memberAgents, orchestratorPrompt, outsideTeam, readProgress, squadDir, teamGuard, type SquadDefinition } from './squads'
 import type { Store } from './store'
 
 const LOG_LIMIT = 400
@@ -71,6 +76,12 @@ interface Agent {
   started: boolean
   /** Running /compact: its result is housekeeping, not a report for the player. */
   compacting?: boolean
+  /** Orchestrators: the squad, read again from disk before each run. */
+  squad?: SquadDefinition
+  /** Orchestrators: watches squads/<code>/state.json. */
+  watcher?: FSWatcher
+  /** Demo mode: simulated, never saved. */
+  demo?: boolean
 }
 
 interface Pending {
@@ -92,8 +103,11 @@ export class AgentManager extends EventEmitter {
         ...p.summary,
         status: p.summary.status === 'done' ? 'done' : 'idle',
         activity: 'Aguardando instruções',
+        subagents: undefined,
       }
-      this.agents.set(summary.id, { summary, log: p.log, started: true })
+      const agent: Agent = { summary, log: p.log, started: true }
+      this.agents.set(summary.id, agent)
+      if (summary.role === 'orchestrator') this.watchSquad(agent)
     }
     this.results = store.results.filter((r) => this.agents.has(r.agentId))
   }
@@ -160,6 +174,105 @@ export class AgentManager extends EventEmitter {
     return this.idleAgent(randomUUID(), cwd, [], false, 'Esperando a primeira instrução', defaults)
   }
 
+  /**
+   * An orchestrator for a squad: one Claude Code session that runs the squad's cycle
+   * and can only call its own members. It lives on the squad floor.
+   */
+  runSquad(squad: SquadInfo, task: string, display: string, defaults: { model?: string; permissionMode: OfficePermissionMode }): AgentSummary {
+    const same = [...this.agents.values()].find((a) => a.summary.role === 'orchestrator' && a.summary.squad === squad.code && a.summary.cwd === squad.cwd)
+    if (same) {
+      if (this.busy(same)) throw new Error(`${same.summary.name} já está rodando um ciclo. Espere terminar ou interrompa pelo painel.`)
+      same.summary.permissionMode = defaults.permissionMode
+      this.sendMessage(same.summary.id, task, display)
+      return same.summary
+    }
+    const id = randomUUID()
+    const summary: AgentSummary = {
+      id,
+      name: squad.name,
+      source: 'office',
+      cwd: squad.cwd,
+      model: defaults.model || undefined,
+      permissionMode: defaults.permissionMode,
+      status: 'starting',
+      activity: 'Subindo para a Diretoria',
+      desk: this.freeDirectorDesk(),
+      look: lookFromSeed(`orquestrador:${squad.code}`),
+      costUsd: 0,
+      createdAt: Date.now(),
+      sessionId: randomUUID(),
+      role: 'orchestrator',
+      squad: squad.code,
+    }
+    const agent: Agent = { summary, log: [], started: false }
+    this.agents.set(id, agent)
+    this.watchSquad(agent)
+    this.upsert(agent)
+    this.addLog(agent, 'user', display)
+    this.run(agent, task)
+    return summary
+  }
+
+  /** Demo mode: an orchestrator with no session behind it; demo.ts plays its cycle. */
+  demoOrchestrator(squad: SquadDefinition): AgentSummary {
+    const id = randomUUID()
+    const summary: AgentSummary = {
+      id,
+      name: squad.name,
+      source: 'office',
+      cwd: squad.cwd,
+      permissionMode: 'default',
+      status: 'working',
+      activity: 'Lendo o pipeline',
+      desk: this.freeDirectorDesk(),
+      look: lookFromSeed(`orquestrador:${squad.code}`),
+      costUsd: 0,
+      createdAt: Date.now(),
+      role: 'orchestrator',
+      squad: squad.code,
+    }
+    const agent: Agent = { summary, log: [], started: true, squad, demo: true }
+    this.agents.set(id, agent)
+    this.upsert(agent)
+    return summary
+  }
+
+  /** Demo mode: moves a simulated cycle along. */
+  demoStep(agentId: string, step: SquadProgress | undefined, status: AgentStatus, activity: string): void {
+    const agent = this.agents.get(agentId)
+    if (!agent?.demo) return
+    agent.summary.squadStep = step
+    agent.summary.status = status
+    agent.summary.activity = activity
+    this.upsert(agent)
+  }
+
+  /** Follows squads/<code>/state.json, which the runner rewrites before every step. */
+  private watchSquad(agent: Agent): void {
+    const s = agent.summary
+    const info = s.squad ? findSquad(s.cwd, s.squad) : undefined
+    if (!info) return
+    agent.squad = info
+    let timer: NodeJS.Timeout | null = null
+    const read = () => {
+      timer = null
+      const step = readProgress(info)
+      if (JSON.stringify(step) === JSON.stringify(s.squadStep)) return
+      s.squadStep = step
+      this.upsert(agent)
+    }
+    try {
+      agent.watcher = watch(squadDir(info), (_e, file) => {
+        if (file && file !== 'state.json') return
+        if (!timer) timer = setTimeout(read, 250)
+      })
+      agent.watcher.on('error', () => agent.watcher?.close())
+    } catch {
+      // folder gone: the step line just stays empty
+    }
+    read()
+  }
+
   private idleAgent(
     sessionId: string,
     cwd: string,
@@ -193,7 +306,7 @@ export class AgentManager extends EventEmitter {
   /** Throws, before anything is sent, when an attachment can't go. */
   sendMessage(id: string, text: string, display?: string, attachments: AttachmentInput[] = []): void {
     const agent = this.agents.get(id)
-    if (!agent || agent.summary.source !== 'office') return
+    if (!agent || agent.summary.source !== 'office' || agent.demo) return
     const { content, infos } = attachments.length ? buildMessage(text, attachments) : { content: text, infos: [] }
     this.addLog(agent, 'user', display ?? text, undefined, undefined, infos.length ? infos : undefined)
     // A new instruction replaces any undelivered result.
@@ -261,6 +374,7 @@ export class AgentManager extends EventEmitter {
     this.dropResults(id)
     agent.input?.close()
     agent.query?.close()
+    agent.watcher?.close()
     this.agents.delete(id)
     this.send({ type: 'agent:removed', agentId: id })
     this.persist()
@@ -270,6 +384,7 @@ export class AgentManager extends EventEmitter {
     for (const a of this.agents.values()) {
       a.input?.close()
       a.query?.close()
+      a.watcher?.close()
     }
     this.persist()
   }
@@ -289,6 +404,17 @@ export class AgentManager extends EventEmitter {
         turns: 0,
       })
       return
+    }
+    // Orchestrators read the squad again, so edits to squad.yaml count from the next run.
+    const squad = s.role === 'orchestrator' && s.squad ? findSquad(s.cwd, s.squad) : undefined
+    if (s.role === 'orchestrator') {
+      if (!squad) {
+        this.deliver(agent, { text: `Não achei mais o squad \`${s.squad}\` em ${s.cwd}/squads.`, isError: true, costUsd: s.costUsd, durationMs: 0, turns: 0 })
+        return
+      }
+      agent.squad = squad
+      // Squad cycles touch real systems: never without approvals, whatever was saved.
+      if (s.permissionMode === 'bypassPermissions') s.permissionMode = 'default'
     }
     const input = new InputQueue()
     input.push(prompt)
@@ -310,8 +436,10 @@ export class AgentManager extends EventEmitter {
           append:
             `Your name in this office is ${s.name}. Your final message for each task is handed to the user in person as a report: ` +
             'open with the outcome in one or two sentences, then list the key details. Reply in the language the user wrote in. ' +
-            'The office has a kanban board of tickets (keys like AO-12); use the mcp__office__ tools to read, open, comment on and move tickets when asked or when you are working on one.',
+            'The office has a kanban board of tickets (keys like AO-12); use the mcp__office__ tools to read, open, comment on and move tickets when asked or when you are working on one.' +
+            (squad ? `\n\n${orchestratorPrompt(squad)}` : ''),
         },
+        ...(squad ? { agents: memberAgents(squad), hooks: { PreToolUse: teamGuard(squad) } } : {}),
         ...(this.officeTools ? { mcpServers: { office: this.officeTools(s) } } : {}),
         // Lets the terminal bridge ignore hook events coming from office-managed sessions.
         env: { ...process.env, AGENT_OFFICE_MANAGED: '1' },
@@ -339,6 +467,8 @@ export class AgentManager extends EventEmitter {
       if (agent.query === q) {
         agent.query = undefined
         agent.input = undefined
+        // Subagents live inside the CLI process, so they ended with it.
+        this.clearSubagents(agent)
         if (agent.summary.status === 'working' || agent.summary.status === 'starting') this.setStatus(agent, 'idle', 'Aguardando instruções')
       }
     }
@@ -357,6 +487,8 @@ export class AgentManager extends EventEmitter {
           const freed = post_tokens !== undefined ? ` de ${kTokens(pre_tokens)} para ${kTokens(post_tokens)}` : ''
           this.addLog(agent, 'system', `${trigger === 'auto' ? 'O contexto encheu e foi compactado sozinho' : 'Conversa compactada'}${freed}.`)
           if (post_tokens !== undefined && agent.summary.context) this.setContext(agent, post_tokens, agent.summary.context.max)
+        } else {
+          this.trackSubagents(agent, msg)
         }
         return
       case 'assistant': {
@@ -397,6 +529,9 @@ export class AgentManager extends EventEmitter {
         const text = msg.subtype === 'success' ? msg.result : msg.errors.join('\n') || `Parei: ${msg.subtype}`
         agent.summary.costUsd = msg.total_cost_usd
         this.readContext(agent)
+        // The turn is over, so no foreground subagent can still be running (covers an interrupt that lost its notification).
+        const bg = agent.summary.subagents?.filter((x) => x.background)
+        agent.summary.subagents = bg?.length ? bg : undefined
         if (agent.compacting) {
           agent.compacting = false
           if (isError) this.addLog(agent, 'error', `Não consegui compactar: ${text}`)
@@ -411,6 +546,80 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  // ---------- subagents (Agent tool) ----------
+
+  private trackSubagents(agent: Agent, msg: Extract<SDKMessage, { type: 'system' }>): void {
+    const subs = agent.summary.subagents ?? []
+    switch (msg.subtype) {
+      case 'task_started': {
+        const isAgent = msg.task_type === 'local_agent' || !!msg.subagent_type
+        if (!isAgent || msg.ambient || msg.skip_transcript || subs.some((x) => x.id === msg.task_id)) return
+        const sub: SubagentInfo = { id: msg.task_id, description: msg.description, type: msg.subagent_type, startedAt: Date.now(), background: !!msg.is_backgrounded }
+        const member = agent.squad?.members.find((m) => m.id === msg.subagent_type)
+        if (member) sub.member = member.id
+        this.setSubagents(agent, [...subs, sub])
+        this.addLog(agent, 'system', member ? `Chamou ${member.icon} ${member.name}: ${sub.description}` : `Chamou um ajudante${sub.type ? ` (${sub.type})` : ''}: ${sub.description}`)
+        return
+      }
+      case 'task_progress': {
+        const sub = subs.find((x) => x.id === msg.task_id)
+        if (!sub) return
+        sub.tokens = msg.usage.total_tokens
+        sub.lastTool = msg.last_tool_name
+        this.upsert(agent)
+        return
+      }
+      case 'task_updated': {
+        const sub = subs.find((x) => x.id === msg.task_id)
+        if (sub && msg.patch.is_backgrounded !== undefined) sub.background = msg.patch.is_backgrounded
+        return
+      }
+      case 'task_notification': {
+        const sub = subs.find((x) => x.id === msg.task_id)
+        if (!sub) return
+        this.setSubagents(agent, subs.filter((x) => x !== sub))
+        const verb = msg.status === 'completed' ? 'terminou' : msg.status === 'failed' ? 'falhou' : 'foi interrompido'
+        const tokens = msg.usage?.total_tokens ?? sub.tokens
+        const ms = msg.usage?.duration_ms ?? Date.now() - sub.startedAt
+        const stats = [tokens ? `${kTokens(tokens)} tokens` : '', `${(ms / 1000).toFixed(1).replace('.', ',')} s`].filter(Boolean).join(' · ')
+        const member = sub.member ? agent.squad?.members.find((m) => m.id === sub.member) : undefined
+        this.addLog(agent, msg.status === 'failed' ? 'error' : 'system', `${member ? `${member.icon} ${member.name}` : 'Ajudante'} ${verb}: ${sub.description} (${stats})`, undefined, msg.status === 'failed')
+        if (sub.member) {
+          const summary = msg.status === 'failed' ? (msg.summary || 'Falhou sem dizer por quê.').slice(0, 200) : undefined
+          this.send({ type: 'member:ended', agentId: agent.summary.id, taskId: sub.id, member: sub.member, status: msg.status, summary })
+        }
+        return
+      }
+      case 'background_tasks_changed': {
+        // Level signal: a background subagent missing here is gone even if its notification was lost.
+        const live = new Set(msg.tasks.map((t) => t.task_id))
+        const gone = subs.filter((x) => x.background && !live.has(x.id))
+        if (gone.length) this.setSubagents(agent, subs.filter((x) => !gone.includes(x)))
+        return
+      }
+      default:
+        return
+    }
+  }
+
+  /** Demo mode: feeds simulated task_* events to any agent. */
+  demoTask(agentId: string, msg: Extract<SDKMessage, { type: 'system' }>): void {
+    const agent = this.agents.get(agentId)
+    if (agent) this.trackSubagents(agent, msg)
+  }
+
+  private setSubagents(agent: Agent, subs: SubagentInfo[]): void {
+    agent.summary.subagents = subs.length ? subs : undefined
+    this.upsert(agent)
+  }
+
+  private clearSubagents(agent: Agent): void {
+    const subs = agent.summary.subagents
+    if (!subs?.length) return
+    this.setSubagents(agent, [])
+    this.addLog(agent, 'system', subs.length === 1 ? 'O ajudante parou junto com a sessão.' : `${subs.length} ajudantes pararam junto com a sessão.`)
+  }
+
   private askPlayer(
     agent: Agent,
     tool: string,
@@ -419,8 +628,16 @@ export class AgentManager extends EventEmitter {
   ): Promise<PermissionResult> {
     // The board is the office's own tool: no need to walk over and ask.
     if (tool.startsWith('mcp__office__')) return Promise.resolve({ behavior: 'allow', updatedInput: input })
+    const squad = agent.squad
+    if (squad && (tool === 'Agent' || tool === 'Task')) {
+      // Handing a step to a member is the orchestrator's job; anyone else is out (the hook already says so).
+      const why = outsideTeam(squad, tool, input)
+      return Promise.resolve(why ? { behavior: 'deny', message: why } : { behavior: 'allow', updatedInput: input })
+    }
+    const req = permissionFromTool(tool, input, opts.decisionReason, !!opts.suggestions?.length)
+    if (squad) req.context = this.squadContext(agent, squad, tool === 'AskUserQuestion')
     return new Promise((resolve) => {
-      const id = this.requestDecision(agent.summary.id, permissionFromTool(tool, input, opts.decisionReason, !!opts.suggestions?.length), (d) => {
+      const id = this.requestDecision(agent.summary.id, req, (d) => {
         if (d.behavior === 'deny') {
           resolve({ behavior: 'deny', message: d.message?.trim() || 'O usuário negou esta ação.' })
         } else if (tool === 'AskUserQuestion') {
@@ -435,6 +652,18 @@ export class AgentManager extends EventEmitter {
       })
       opts.signal.addEventListener('abort', () => this.cancelRequest(id, 'Cancelado.'), { once: true })
     })
+  }
+
+  /** "Ciclo de Produto · Passo 1 · Foco da semana": read fresh, the watcher may still be debouncing. */
+  private squadContext(agent: Agent, squad: SquadDefinition, question: boolean): string {
+    const step = readProgress(squad) ?? agent.summary.squadStep
+    if (step && JSON.stringify(step) !== JSON.stringify(agent.summary.squadStep)) {
+      agent.summary.squadStep = step
+      this.upsert(agent)
+    }
+    if (!step?.current) return squad.name
+    const who = !question && step.agent ? squad.members.find((m) => m.id === step.agent) : undefined
+    return [squad.name, `Passo ${step.current}${step.total ? `/${step.total}` : ''}`, step.label, who ? `${who.icon} ${who.name}` : ''].filter(Boolean).join(' · ')
   }
 
   // ---------- decisions (shared by office and terminal agents) ----------
@@ -619,8 +848,15 @@ export class AgentManager extends EventEmitter {
     return AGENT_NAMES.find((n) => !used.has(n)) ?? fallback
   }
 
+  /** Ground-floor desks; orchestrators sit in the Diretoria upstairs. */
   private freeDesk(): number {
-    const used = new Set([...this.agents.values()].map((a) => a.summary.desk))
+    const used = new Set([...this.agents.values()].filter((a) => a.summary.role !== 'orchestrator').map((a) => a.summary.desk))
+    for (let i = 0; i < 64; i++) if (!used.has(i)) return i
+    return used.size
+  }
+
+  private freeDirectorDesk(): number {
+    const used = new Set([...this.agents.values()].filter((a) => a.summary.role === 'orchestrator').map((a) => a.summary.desk))
     for (let i = 0; i < 64; i++) if (!used.has(i)) return i
     return used.size
   }
@@ -671,7 +907,7 @@ export class AgentManager extends EventEmitter {
 
   private persist(): void {
     this.store.agents = [...this.agents.values()]
-      .filter((a) => a.summary.source === 'office')
+      .filter((a) => a.summary.source === 'office' && !a.demo)
       .map((a) => ({ summary: a.summary, log: a.log.slice(-PERSISTED_LOG) }))
   }
 }

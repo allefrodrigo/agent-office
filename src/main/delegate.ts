@@ -38,6 +38,7 @@ export class TicketDesk {
       const a = this.manager.list().find((x) => x.id === target.agentId)
       if (!a) throw new Error('Esse agente não está mais no escritório.')
       if (a.source !== 'office') throw new Error('Sessões do terminal não recebem tarefas daqui. Escolha um agente do escritório.')
+      if (a.role === 'orchestrator') throw new Error(`${a.name} só roda o ciclo do squad. Delegue a um agente do térreo.`)
       // Same rule as hiring: ticket text may come from others, so it never runs without approvals.
       if (a.permissionMode === 'bypassPermissions') throw new Error(`${a.name} está no modo "Sem pedir nada". Delegue a outro agente ou contrate um novo.`)
       if (this.manager.isBusy(a.id)) throw new Error(`${a.name} está ocupado. Espere terminar ou escolha outro agente.`)
@@ -50,6 +51,7 @@ export class TicketDesk {
     } else {
       if (!t.cwd) throw new Error('Defina a pasta do projeto no ticket antes de contratar um agente para ele.')
       const s = this.settings()
+      const mode = target.hire.permissionMode ?? s.defaultPermissionMode
       agent = this.manager.hire(
         {
           name: '',
@@ -57,7 +59,7 @@ export class TicketDesk {
           task: ticketBrief(t),
           model: target.hire.model ?? (s.defaultModel || undefined),
           // Tickets may come from other people or agents: never run one with "bypass".
-          permissionMode: target.hire.permissionMode ?? (s.defaultPermissionMode === 'bypassPermissions' ? 'default' : s.defaultPermissionMode),
+          permissionMode: mode === 'bypassPermissions' ? 'default' : mode,
         },
         display,
       )

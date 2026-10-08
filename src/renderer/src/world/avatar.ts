@@ -58,6 +58,8 @@ export class Avatar {
   speed = 3
   /** Extra height while sitting, so seats of different heights line up. */
   seatY = 0
+  /** 0 = ground floor, 1 = squad floor; the avatar only shows on the floor on screen. */
+  floor = 0
 
   constructor(
     public look: Look,

@@ -152,3 +152,128 @@ export function zoneAt(x: number, z: number): Zone | undefined {
 export function inBossRoom(x: number, z: number): boolean {
   return x >= 0 && x < 9 && z >= 0 && z < 9
 }
+
+// ---------- squad floor (1º andar) ----------
+// Same footprint and elevator as the ground floor. Diretoria top-right around the
+// elevator, so orchestrators and members step straight in and out of it; a lobby
+// top-left, a corridor across the middle and up to six sector rooms around it.
+
+export const DEFAULT_SECTOR = 'Equipe'
+const MAX_DESKS_PER_SECTOR = 6
+/** Sector rooms, filled in this order: the ones nearest the Diretoria first. */
+const SECTOR_SLOTS: { rect: [number, number, number, number]; top: boolean }[] = [
+  { rect: [14, 0, 22, 10], top: true },
+  { rect: [6, 0, 14, 10], top: true },
+  { rect: [24, 13, 32, 24], top: false },
+  { rect: [16, 13, 24, 24], top: false },
+  { rect: [8, 13, 16, 24], top: false },
+  { rect: [0, 13, 8, 24], top: false },
+]
+export const DIRECTOR_RECT: [number, number, number, number] = [22, 0, 32, 10]
+export const LOBBY_RECT: [number, number, number, number] = [0, 0, 6, 10]
+
+export interface SectorRoom {
+  name: string
+  rect: [number, number, number, number]
+  /** Rooms along the back wall open to the corridor at z = 10; front rooms at z = 13. */
+  top: boolean
+  desks: DeskSlot[]
+  /** Free tiles where members stand when every desk of the sector is taken. */
+  stand: [number, number][]
+  /** Member ids that work here. */
+  members: string[]
+}
+
+/** An orchestrator's desk in the Diretoria. It sits behind it facing the room, like the player downstairs. */
+export interface DirectorDesk {
+  index: number
+  x: number
+  z: number
+  w: number
+  seat: { x: number; z: number }
+  approach: [number, number]
+  /** Where an inline member sits during its step, beside the orchestrator. */
+  side: { x: number; z: number }
+  sideApproach: [number, number]
+  /** Tiles in front of the desk where members hand over their delivery. */
+  deliver: [number, number][]
+}
+
+export interface SquadPlan {
+  sectors: SectorRoom[]
+  directors: DirectorDesk[]
+  partitions: Partition[]
+  /** member id -> sector name, for every squad on the floor. */
+  sectorOf: Map<string, string>
+}
+
+/** Squad members share one floor: `squad/member` ids keep two squads with the same member id apart. */
+export const memberKey = (squad: string, member: string) => `${squad}/${member}`
+
+export function squadPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[]): SquadPlan {
+  // Sectors in order of first appearance; inline members work in the Diretoria, so they need no room.
+  const bySector = new Map<string, string[]>()
+  for (const s of squads) {
+    for (const m of s.members) {
+      if (m.execution !== 'subagent') continue
+      const name = m.sector || DEFAULT_SECTOR
+      bySector.set(name, [...(bySector.get(name) ?? []), memberKey(s.code, m.id)])
+    }
+  }
+  let entries = [...bySector.entries()]
+  // More sectors than rooms: the last room takes everyone left over.
+  if (entries.length > SECTOR_SLOTS.length) {
+    const rest = entries.slice(SECTOR_SLOTS.length - 1).flatMap(([, ids]) => ids)
+    entries = [...entries.slice(0, SECTOR_SLOTS.length - 1), ['Outros setores', rest]]
+  }
+  const sectorOf = new Map<string, string>()
+  let index = 0
+  const sectors: SectorRoom[] = entries.map(([name, members], i) => {
+    const { rect, top } = SECTOR_SLOTS[i]
+    const [x0, z0] = rect
+    for (const id of members) sectorOf.set(id, name)
+    // Rows nearest the door first, so a lone member doesn't walk to the far wall.
+    const rows = top ? [z0 + 7, z0 + 4, z0 + 1] : [z0 + 2, z0 + 5, z0 + 8]
+    const desks: DeskSlot[] = []
+    for (const z of rows) {
+      for (const x of [x0 + 1, x0 + 5]) {
+        if (desks.length >= Math.min(MAX_DESKS_PER_SECTOR, members.length)) break
+        desks.push({ index: index++, x, z, seat: { x: x + 1, z: z + 1.45 }, approach: [x, z + 1] })
+      }
+    }
+    const stand: [number, number][] = []
+    for (const z of rows) stand.push([x0 + 3, z + 1], [x0 + 4, z + 1], [x0 + 3, z], [x0 + 4, z])
+    return { name, rect, top, desks, stand, members }
+  })
+
+  const [dx0, dz0, dx1, dz1] = DIRECTOR_RECT
+  const partitions: Partition[] = [
+    { axis: 'x', at: dx0, from: dz0, to: dz1, doors: [] },
+    { axis: 'z', at: dz1, from: dx0, to: dx1, doors: [Math.floor((dx0 + dx1) / 2) - 1, Math.floor((dx0 + dx1) / 2)] },
+  ]
+  const xWalls = new Set<string>()
+  for (const r of sectors) {
+    const [x0, z0, x1, z1] = r.rect
+    const mid = Math.floor((x0 + x1) / 2)
+    partitions.push({ axis: 'z', at: r.top ? 10 : 13, from: x0, to: x1, doors: [mid - 1, mid] })
+    for (const x of [x0, x1]) {
+      if (x <= 0 || x >= W || (r.top && x === dx0) || xWalls.has(`${x},${z0}`)) continue
+      xWalls.add(`${x},${z0}`)
+      partitions.push({ axis: 'x', at: x, from: z0, to: z1, doors: [] })
+    }
+  }
+
+  // Desks below the elevator: the second one is a couple of tiles from its doors.
+  const directors: DirectorDesk[] = [23, 27].map((x, i) => ({
+    index: i,
+    x,
+    z: 3,
+    w: 3,
+    seat: { x: x + 1.5, z: 2.5 },
+    approach: [x + 1, 2],
+    side: { x: x + 3.5, z: 3.5 },
+    sideApproach: [x + 3, 4],
+    deliver: [[x + 1, 5], [x + 2, 5], [x, 5], [x + 1, 6], [x + 2, 6], [x, 6]],
+  }))
+  return { sectors, directors, partitions, sectorOf }
+}

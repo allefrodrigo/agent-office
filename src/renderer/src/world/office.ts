@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import * as F from './furniture'
 import { box, mat } from './kit'
-import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H } from './layout'
+import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition } from './layout'
 import { Grid } from './pathfinding'
 import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
-import { floorTexture, rugTexture } from './textures'
+import { floorTexture, rugTexture, WindowSky } from './textures'
 
 export interface Office {
   group: THREE.Group
@@ -14,6 +14,13 @@ export interface Office {
   update(dt: number): void
   /** Opens the elevator doors for a moment (agent arriving or leaving). */
   ding(): void
+  /** Lights one call button per floor on the elevator panel. */
+  setFloors(n: number): void
+}
+
+export interface GroundFloor extends Office {
+  /** Lounge monitor where Claude FM plays. */
+  tv: F.MonitorTv
 }
 
 const WALL = '#aaa6d6'
@@ -23,7 +30,7 @@ const CAP = '#c9c5ea'
 const CHAIR_COLORS = ['#3d4a6b', '#d35454', '#2f8f83', '#6c5ce7', '#e1873b']
 const DESK_EXTRAS = ['cactus', 'flower', 'lamp', 'papers', 'mug', 'laptop'] as const
 
-export function buildOffice(): Office {
+export function buildOffice(): GroundFloor {
   const group = new THREE.Group()
   const grid = new Grid(W, H)
   const loops: LoopScreen[] = []
@@ -35,65 +42,8 @@ export function buildOffice(): Office {
     return obj
   }
 
-  // ---------- floor slab ----------
-  const side = mat('#4a4366')
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(W, 0.4, H), [
-    side,
-    side,
-    new THREE.MeshLambertMaterial({ map: floorTexture() }),
-    side,
-    side,
-    side,
-  ])
-  floor.position.set(W / 2, -0.2, H / 2)
-  floor.receiveShadow = true
-  floor.name = 'floor'
-  group.add(floor)
-  box(group, W, 0.04, 0.02, '#36304f', W / 2, -0.4, H + 0.01, false)
-
-  // ---------- back walls (z = 0 and x = 0) ----------
-  const T = 0.25
-  box(group, W + T, WALL_H, T, WALL, (W - T) / 2, 0, -T / 2)
-  box(group, T, WALL_H, H, WALL, -T / 2, 0, H / 2)
-  box(group, W + T + 0.04, 0.08, T + 0.04, CAP, (W - T) / 2, WALL_H, -T / 2, false)
-  box(group, T + 0.04, 0.08, H + 0.02, CAP, -T / 2, WALL_H, H / 2, false)
-  // wainscot + baseboard on the inner faces
-  box(group, W, 0.95, 0.03, WAINSCOT, W / 2, 0, 0.015, false)
-  box(group, 0.03, 0.95, H, WAINSCOT, 0.015, 0, H / 2, false)
-  box(group, W, 0.04, 0.045, CAP, W / 2, 0.95, 0.02, false)
-  box(group, 0.045, 0.04, H, CAP, 0.02, 0.95, H / 2, false)
-  box(group, W, 0.14, 0.05, BASEBOARD, W / 2, 0, 0.025, false)
-  box(group, 0.05, 0.14, H, BASEBOARD, 0.025, 0, H / 2, false)
-
-  // ---------- glass partitions ----------
-  const glass = new THREE.MeshLambertMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.22, depthWrite: false })
-  const frame = '#6d6a8f'
-  for (const p of PARTITIONS) {
-    for (let i = p.from; i < p.to; i++) {
-      const isDoor = p.doors.includes(i)
-      const cx = p.axis === 'x' ? p.at : i + 0.5
-      const cz = p.axis === 'x' ? i + 0.5 : p.at
-      const along = (w: number, h: number, d: number, color: string | THREE.Material, y: number) =>
-        p.axis === 'x' ? box(group, d, h, w, color, cx, y, cz, false) : box(group, w, h, d, color, cx, y, cz, false)
-      if (isDoor) continue
-      along(1, 0.14, 0.1, frame, 0)
-      along(1, 0.06, 0.08, frame, 1.36)
-      const pane = along(0.98, 1.22, 0.03, glass, 0.14)
-      pane.castShadow = false
-      pane.renderOrder = 2
-      if (p.axis === 'x') grid.blockEdgeX(p.at, i)
-      else grid.blockEdgeZ(p.at, i)
-    }
-    // posts at every tile boundary, plus door jambs
-    for (let i = p.from; i <= p.to; i++) {
-      const prevDoor = p.doors.includes(i - 1) || i === p.from
-      const nextDoor = p.doors.includes(i) || i === p.to
-      if (prevDoor && nextDoor && i !== p.from && i !== p.to) continue
-      const px = p.axis === 'x' ? p.at : i
-      const pz = p.axis === 'x' ? i : p.at
-      box(group, 0.08, 1.42, 0.08, frame, px, 0, pz)
-    }
-  }
+  const floor = buildShell(group)
+  buildPartitions(group, grid, PARTITIONS)
 
   // ---------- boss office ----------
   const bossRug = F.rug(6, 4, rugTexture(6, 4, '#8e3b46', '#5e2430', '#e0a96d'))
@@ -110,7 +60,13 @@ export function buildOffice(): Office {
   place(F.bookshelf(2, 1.9, 4), 1.0, 0.25)
   grid.blockRect(0, 0, 2, 1)
   place(F.clock(), 1.0, 0.04, 0, 2.25)
-  place(F.wallWindow(2.4, 1.3, 11), 5.5, 0.02, 0, 1.6)
+  const skies: WindowSky[] = []
+  const sky = (seed: number): WindowSky => {
+    const s = new WindowSky(seed)
+    skies.push(s)
+    return s
+  }
+  place(F.wallWindow(2.4, 1.3, sky(11)), 5.5, 0.02, 0, 1.6)
   place(F.plant('tall', '#e9edf2'), 7.5, 0.5)
   grid.block(7, 0)
   place(F.art('mondrian', 1.1, 0.8), 0.04, 2.4, Math.PI / 2, 1.6)
@@ -144,7 +100,7 @@ export function buildOffice(): Office {
     place(F.mug(['#ffffff', '#fdcb6e', '#81ecec'][d.index % 3]), d.x + 0.3, d.z + 0.62, 0, 0.76)
     place(F.officeChair(CHAIR_COLORS[d.index % CHAIR_COLORS.length]), d.seat.x, d.seat.z - 0.05, Math.PI)
   }
-  for (const x of [13, 18, 23]) place(F.wallWindow(2.2, 1.3, x), x + 0.5, 0.02, 0, 1.6)
+  for (const x of [13, 18, 23]) place(F.wallWindow(2.2, 1.3, sky(x)), x + 0.5, 0.02, 0, 1.6)
   for (const x of [15, 20, 25]) {
     place(F.plant(x === 20 ? 'tall' : 'bush'), x + 0.5, 0.5)
     grid.block(x, 0)
@@ -155,6 +111,7 @@ export function buildOffice(): Office {
   grid.block(27, 0)
   const elev = F.elevator()
   place(elev.group, ELEVATOR.x, 0.04)
+  elev.buttons[1].visible = false
   place(F.cabinet(1), 28.5, 7.5)
   place(F.cabinet(1), 29.5, 7.5)
   grid.blockRect(28, 7, 2, 1)
@@ -207,6 +164,10 @@ export function buildOffice(): Office {
   grid.block(16, 18)
   place(F.floorLamp(), 11.5, 16.5)
   grid.block(11, 16)
+  // Claude FM monitor against the corridor, facing the camera
+  const tv = F.monitorTv()
+  place(tv.group, 11.4, 21, Math.PI / 2)
+  for (let z = 19; z <= 22; z++) grid.block(11, z)
   place(F.plant('tall'), 11.5, 15.5)
   grid.block(11, 15)
   place(F.plant('fern'), 17.5, 15.5)
@@ -272,9 +233,11 @@ export function buildOffice(): Office {
     grid,
     floor,
     deskScreens,
+    tv,
     update(dt: number) {
       for (const s of deskScreens) s.update(dt)
       for (const l of loops) l.update(dt)
+      for (const s of skies) s.update()
       doorTimer = Math.max(0, doorTimer - dt)
       const target = doorTimer > 0 ? 1 : 0
       doorOpen += (target - doorOpen) * Math.min(1, dt * 5)
@@ -286,5 +249,75 @@ export function buildOffice(): Office {
     ding() {
       doorTimer = 2.2
     },
+    setFloors(n: number) {
+      elev.buttons.forEach((b, i) => (b.visible = i < n))
+    },
+  }
+}
+
+/** Floor slab and the two back walls, shared by every floor. */
+export function buildShell(group: THREE.Group): THREE.Mesh {
+  // ---------- floor slab ----------
+  const side = mat('#4a4366')
+  const floor = new THREE.Mesh(new THREE.BoxGeometry(W, 0.4, H), [
+    side,
+    side,
+    new THREE.MeshLambertMaterial({ map: floorTexture() }),
+    side,
+    side,
+    side,
+  ])
+  floor.position.set(W / 2, -0.2, H / 2)
+  floor.receiveShadow = true
+  floor.name = 'floor'
+  group.add(floor)
+  box(group, W, 0.04, 0.02, '#36304f', W / 2, -0.4, H + 0.01, false)
+
+  // ---------- back walls (z = 0 and x = 0) ----------
+  const T = 0.25
+  box(group, W + T, WALL_H, T, WALL, (W - T) / 2, 0, -T / 2)
+  box(group, T, WALL_H, H, WALL, -T / 2, 0, H / 2)
+  box(group, W + T + 0.04, 0.08, T + 0.04, CAP, (W - T) / 2, WALL_H, -T / 2, false)
+  box(group, T + 0.04, 0.08, H + 0.02, CAP, -T / 2, WALL_H, H / 2, false)
+  // wainscot + baseboard on the inner faces
+  box(group, W, 0.95, 0.03, WAINSCOT, W / 2, 0, 0.015, false)
+  box(group, 0.03, 0.95, H, WAINSCOT, 0.015, 0, H / 2, false)
+  box(group, W, 0.04, 0.045, CAP, W / 2, 0.95, 0.02, false)
+  box(group, 0.045, 0.04, H, CAP, 0.02, 0.95, H / 2, false)
+  box(group, W, 0.14, 0.05, BASEBOARD, W / 2, 0, 0.025, false)
+  box(group, 0.05, 0.14, H, BASEBOARD, 0.025, 0, H / 2, false)
+
+  return floor
+}
+
+/** Glass partitions with doors; each pane also blocks its tile edge in the grid. */
+export function buildPartitions(group: THREE.Group, grid: Grid, partitions: Partition[]): void {
+  const glass = new THREE.MeshLambertMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.22, depthWrite: false })
+  const frame = '#6d6a8f'
+  for (const p of partitions) {
+    for (let i = p.from; i < p.to; i++) {
+      const isDoor = p.doors.includes(i)
+      const cx = p.axis === 'x' ? p.at : i + 0.5
+      const cz = p.axis === 'x' ? i + 0.5 : p.at
+      const along = (w: number, h: number, d: number, color: string | THREE.Material, y: number) =>
+        p.axis === 'x' ? box(group, d, h, w, color, cx, y, cz, false) : box(group, w, h, d, color, cx, y, cz, false)
+      if (isDoor) continue
+      along(1, 0.14, 0.1, frame, 0)
+      along(1, 0.06, 0.08, frame, 1.36)
+      const pane = along(0.98, 1.22, 0.03, glass, 0.14)
+      pane.castShadow = false
+      pane.renderOrder = 2
+      if (p.axis === 'x') grid.blockEdgeX(p.at, i)
+      else grid.blockEdgeZ(p.at, i)
+    }
+    // posts at every tile boundary, plus door jambs
+    for (let i = p.from; i <= p.to; i++) {
+      const prevDoor = p.doors.includes(i - 1) || i === p.from
+      const nextDoor = p.doors.includes(i) || i === p.to
+      if (prevDoor && nextDoor && i !== p.from && i !== p.to) continue
+      const px = p.axis === 'x' ? p.at : i
+      const pz = p.axis === 'x' ? i : p.at
+      box(group, 0.08, 1.42, 0.08, frame, px, 0, pz)
+    }
   }
 }

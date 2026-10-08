@@ -181,6 +181,7 @@ export class AgentPanel {
         h('button', { class: 'meta-path', title: 'Mostrar no Finder', onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 13), shortPath(a.cwd)),
         a.model ? h('span', { class: 'meta-item' }, a.model) : null,
         a.costUsd ? h('span', { class: 'meta-item' }, formatCost(a.costUsd)) : null,
+        helpersChip(a),
       ),
       ...(a.source === 'office' && a.context ? [this.contextMeter(a, busy)] : []),
       h(
@@ -364,6 +365,15 @@ function entryView(e: LogEntry): HTMLElement {
     default:
       return h('div', { class: 'entry entry-system' }, e.text)
   }
+}
+
+/** "3 ajudantes" chip ("+3" when compact); hover lists what each subagent is doing. */
+export function helpersChip(a: AgentSummary, compact = false): HTMLElement | null {
+  const subs = a.subagents ?? []
+  if (!subs.length) return null
+  const label = subs.length === 1 ? '1 ajudante' : `${subs.length} ajudantes`
+  const title = [label, ...subs.map((x) => `${x.type ? `${x.type}: ` : ''}${x.description}${x.lastTool ? ` (${x.lastTool})` : ''}`)].join('\n')
+  return h('span', { class: 'chip chip-helpers', title }, compact ? `+${subs.length}` : label)
 }
 
 export function contextLevel(percent: number): 'ok' | 'warn' | 'full' {

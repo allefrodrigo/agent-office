@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { blob, box, cylinder, mat, panel } from './kit'
-import { artTexture, booksTexture, canvas, pixelTexture, whiteboardTexture, windowTexture } from './textures'
+import { artTexture, booksTexture, canvas, pixelTexture, whiteboardTexture, type WindowSky } from './textures'
 
 // Every factory builds its piece centered on the origin, standing on y = 0,
 // with its front facing +z. Callers rotate/position the returned group.
@@ -259,10 +259,10 @@ export function whiteboard(w = 2.2, h = 1.2): THREE.Group {
   return g
 }
 
-export function wallWindow(w: number, h: number, seed: number): THREE.Group {
+export function wallWindow(w: number, h: number, sky: WindowSky): THREE.Group {
   const g = new THREE.Group()
   box(g, w + 0.1, h + 0.1, 0.06, '#f5f3ee', 0, -(h + 0.1) / 2, 0, false)
-  panel(g, w - 0.06, h - 0.06, windowTexture(seed), 0, 0, 0.035)
+  panel(g, w - 0.06, h - 0.06, sky.texture, 0, 0, 0.035)
   box(g, 0.05, h, 0.03, '#f5f3ee', 0, -h / 2, 0.04, false)
   box(g, w, 0.05, 0.03, '#f5f3ee', 0, -0.025, 0.04, false)
   box(g, w + 0.2, 0.06, 0.16, '#f5f3ee', 0, -h / 2 - 0.08, 0.06, false)
@@ -286,7 +286,7 @@ export function clock(): THREE.Group {
   return g
 }
 
-export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh]; light: THREE.Mesh } {
+export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh]; light: THREE.Mesh; buttons: THREE.Mesh[] } {
   const g = new THREE.Group()
   box(g, 1.7, 2.3, 0.08, '#8e96a8', 0, 0, 0, false)
   box(g, 1.5, 2.1, 0.02, '#2d3142', 0, 0, 0.04, false)
@@ -297,8 +297,9 @@ export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh
   box(g, 0.5, 0.16, 0.04, '#2d3142', 0, 2.36, 0.02, false)
   const light = box(g, 0.08, 0.08, 0.02, new THREE.MeshBasicMaterial({ color: '#55efc4' }), 0, 2.4, 0.05, false)
   box(g, 0.12, 0.22, 0.04, '#2d3142', 1.0, 1.0, 0.04, false)
-  box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false)
-  return { group: g, doors: [left, right], light }
+  // call buttons: T on top, then one per floor above it
+  const buttons = [box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false), box(g, 0.05, 0.05, 0.02, '#55efc4', 1.0, 1.04, 0.07, false)]
+  return { group: g, doors: [left, right], light, buttons }
 }
 
 export function tv(screen: THREE.Texture): THREE.Group {
@@ -306,6 +307,66 @@ export function tv(screen: THREE.Texture): THREE.Group {
   box(g, 1.6, 0.92, 0.06, DARK, 0, -0.46, 0, false)
   panel(g, 1.5, 0.82, screen, 0, 0, 0.035)
   return g
+}
+
+export interface MonitorTv {
+  group: THREE.Group
+  /** Screen plane; the radio lays the live video over it. */
+  screen: THREE.Mesh
+  /** Screen size in local units (the plane faces +z). */
+  size: { w: number; h: number }
+  setOn(on: boolean): void
+}
+
+/** Big pixel-art monitor on a low console: chunky bezel, neck, foot and a power LED. Claude FM plays on it. */
+export function monitorTv(): MonitorTv {
+  const g = new THREE.Group()
+  const w = 2.0
+  const h = w * (9 / 16)
+  const cy = 1.48 // screen center height: the bezel clears the neck
+  // console
+  box(g, 2.3, 0.5, 0.6, WOOD_DARK, 0, 0, 0)
+  box(g, 2.34, 0.05, 0.64, WOOD, 0, 0.5, 0)
+  box(g, 1.0, 0.18, 0.01, '#6e452c', -0.55, 0.18, 0.3, false)
+  box(g, 1.0, 0.18, 0.01, '#6e452c', 0.55, 0.18, 0.3, false)
+  // foot and neck
+  box(g, 0.8, 0.05, 0.4, DARK, 0, 0.55, 0)
+  box(g, 0.16, 0.3, 0.1, METAL, 0, 0.6, -0.06)
+  // bezel, a lighter lip around the glass, chin with the LED
+  const bezel = 0.1
+  box(g, w + bezel * 2, h + bezel * 2 + 0.06, 0.12, DARK, 0, cy - h / 2 - bezel - 0.06, -0.04)
+  box(g, w + 0.04, h + 0.04, 0.02, '#3a3d4d', 0, cy - h / 2 - 0.02, 0.02, false)
+  box(g, 0.3, 0.03, 0.01, '#3a3d4d', 0, cy - h / 2 - bezel - 0.02, 0.025, false)
+  const ledOff = new THREE.MeshBasicMaterial({ color: '#3b2b2b' })
+  const ledOn = new THREE.MeshBasicMaterial({ color: '#2ee86b' })
+  const led = box(g, 0.09, 0.05, 0.02, ledOff, w / 2 - 0.08, cy - h / 2 - bezel - 0.04, 0.025, false)
+  const off = tvScreenTexture(false)
+  const on = tvScreenTexture(true)
+  const screen = panel(g, w, h, off, 0, cy, 0.035)
+  const material = screen.material as THREE.MeshBasicMaterial
+  return {
+    group: g,
+    screen,
+    size: { w, h },
+    setOn(isOn) {
+      led.material = isOn ? ledOn : ledOff
+      material.map = isOn ? on : off
+    },
+  }
+}
+
+/** Off: dark glass with a diagonal glare. On: black, the video covers it. */
+function tvScreenTexture(on: boolean): THREE.Texture {
+  const [cv, c] = canvas(32, 18)
+  c.fillStyle = on ? '#05060a' : '#161826'
+  c.fillRect(0, 0, 32, 18)
+  if (!on) {
+    c.fillStyle = '#262a3d'
+    for (let y = 0; y < 18; y++) c.fillRect(14 - y, y, 4, 1)
+    c.fillStyle = '#20233a'
+    for (let y = 0; y < 18; y++) c.fillRect(21 - y, y, 1, 1)
+  }
+  return pixelTexture(cv)
 }
 
 export function pingPong(): THREE.Group {

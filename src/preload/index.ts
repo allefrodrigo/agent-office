@@ -32,6 +32,9 @@ const api: OfficeAPI = {
   delegateTicket: (id, target) => ipcRenderer.invoke('office:delegateTicket', id, target),
   openExternal: (url) => ipcRenderer.invoke('office:openExternal', url),
   revealPath: (p) => ipcRenderer.invoke('office:revealPath', p),
+  radioVideo: () => ipcRenderer.invoke('office:radioVideo'),
+  listSquads: (cwd) => ipcRenderer.invoke('office:listSquads', cwd),
+  runSquad: (cwd, code, mode, note) => ipcRenderer.invoke('office:runSquad', cwd, code, mode, note),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

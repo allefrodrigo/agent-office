@@ -23,6 +23,8 @@ const DEFAULT_SETTINGS: Settings = {
   defaultPermissionMode: 'default',
   notifications: true,
   bridgePort: 47821,
+  squadFolder: '',
+  squadFloorName: '',
 }
 
 /** Small JSON store in the app's userData folder, written atomically and debounced. */

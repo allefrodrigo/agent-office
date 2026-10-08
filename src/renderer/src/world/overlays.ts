@@ -10,6 +10,7 @@ export class Tag {
   private dotEl: HTMLSpanElement
   private bubbleEl: HTMLDivElement
   private heartsEl: HTMLSpanElement
+  private helpersEl: HTMLSpanElement
   private bubbleText = ''
   private bubbleKind: BubbleKind | null = null
   hidden = false
@@ -32,7 +33,9 @@ export class Tag {
     this.nameEl.textContent = name
     this.heartsEl = document.createElement('span')
     this.heartsEl.className = 'hearts hidden'
-    pill.append(this.dotEl, this.nameEl, this.heartsEl)
+    this.helpersEl = document.createElement('span')
+    this.helpersEl.className = 'helpers hidden'
+    pill.append(this.dotEl, this.nameEl, this.helpersEl, this.heartsEl)
     this.el.append(this.bubbleEl, pill)
     if (onClick) {
       pill.addEventListener('click', onClick)
@@ -52,6 +55,15 @@ export class Tag {
     }
     this.heartsEl.className = 'hearts'
     this.heartsEl.textContent = '♥'.repeat(Math.max(0, hp)) + '♡'.repeat(Math.max(0, max - hp))
+  }
+
+  /** Subagents working for this agent; 0 hides the counter. */
+  setHelpers(n: number): void {
+    const text = n ? `+${n}` : ''
+    if (this.helpersEl.textContent === text) return
+    this.helpersEl.textContent = text
+    this.helpersEl.className = n ? 'helpers' : 'helpers hidden'
+    this.helpersEl.title = n === 1 ? '1 ajudante trabalhando' : `${n} ajudantes trabalhando`
   }
 
   setDot(status: string): void {
@@ -74,8 +86,10 @@ export class Tag {
 
 export class Overlays {
   private tags = new Set<Tag>()
-  private labels: { el: HTMLDivElement; pos: THREE.Vector3 }[] = []
+  private labels: { el: HTMLDivElement; pos: THREE.Vector3; floor: number }[] = []
   private tmp = new THREE.Vector3()
+  /** Floor on screen: labels of other floors hide. */
+  floor = 0
 
   constructor(
     private root: HTMLElement,
@@ -93,16 +107,24 @@ export class Overlays {
     tag.el.remove()
   }
 
-  label(text: string, x: number, z: number): void {
+  label(text: string, x: number, z: number, floor = 0): void {
     const el = document.createElement('div')
     el.className = 'zone-label'
     el.textContent = text
     this.root.prepend(el)
-    this.labels.push({ el, pos: new THREE.Vector3(x, 0, z) })
+    this.labels.push({ el, pos: new THREE.Vector3(x, 0, z), floor })
+  }
+
+  /** Drops the labels of a floor that is being rebuilt. */
+  clearLabels(floor: number): void {
+    for (const l of this.labels) if (l.floor === floor) l.el.remove()
+    this.labels = this.labels.filter((l) => l.floor !== floor)
   }
 
   update(): void {
     for (const l of this.labels) {
+      l.el.style.display = l.floor === this.floor ? '' : 'none'
+      if (l.floor !== this.floor) continue
       const p = this.engine.project(l.pos)
       l.el.style.transform = `translate(${p.x}px, ${p.y}px) translate(-50%, -50%)`
     }
