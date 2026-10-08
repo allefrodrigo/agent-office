@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
-import { createReadStream, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { isAbsolute, join, resolve as resolvePath } from 'node:path'
+import { join, resolve as resolvePath } from 'node:path'
 import { getSessionInfo, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
 import type { LogEntry, OpenTerminalResult, SessionEntry } from '@shared/types'
 import { toolDetail } from './agents'
 import { findClaude } from './claude-path'
+import { createOpenGuard } from './resume-guard'
 import { launchOnWindows } from './terminal-launch'
 
 /**
@@ -87,8 +88,8 @@ export async function transcript(sessionId: string, keep = 80): Promise<{ log: L
   return { log: tail, model }
 }
 
-const OPEN_THROTTLE_MS = 1500
-let lastOpen = 0
+// One terminal per click burst (throttle of 1.5 s), see resume-guard.ts.
+const guardOpen = createOpenGuard()
 
 /**
  * Runs `claude --resume <id>` in the session's folder: a new Terminal window on
@@ -98,18 +99,10 @@ let lastOpen = 0
  */
 export function openInTerminal(sessionId: string, cwd: string): Promise<OpenTerminalResult> {
   if (!isSessionId(sessionId)) return Promise.resolve({ ok: false, message: 'ID de sessão inválido.' })
-  // One terminal per click burst: a compromised or stuck renderer cannot open dozens.
-  const now = Date.now()
-  if (now - lastOpen < OPEN_THROTTLE_MS) return Promise.resolve({ ok: false, message: 'Já estou abrindo um terminal.' })
-  lastOpen = now
-  if (!isAbsolute(cwd) || /[\u0000-\u001f\u007f]/.test(cwd)) return Promise.resolve({ ok: false, message: 'A pasta dessa sessão é inválida.' })
-  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return Promise.resolve({ ok: false, message: `A pasta ${cwd} não existe mais.` })
+  const guard = guardOpen(cwd, process.platform, findClaude)
+  if (!guard.ok) return Promise.resolve(guard)
 
-  if (process.platform === 'win32') {
-    const exe = findClaude()
-    if (!exe || !exe.toLowerCase().endsWith('.exe')) return Promise.resolve({ ok: false, message: 'Não encontrei o Claude Code neste computador.' })
-    return launchOnWindows(resolvePath(cwd), exe, sessionId)
-  }
+  if (process.platform === 'win32' && guard.exe) return launchOnWindows(resolvePath(cwd), guard.exe, sessionId)
   if (process.platform !== 'darwin') return Promise.resolve({ ok: false, message: 'Abrir no terminal funciona no Mac e no Windows. Use "Copiar comando".' })
   // A .command file opens in Terminal without needing Automation permission.
   // Paths go in single quotes; the session id is a validated UUID.
