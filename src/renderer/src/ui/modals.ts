@@ -1,7 +1,9 @@
+import { resumeCommand } from '@shared/commands'
 import { AGENT_NAMES, HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
-import type { Look, OfficePermissionMode, SessionEntry } from '@shared/types'
+import type { Look, OfficePermissionMode, OpenTerminalResult, SessionEntry } from '@shared/types'
 import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
+import { osText } from './os-text'
 import { portrait } from './portrait'
 
 export const LAST_CWD = 'agent-office:last-cwd'
@@ -351,11 +353,21 @@ export function openResume(
     }
   }
 
+  const mac = state.platform === 'darwin'
+  /** "Terminal" is the Mac app's name; elsewhere it means any terminal. */
+  const terminalLabel = mac ? 'Abrir no Terminal' : 'Abrir no terminal'
+  const openingToast = (via: OpenTerminalResult['via']): string =>
+    via === 'windows-terminal'
+      ? 'Abrindo a sessão no Windows Terminal.'
+      : via === 'console' || (via === undefined && !mac)
+        ? 'Abrindo a sessão num terminal novo.'
+        : 'Abrindo a sessão no Terminal.'
+
   const row = (s: SessionEntry): HTMLElement => {
     const owner = [...state.agents.values()].find((a) => a.sessionId === s.sessionId)
     const recent = Date.now() - s.lastModified < RECENT_MS
     const folder = s.cwd ? s.cwd.split(/[\\/]/).filter(Boolean).pop() : 'pasta desconhecida'
-    const command = `cd '${(s.cwd ?? '.').replace(/'/g, `'\\''`)}' && claude --resume ${s.sessionId}`
+    const command = resumeCommand(state.platform, s.cwd, s.sessionId)
     const badge = owner
       ? h('span', { class: owner.source === 'office' ? 'chip chip-done' : 'chip chip-term' }, owner.source === 'office' ? `no escritório: ${owner.name}` : 'aberta no terminal')
       : recent
@@ -375,25 +387,29 @@ export function openResume(
           'div',
           { class: 'resume-actions' },
           s.cwd ? callBtn : null,
-          state.platform === 'darwin' && s.cwd
+          (mac || state.platform === 'win32') && s.cwd
             ? h('button', {
                 class: 'icon-btn',
-                title: 'Abrir no Terminal',
+                title: terminalLabel,
+                'aria-label': terminalLabel,
                 onclick: async () => {
                   const r = await window.office.openInTerminal(s.sessionId)
-                  if (r.ok) actions.toast('Abrindo a sessão no Terminal.', 'ok')
-                  else actions.toast(r.message ?? 'Não consegui abrir o Terminal.', 'err')
+                  if (r.ok) actions.toast(openingToast(r.via), 'ok')
+                  else actions.toast(r.message ?? (mac ? 'Não consegui abrir o Terminal.' : 'Não consegui abrir o terminal. Use "Copiar comando".'), 'err')
                 },
               }, icon('terminal', 15))
             : null,
-          h('button', {
-            class: 'icon-btn',
-            title: `Copiar: claude --resume ${s.sessionId}`,
-            onclick: async () => {
-              await navigator.clipboard.writeText(command)
-              actions.toast('Comando copiado. Cole no terminal.', 'ok')
-            },
-          }, icon('copy', 15)),
+          command
+            ? h('button', {
+                class: 'icon-btn',
+                title: `Copiar: claude --resume ${s.sessionId}`,
+                'aria-label': 'Copiar comando',
+                onclick: async () => {
+                  await navigator.clipboard.writeText(command)
+                  actions.toast(osText(state.platform).copiedToast, 'ok')
+                },
+              }, icon('copy', 15))
+            : null,
         )
     const prompt = s.firstPrompt && s.firstPrompt !== s.title && !s.title.startsWith(s.firstPrompt.slice(0, 30)) ? s.firstPrompt : null
     return h(
