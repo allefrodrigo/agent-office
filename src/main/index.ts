@@ -13,6 +13,7 @@ import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript }
 import { Store } from './store'
 import { SystemMonitor } from './system'
 import { UsageMonitor } from './usage'
+import { windowFrame } from './window-frame'
 import { TicketBoard } from './tickets'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
@@ -30,8 +31,8 @@ function createWindow(): BrowserWindow {
     show: false,
     backgroundColor: '#1b1d2b',
     title: 'Agent Office',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: { x: 16, y: 18 },
+    // macOS: inset traffic lights · Windows: title bar overlay in the office colours · Linux: default frame
+    ...windowFrame(process.platform),
     webPreferences: {
       preload: join(here, '../preload/index.cjs'),
       contextIsolation: true,
