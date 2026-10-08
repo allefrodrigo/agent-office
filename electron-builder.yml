@@ -27,6 +27,24 @@ mac:
   identity: '-'
   # Hardened runtime is only needed for notarization (and then requires entitlements).
   hardenedRuntime: false
+dmg:
+  title: Agent Office
+  # Retina-ready backdrop with a screenshot of the app; regenerate with `npm run dmg-bg`.
+  background: resources/background.tiff
+  window:
+    width: 720
+    height: 540
+  iconSize: 96
+  iconTextSize: 13
+  # Positions must match APP / APPLICATIONS in scripts/make-dmg-background.mjs.
+  contents:
+    - x: 200
+      y: 444
+      type: file
+    - x: 520
+      y: 444
+      type: link
+      path: /Applications
 win:
   target:
     - target: nsis
