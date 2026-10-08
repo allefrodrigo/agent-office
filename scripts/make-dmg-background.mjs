@@ -7,10 +7,14 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
+// Finder on recent macOS applies the user's own path/status/tab bars and ignores
+// the .dmg asking to hide them; they eat ~130 pt. So everything sits in the top
+// ~450 pt, and the image runs taller than the window for when the bars are off.
 const W = 720
-const H = 540
-const APP = { x: 200, y: 444 }
-const APPLICATIONS = { x: 520, y: 444 }
+const H = 600
+const SHOT_W = 360
+const APP = { x: 200, y: 380 }
+const APPLICATIONS = { x: 520, y: 380 }
 
 const res = new URL('../resources/', import.meta.url).pathname
 const shot = readFileSync(join(res, 'dmg-screenshot.jpg')).toString('base64')
@@ -41,15 +45,15 @@ const html = `<!doctype html><html><head><style>
     background-image: linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
     background-size: 24px 24px;
   }
-  .head { position: absolute; top: 26px; width: 100%; text-align: center; }
+  .head { position: absolute; top: 20px; width: 100%; text-align: center; }
   .title { font-size: 20px; font-weight: 700; letter-spacing: -0.01em; }
   .title span { color: #d97757; margin-right: 6px; }
   .sub { margin-top: 3px; font-size: 12px; color: #9c9ab5; }
   .window {
     position: absolute;
-    left: ${(W - 440) / 2}px;
-    top: 88px;
-    width: 440px;
+    left: ${(W - SHOT_W) / 2}px;
+    top: 74px;
+    width: ${SHOT_W}px;
     border-radius: 10px;
     overflow: hidden;
     background: #11121d;

@@ -33,16 +33,17 @@ dmg:
   background: resources/background.tiff
   window:
     width: 720
-    height: 540
+    # Taller than the layout needs: room for Finder bars the user may have on.
+    height: 580
   iconSize: 96
   iconTextSize: 13
   # Positions must match APP / APPLICATIONS in scripts/make-dmg-background.mjs.
   contents:
     - x: 200
-      y: 444
+      y: 380
       type: file
     - x: 520
-      y: 444
+      y: 380
       type: link
       path: /Applications
 win:
