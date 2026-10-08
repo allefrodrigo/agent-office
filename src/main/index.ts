@@ -1,9 +1,10 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, shell, type NativeImage } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Actor, DelegateTarget, HireRequest, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
 import { AgentManager } from './agents'
+import { badgeDescription, badgeLabel, badgePixels, encodePng } from './badge'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { startDemo } from './demo'
@@ -42,6 +43,8 @@ function createWindow(): BrowserWindow {
     paintWhenInitiallyHidden: true,
   })
   if (!headless) w.once('ready-to-show', () => w.show())
+  // Windows: stop blinking the taskbar button once the user looks at the office.
+  if (process.platform === 'win32') w.on('focus', () => w.flashFrame(false))
   // The window only ever shows our own bundle.
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   w.webContents.on('will-navigate', (e) => e.preventDefault())
@@ -80,10 +83,31 @@ app.whenReady().then(async () => {
     if (win && !win.isDestroyed()) win.webContents.send('office:event', e)
   }
 
+  // Windows has no app badge: the taskbar shows an overlay icon instead (ADR-run-2).
+  // Images depend only on a count computed here, never on renderer data (I-05).
+  const overlays = new Map<string, NativeImage>()
+  const overlayFor = (label: string): NativeImage => {
+    let img = overlays.get(label)
+    if (!img) {
+      img = nativeImage.createFromBuffer(encodePng(16, 16, badgePixels(label, 16)))
+      img.addRepresentation({ scaleFactor: 2, buffer: encodePng(32, 32, badgePixels(label, 32)) })
+      overlays.set(label, img) // at most 10 labels: 1…9 and 9+
+    }
+    return img
+  }
+
   const updateBadge = () => {
     const count = manager.pendingRequests().length + manager.pendingResults().length
     if (process.platform === 'darwin') app.dock?.setBadge(count ? String(count) : '')
-    else app.setBadgeCount(count)
+    else if (process.platform === 'win32') {
+      if (win && !win.isDestroyed()) win.setOverlayIcon(count > 0 ? overlayFor(badgeLabel(count)) : null, badgeDescription(count))
+    } else app.setBadgeCount(count)
+  }
+
+  // Windows: blink the taskbar button when something new waits for the user and the
+  // window is not focused (macOS keeps its Dock bounce; Linux: nothing new).
+  const flash = () => {
+    if (process.platform === 'win32' && win && !win.isDestroyed() && !win.isFocused()) win.flashFrame(true)
   }
 
   const nameOf = (agentId: string) => manager.list().find((a) => a.id === agentId)?.name ?? 'Agente'
@@ -93,8 +117,10 @@ app.whenReady().then(async () => {
     if (e.type === 'permission:new') {
       notify(store, `${nameOf(e.request.agentId)} está indo até você`, e.request.title)
       if (process.platform === 'darwin' && !win?.isFocused()) app.dock?.bounce('informational')
+      flash()
     } else if (e.type === 'result:new') {
       notify(store, `${nameOf(e.result.agentId)} terminou`, e.result.text.slice(0, 140))
+      flash()
     }
     if (e.type.startsWith('permission:') || e.type.startsWith('result:')) updateBadge()
   })
@@ -262,6 +288,8 @@ app.whenReady().then(async () => {
 
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(here, '../../resources/icon.png'))
   win = createWindow()
+  // Results restored from office.json show in the taskbar overlay right away.
+  if (process.platform === 'win32') win.once('ready-to-show', updateBadge)
   if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager)
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
