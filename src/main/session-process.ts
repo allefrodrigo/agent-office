@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { isClaudeImage, parseTasklistCsv, queryClaudeProcesses, sameClaudeProcess } from './win-processes'
+import { ClaudeIdentities, queryClaudeProcesses } from './win-processes.ts'
 
 /**
  * Helpers to find and stop the `claude` process behind a terminal session.
@@ -38,10 +38,11 @@ export async function pidForClientPort(clientPort: number, serverPort: number): 
   return null
 }
 
-// Windows: creation time of each terminal-session PID when the office learned it
-// (pid → FILETIME). A different creation time later means the PID was reused.
-const identities = new Map<number, string>()
-const MAX_IDENTITIES = 256
+// Windows: creation time of each terminal-session PID (see ClaudeIdentities).
+const identities = new ClaudeIdentities(
+  (pid) => queryClaudeProcesses(pid),
+  (pid) => run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH']),
+)
 
 /**
  * Windows only (no-op elsewhere): records the creation time of a terminal session's
@@ -49,11 +50,7 @@ const MAX_IDENTITIES = 256
  */
 export async function rememberIdentity(pid: number): Promise<void> {
   if (process.platform !== 'win32' || !Number.isSafeInteger(pid) || pid <= 0) return
-  const row = (await queryClaudeProcesses(pid))?.find((r) => r.pid === pid)
-  if (!row?.created || !sameClaudeProcess(row, undefined)) return
-  identities.delete(pid)
-  identities.set(pid, row.created)
-  if (identities.size > MAX_IDENTITIES) identities.delete(identities.keys().next().value!)
+  await identities.remember(pid)
 }
 
 /**
@@ -64,19 +61,7 @@ export async function rememberIdentity(pid: number): Promise<void> {
  */
 export async function isClaudeProcess(pid: number): Promise<boolean> {
   if (!Number.isSafeInteger(pid) || pid <= 0 || !alive(pid)) return false
-  if (process.platform === 'win32') {
-    const rows = await queryClaudeProcesses(pid)
-    if (rows) {
-      const ok = sameClaudeProcess(
-        rows.find((r) => r.pid === pid),
-        identities.get(pid),
-      )
-      if (!ok) identities.delete(pid)
-      return ok
-    }
-    const out = await run('tasklist', ['/FI', `PID eq ${pid}`, '/FO', 'CSV', '/NH'])
-    return parseTasklistCsv(out).some((r) => r.pid === pid && isClaudeImage(r.name))
-  }
+  if (process.platform === 'win32') return identities.check(pid)
   const out = await run('ps', ['-p', String(pid), '-o', 'command='])
   return /claude/i.test(out)
 }
@@ -111,7 +96,7 @@ async function waitExit(pid: number, ms: number): Promise<boolean> {
  * renderer says so in the confirmation before the user agrees, and callers check the
  * PID first with isClaudeProcess() (exact name, not Claude Desktop, same creation time).
  */
-export async function terminate(pid: number): Promise<boolean> {
+export async function terminate(pid: number, registry: Pick<ClaudeIdentities, 'forget'> = identities): Promise<boolean> {
   for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
     try {
       process.kill(pid, signal)
@@ -119,7 +104,7 @@ export async function terminate(pid: number): Promise<boolean> {
       return !alive(pid)
     }
     if (await waitExit(pid, 2500)) {
-      identities.delete(pid)
+      registry.forget(pid)
       return true
     }
     if (process.platform === 'win32') break // Windows has no SIGHUP

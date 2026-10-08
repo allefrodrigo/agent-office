@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { claudeCandidates } from './claude-path.ts'
+import { claudeCandidates, createFinder } from './claude-path.ts'
 
 const HOME = 'C:\\Users\\Ana'
 const WIN_ENV = {
@@ -64,4 +64,30 @@ test('claudeCandidates darwin: same list as v0.2.0', () => {
 test('claudeCandidates linux: same rules as darwin, no Windows folders', () => {
   const list = claudeCandidates({ ...WIN_ENV, PATH: '/usr/bin' }, 'linux', '/home/ana')
   assert.deepEqual(list, ['/usr/bin/claude', '/home/ana/.local/bin/claude', '/home/ana/.claude/local/claude', '/opt/homebrew/bin/claude', '/usr/local/bin/claude'])
+})
+
+test('createFinder: "not found" is not remembered, a hit is (S-1 AC 4)', () => {
+  let calls = 0
+  let installed: string | undefined
+  const find = createFinder(() => {
+    calls++
+    return installed
+  })
+  assert.equal(find(), undefined)
+  assert.equal(calls, 1)
+  installed = '/home/ana/.local/bin/claude' // user installs Claude Code, no restart
+  assert.equal(find(), installed)
+  assert.equal(calls, 2)
+  installed = '/somewhere/else/claude'
+  assert.equal(find(), '/home/ana/.local/bin/claude')
+  assert.equal(calls, 2) // 3rd call does not search
+})
+
+test('createFinder: repeated misses search every time', () => {
+  let calls = 0
+  const find = createFinder(() => (calls++, undefined))
+  find()
+  find()
+  find()
+  assert.equal(calls, 3)
 })

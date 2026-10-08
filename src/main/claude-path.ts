@@ -5,7 +5,18 @@ import { posix, sep, win32 } from 'node:path'
 
 // Pure helpers here only import node:* so `npm test` runs them without Electron.
 
-let cached: string | undefined
+/**
+ * Wraps a search so only a hit is remembered: `undefined` is searched again on
+ * the next call. Separate from findClaude so the cache rule is testable.
+ */
+export function createFinder(searchFn: () => string | undefined): () => string | undefined {
+  let cached: string | undefined
+  return () => {
+    if (cached) return cached
+    cached = searchFn()
+    return cached
+  }
+}
 
 /**
  * Finds the Claude Code executable the office agents run on.
@@ -18,11 +29,7 @@ let cached: string | undefined
  * installing Claude Code and trying again works without restarting the app.
  * Nothing is executed here, only file existence is checked (I-13).
  */
-export function findClaude(): string | undefined {
-  if (cached) return cached
-  cached = search()
-  return cached
-}
+export const findClaude: () => string | undefined = createFinder(() => search())
 
 /**
  * Ordered places to look for the Claude Code executable. Pure: never runs anything.

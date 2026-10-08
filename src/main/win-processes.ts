@@ -160,3 +160,157 @@ export function sameClaudeProcess(row: ProcRow | undefined, created: string | un
   if (!row || !isClaudeImage(row.name) || isDesktopPath(row.path)) return false
   return !created || !row.created || row.created === created
 }
+
+export interface ClaudeStats {
+  count: number
+  cpu: number | null
+  mem: number
+}
+
+export interface WindowsClaudeDeps {
+  /** Output of `tasklist /FI "IMAGENAME eq claude.exe" /FO CSV /NH`. */
+  tasklist: () => Promise<string>
+  /** The CIM query (queryClaudeProcesses); null when PowerShell fails. */
+  query: () => Promise<ProcRow[] | null>
+  now?: () => number
+  warn?: (message: string) => void
+}
+
+export const FALLBACK_WARNING = 'PowerShell/CIM indisponível: CPU do Claude Code fica vazia e o Claude Desktop entra na contagem.'
+
+/**
+ * Windows (ADR-run-4): `tasklist` every 3 s for count and memory, as before, now by
+ * exact image name. A CIM query via PowerShell (~0.5 s of CPU each) runs in the
+ * background every sampleEveryMs(cores), or after 5 s when an unknown PID shows up,
+ * one at a time: it tells Claude Code from the Claude Desktop app (both claude.exe)
+ * by executable path and gives CPU from the change in CPU time between samples.
+ * If PowerShell fails, CPU stays null and every claude.exe counts (v0.2.0 behaviour),
+ * with a single warning; it tries again after RETRY_MS.
+ *
+ * Commands, clock and warning are injected so `npm test` drives it without Windows.
+ */
+export class WindowsClaude {
+  static readonly SOON_MS = 5000
+  static readonly RETRY_MS = 5 * 60_000
+  private kind = new Map<number, 'code' | 'desktop'>()
+  private ticks = new Map<number, number>()
+  private sampledAt = 0
+  private cpu: number | null = null
+  private busy = false
+  private retryAt = 0
+  private warned = false
+  private readonly deps: WindowsClaudeDeps
+  private readonly now: () => number
+  private readonly warn: (message: string) => void
+
+  // No parameter properties: `node --test` strips types and does not support them.
+  constructor(deps: WindowsClaudeDeps) {
+    this.deps = deps
+    this.now = deps.now ?? Date.now
+    this.warn = deps.warn ?? ((m) => console.warn(m))
+  }
+
+  async read(cores: number): Promise<ClaudeStats> {
+    const out = await this.deps.tasklist()
+    const rows = parseTasklistCsv(out).filter((r) => isClaudeImage(r.name))
+    // A PID not classified yet counts as Claude Code until the next sample.
+    const code = rows.filter((r) => this.kind.get(r.pid) !== 'desktop')
+    this.maybeSample(cores, rows.some((r) => !this.kind.has(r.pid)))
+    return {
+      count: code.length,
+      cpu: this.cpu === null ? null : Math.round(this.cpu),
+      mem: code.reduce((s, r) => s + r.mem, 0),
+    }
+  }
+
+  private maybeSample(cores: number, unknown: boolean): void {
+    const now = this.now()
+    if (this.busy || now < this.retryAt) return
+    const since = now - this.sampledAt
+    if (since < sampleEveryMs(cores) && !(unknown && since >= WindowsClaude.SOON_MS)) return
+    this.busy = true
+    void this.deps
+      .query()
+      .then((rows) => {
+        if (!rows) return this.fail(now)
+        const code = rows.filter((r) => !isDesktopPath(r.path))
+        this.cpu = cpuPercent(this.ticks, code, now - this.sampledAt, cores)
+        this.kind = new Map(rows.map((r) => [r.pid, isDesktopPath(r.path) ? 'desktop' : 'code']))
+        this.ticks = new Map(code.map((r) => [r.pid, r.ticks]))
+        this.sampledAt = now
+      })
+      .finally(() => {
+        this.busy = false
+      })
+  }
+
+  private fail(now: number): void {
+    this.kind.clear()
+    this.ticks.clear()
+    this.cpu = null
+    this.sampledAt = now
+    this.retryAt = now + WindowsClaude.RETRY_MS
+    if (!this.warned) this.warn(FALLBACK_WARNING)
+    this.warned = true
+  }
+}
+
+/**
+ * Windows: creation time of each terminal-session PID when the office learned it
+ * (pid → FILETIME). A different creation time later means the PID was reused.
+ * Oldest entry goes first past `max`. The CIM query and tasklist are injected.
+ */
+export class ClaudeIdentities {
+  private readonly created = new Map<number, string>()
+  private readonly query: (pid: number) => Promise<ProcRow[] | null>
+  private readonly tasklist: (pid: number) => Promise<string>
+  private readonly max: number
+
+  /** `tasklist`: output of `tasklist /FI "PID eq <pid>" /FO CSV /NH` (fallback without PowerShell). */
+  constructor(query: (pid: number) => Promise<ProcRow[] | null>, tasklist: (pid: number) => Promise<string>, max = 256) {
+    this.query = query
+    this.tasklist = tasklist
+    this.max = max
+  }
+
+  /** Records the creation time, only for claude.exe outside Claude Desktop with a known one. */
+  async remember(pid: number): Promise<void> {
+    const row = (await this.query(pid))?.find((r) => r.pid === pid)
+    if (!row?.created || !sameClaudeProcess(row, undefined)) return
+    this.created.delete(pid)
+    this.created.set(pid, row.created)
+    if (this.created.size > this.max) this.created.delete(this.created.keys().next().value!)
+  }
+
+  /**
+   * Still the Claude Code process the office learned? Exact name, not Claude Desktop
+   * and the same creation time (a mismatch forgets the entry). Without PowerShell,
+   * exact name via tasklist.
+   */
+  async check(pid: number): Promise<boolean> {
+    const rows = await this.query(pid)
+    if (rows) {
+      const ok = sameClaudeProcess(
+        rows.find((r) => r.pid === pid),
+        this.created.get(pid),
+      )
+      if (!ok) this.created.delete(pid)
+      return ok
+    }
+    const out = await this.tasklist(pid)
+    return parseTasklistCsv(out).some((r) => r.pid === pid && isClaudeImage(r.name))
+  }
+
+  forget(pid: number): void {
+    this.created.delete(pid)
+  }
+
+  /** Recorded creation time, for tests and diagnostics. */
+  get(pid: number): string | undefined {
+    return this.created.get(pid)
+  }
+
+  get size(): number {
+    return this.created.size
+  }
+}
