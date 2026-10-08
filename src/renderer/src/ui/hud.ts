@@ -1,6 +1,7 @@
 import type { AgentStatus, AgentSummary } from '@shared/types'
 import type { State } from '../state'
 import { formatCost, h, icon, timeAgo } from './dom'
+import { osText } from './os-text'
 import { contextLevel } from './panel'
 import { portrait } from './portrait'
 
@@ -178,12 +179,13 @@ export class Hud {
     this.renderSystem()
   }
 
-  /** CPU and memory: the Mac, the office itself, and every claude process. */
+  /** CPU and memory: the whole computer, the office itself, and every claude process. */
   renderSystem(): void {
     const st = this.state.system
     this.system.classList.toggle('hidden', !st)
     if (!st) return
     const memPct = Math.round((st.memUsed / st.memTotal) * 100)
+    const text = osText(this.state.platform)
     const bar = (label: string, pct: number, value: string, title: string) =>
       h(
         'div',
@@ -197,13 +199,13 @@ export class Hud {
       h('div', { class: 'sys-line', title }, h('span', {}, label), h('span', { class: 'sys-val' }, `${cpu === null ? '' : `${cpu}% · `}${bytes(mem)}`))
     this.system.replaceChildren(
       h('div', { class: 'usage-head' }, h('span', {}, 'Sistema')),
-      bar('CPU', st.cpu, '', 'Uso de CPU do Mac inteiro'),
-      bar('RAM', memPct, `${bytes(st.memUsed)}/${bytes(st.memTotal, 0)}`, 'Memória em uso, como no Monitor de Atividade'),
+      bar('CPU', st.cpu, '', text.cpuTitle),
+      bar('RAM', memPct, `${bytes(st.memUsed)}/${bytes(st.memTotal, 0)}`, text.ramTitle),
       h(
         'div',
         { class: 'sys-split' },
         line('Escritório', st.app.cpu, st.app.mem, 'Este app: o jogo e a interface'),
-        line(`Agentes (${st.claude.count})`, st.claude.cpu, st.claude.mem, 'Todos os processos claude: agentes do escritório e sessões do terminal'),
+        line(`Agentes (${st.claude.count})`, st.claude.cpu, st.claude.mem, text.agentsTitle),
       ),
     )
   }

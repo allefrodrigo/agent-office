@@ -336,6 +336,39 @@ button {
   pointer-events: auto;
 }
 
+/* Windows: title bar overlay (32 px, native buttons at the right). The drag strip
+   covers only the free area, and everything clickable sits below it. */
+.platform-win32 #ui::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: env(titlebar-area-x, 0);
+  width: env(titlebar-area-width, calc(100% - 138px));
+  height: env(titlebar-area-height, 32px);
+  -webkit-app-region: drag;
+  pointer-events: auto;
+}
+
+.platform-win32 .brand {
+  top: 40px;
+}
+
+.platform-win32 .hud-side {
+  top: 90px;
+}
+
+.platform-win32 .roster {
+  top: 44px;
+  max-height: calc(100vh - 148px);
+}
+
+/* Not in the ux-spec table: the agent panel (close button at the top right) and the
+   "armed" bar would sit under the native buttons or inside the drag strip. */
+.platform-win32 .panel,
+.platform-win32 .armed {
+  top: 44px;
+}
+
 /* ---------- roster ---------- */
 
 .roster {
@@ -1988,6 +2021,10 @@ select.input {
 
 .platform-darwin .board {
   top: 40px;
+}
+
+.platform-win32 .board {
+  top: 36px;
 }
 
 .board-head {

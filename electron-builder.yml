@@ -28,9 +28,27 @@ mac:
   # Hardened runtime is only needed for notarization (and then requires entitlements).
   hardenedRuntime: false
 win:
+  # One installer per architecture (see nsis.buildUniversalInstaller). arm64 is
+  # built on x64 (the app has no native modules) but not tested on arm64 hardware.
   target:
     - target: nsis
-      arch: [x64]
+      arch: [x64, arm64]
+  # Code signing is prepared but off: without a certificate the installer is
+  # unsigned and SmartScreen warns on first run ("Windows protected your PC").
+  # To sign with Azure Trusted Signing (Artifact Signing), uncomment and fill in;
+  # credentials come from AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET
+  # in the build environment (CI secrets), never from this file.
+  # azureSignOptions:
+  #   publisherName: ''           # must match the certificate subject (CN)
+  #   endpoint: ''                # e.g. https://eus.codesigning.azure.net
+  #   certificateProfileName: ''
+  #   codeSigningAccountName: ''
+  # With a .pfx certificate instead, use signtoolOptions (certificateFile from
+  # CSC_LINK / password from CSC_KEY_PASSWORD).
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # false: Agent Office-Setup-<version>-x64.exe and -arm64.exe instead of one
+  # installer carrying both (which doubles the download for everyone).
+  buildUniversalInstaller: false
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}

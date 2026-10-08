@@ -1,0 +1,54 @@
+# Discovery — gerado na criação do squad (2026-10-07)
+# Fonte: pedido do usuário + análise completa do repositório agent-office (v0.2.0, commit 78249be)
+
+squad_code: "agent-office-squad"
+purpose: >
+  Desenvolver e evoluir o Agent Office (app desktop que transforma agentes do Claude Code
+  em personagens de um escritório isométrico em pixel art) de ponta a ponta: discovery e
+  benchmark, estratégia de produto, UX e design do mundo, arquitetura, implementação nas
+  quatro camadas do código (integração Claude Code, plataforma Electron, mundo three.js e
+  interface), qualidade, segurança, documentação, release e crescimento. O fluxo segue o
+  pipeline do AIOX (analyst → pm → ux → architect → sm → po → dev → qa → devops) adaptado
+  ao opensquad, com checkpoints humanos em toda decisão.
+domain: "mixed"   # produto + engenharia de software + conteúdo de lançamento
+performance_mode: "lean"   # squads são sempre enxutos; steps fora do track são pulados
+
+company:
+  name: "Agent Office"
+  tone: "pt-BR natural, direto, caloroso e levemente lúdico; erros humanos e acionáveis"
+  products: "App desktop Electron (macOS/Windows) para orquestrar e visualizar agentes do Claude Code"
+
+language: "Português (Brasil)"
+
+context:
+  # produto/engenharia
+  repository: "D:/Repo/agent-office (este repositório)"
+  stage: "v0.2.0; Mac arm64 com assinatura ad-hoc; porte Windows em andamento"
+  stack: "Electron 44, electron-vite 5, TypeScript 5.9 strict, three.js 0.186, DOM puro, Claude Agent SDK 0.3.x"
+  known_gaps:
+    - "Sem testes automatizados (só typecheck), sem lint, sem CI"
+    - "Sem auto-update, sem assinatura/notarização para distribuição"
+    - "UI 100% pt-BR com strings fixas no código (sem i18n)"
+    - "Sem atributos de acessibilidade (0 aria-*) e forte dependência do canvas"
+    - "Sem isolamento por worktree nem revisão de diff/PR"
+    - "Dependência de APIs experimentais/internas (usage experimental do SDK, ~/.claude/sessions)"
+  trigger: "sob demanda: cada run é uma iniciativa, story, bugfix, release ou rodada de discovery"
+  frequency: "contínua (várias runs por semana)"
+  output_format: "documentos em output/ + mudanças de código em branch local + PR após aprovação"
+
+tools_needed:
+  - "web_search"
+  - "web_fetch"
+  - "built-in: leitura/escrita de arquivos, Bash (npm, git, gh), subagentes"
+  - "opcional: ferramentas mcp__office__* quando o squad roda dentro do próprio Agent Office"
+
+investigation:
+  enabled: false   # Sherlock é para perfis de redes sociais; o benchmark foi feito por pesquisa web
+  profiles: []
+
+benchmark_research:
+  done: true
+  date: "2026-10-07"
+  output: "pipeline/data/benchmark-landscape.md"
+
+target_formats: []   # não é squad de conteúdo; peças de lançamento são rascunhos do DevRel

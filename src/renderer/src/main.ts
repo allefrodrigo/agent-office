@@ -6,6 +6,7 @@ import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { confirmDialog, openHire, openResume, openSettings, openSummon } from './ui/modals'
+import { osText } from './ui/os-text'
 
 async function boot(): Promise<void> {
   const state = new State(await window.office.getState())
@@ -24,7 +25,7 @@ async function boot(): Promise<void> {
     if (!a) return false
     const yes = await confirmDialog(ui, {
       title: `Fechar a sessão de ${a.name}?`,
-      text: `O Claude Code rodando no terminal em …/${a.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join('/')} vai ser encerrado, como se você fechasse aquela aba.\nA conversa fica salva: dá para voltar com claude --resume.`,
+      text: osText(state.platform).closeSessionText(a.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join('/')),
       confirm: 'Fechar sessão',
       cancel: 'Deixar viver',
       danger: true,

@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { cpus, freemem, totalmem } from 'node:os'
 import { app } from 'electron'
 import type { SystemStats } from '@shared/types'
+import { queryClaudeProcesses, WindowsClaude } from './win-processes'
 
 const EVERY_MS = 3000
 
@@ -10,7 +11,7 @@ const run = (cmd: string, args: string[]): Promise<string> =>
   new Promise((resolve) => execFile(cmd, args, { timeout: 2500, windowsHide: true }, (_err, out) => resolve(String(out ?? ''))))
 
 /**
- * CPU and memory of the Mac, of this app, and of every Claude Code process
+ * CPU and memory of the machine, of this app, and of every Claude Code process
  * (office agents and terminal sessions), every 3 seconds. Emits 'system'.
  */
 export class SystemMonitor extends EventEmitter {
@@ -80,14 +81,9 @@ async function usedMemory(): Promise<number> {
   return used > 0 ? used : totalmem() - freemem()
 }
 
-/** Every `claude` process on the machine, summed. */
+/** Every Claude Code process on the machine, summed (on Windows, without the Claude Desktop app). */
 async function claudeProcesses(cores: number): Promise<SystemStats['claude']> {
-  if (process.platform === 'win32') {
-    const out = await run('tasklist', ['/FI', 'IMAGENAME eq claude.exe', '/FO', 'CSV', '/NH'])
-    const rows = out.split(/\r?\n/).filter((l) => /claude\.exe/i.test(l))
-    const mem = rows.reduce((s, l) => s + Number((l.split('","')[4] ?? '').replace(/[^\d]/g, '')) * 1024, 0)
-    return { count: rows.length, cpu: null, mem }
-  }
+  if (process.platform === 'win32') return windowsClaude.read(cores)
   const out = await run('ps', ['-axo', '%cpu=,rss=,comm='])
   let count = 0
   let cpu = 0
@@ -101,3 +97,9 @@ async function claudeProcesses(cores: number): Promise<SystemStats['claude']> {
   }
   return { count, cpu: Math.round(cpu / cores), mem }
 }
+
+/** Windows sampler (ADR-run-4), see WindowsClaude in win-processes.ts. */
+const windowsClaude = new WindowsClaude({
+  tasklist: () => run('tasklist', ['/FI', 'IMAGENAME eq claude.exe', '/FO', 'CSV', '/NH']),
+  query: () => queryClaudeProcesses(),
+})

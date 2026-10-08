@@ -1,0 +1,18 @@
+id,name,displayName,icon,role,path,execution,skills
+orchestrator,Otávio Orquestra,Otávio Orquestra,🎼,"Triagem do intake, track, complexidade, run-plan, controle de custo e retrospectiva (inspirado em Orion/@aiox-master)",./agents/orchestrator.agent.md,inline,
+analyst,Bruna Benchmark,Bruna Benchmark,🔭,"Discovery, benchmark competitivo e mapa de impacto no código (inspirada em Atlas/@analyst)",./agents/analyst.agent.md,subagent,"web_search,web_fetch"
+product-manager,Rita Roadmap,Rita Roadmap,🗺️,"Resultados, métricas, RICE e PRD/épico com FR/NFR/CON rastreáveis (inspirada em Morgan/@pm)",./agents/product-manager.agent.md,inline,web_search
+product-owner,Priscila Prioridade,Priscila Prioridade,🎯,"Validação de 10 pontos das stories e coesão dos artefatos; marca Ready (inspirada em Pax/@po)",./agents/product-owner.agent.md,inline,
+scrum-master,Kauã Kanban,Kauã Kanban,🌊,"Stories autocontidas no formato de ticket do escritório, subtarefas por executor, registro no quadro (inspirado em River/@sm)",./agents/scrum-master.agent.md,inline,
+ux-designer,Úrsula Usabilidade,Úrsula Usabilidade,🧭,"Fluxos, estados, layout, teclado e acessibilidade WCAG 2.2 AA da interface 2D (inspirada em Uma/@ux-design-expert)",./agents/ux-designer.agent.md,inline,
+world-designer,Iuri Isométrico,Iuri Isométrico,🧱,"Comportamento do mundo isométrico, game feel e direção de arte pixel/voxel",./agents/world-designer.agent.md,inline,
+content-designer,Lívia Linguagem,Lívia Linguagem,✍️,"UX writing, i18n, README/COMO-RODAR/CHANGELOG e notas de versão",./agents/content-designer.agent.md,inline,
+architect,Artur Arquitetura,Artur Arquitetura,🏛️,"Arquitetura Electron, contratos de IPC e tipos, ADRs e modelo de ameaças (inspirado em Aria/@architect)",./agents/architect.agent.md,subagent,web_fetch
+claude-integration-engineer,Henrique Hook,Henrique Hook,🪝,"Implementa a integração com Claude Code: Agent SDK, permissões, hooks, MCP do quadro, sessões e limites (Dex especializado)",./agents/claude-integration-engineer.agent.md,subagent,web_fetch
+desktop-engineer,Eduardo Electron,Eduardo Electron,🖥️,"Implementa a plataforma Electron: main, IPC/preload, persistência, SO macOS/Windows e empacotamento (Dex especializado)",./agents/desktop-engineer.agent.md,subagent,
+world-engineer,Vitor Voxel,Vitor Voxel,🧊,"Implementa o mundo three.js: engine pixelada, avatares, pathfinding, telas e game.ts (Dex especializado)",./agents/world-engineer.agent.md,subagent,
+ui-engineer,Fernanda Front,Fernanda Front,🎛️,"Implementa a interface: HUD, painel, cartões, modais, quadro, State e CSS com acessibilidade (Dex especializado)",./agents/ui-engineer.agent.md,subagent,
+qa-engineer,Tânia Teste,Tânia Teste,✅,"Quality gate: checagens, rastreabilidade AC → evidência, demo e capturas, veredito PASS/CONCERNS/FAIL/WAIVED (inspirada em Quinn/@qa)",./agents/qa-engineer.agent.md,subagent,
+security-engineer,Sílvia Sandbox,Sílvia Sandbox,🛡️,"Security gate: Electron, IPC, ponte local, permissões, injeção de prompt, supply chain; veredito CLEAR/CONDITIONS/BLOCK",./agents/security-engineer.agent.md,subagent,web_fetch
+release-engineer,Diego Deploy,Diego Deploy,🚀,"Semver, changelog, gates finais, PR, tag e release; autoridade exclusiva de push (inspirado em Gage/@devops)",./agents/release-engineer.agent.md,inline,
+devrel,Camila Comunidade,Camila Comunidade,📣,"Posicionamento, kit de lançamento, comunidade open source e loop de feedback",./agents/devrel.agent.md,inline,web_search

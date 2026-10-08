@@ -1,0 +1,325 @@
+name: "Pipeline — Squad Agent Office"
+version: "1.0.0"
+created: "2026-10-07"
+squad: "agent-office-squad"
+
+description: >
+  Ciclo AIOX adaptado ao opensquad: intake → triagem (track e complexidade) →
+  discovery e benchmark → PRD → UX e mundo → arquitetura → stories → validação do PO →
+  implementação por camada (integração, plataforma, mundo, interface) → quality gate →
+  security gate → docs e i18n → preparação do release → publicação → lançamento →
+  retrospectiva. O track aprovado no step-03 decide o que roda; steps fora do track
+  gravam uma nota de pulo de 3 linhas (ver pipeline/data/run-conventions.md).
+
+execution_mode: "interactive"
+max_review_cycles: 3
+
+tracks:
+  iniciativa: "Feature ou épico novo: ciclo completo"
+  entrega: "Story ou ticket já definido: stories → validação → implementação → gates → PR"
+  bugfix: "Defeito com reprodução: story de bug → validação → correção → gates → PR"
+  release: "Versão a publicar: regressão → auditoria → notas → release → lançamento"
+  discovery: "Estratégia sem código: discovery/benchmark → recomendação de PRD → retro"
+
+steps:
+  - id: step-01
+    name: "Intake da iniciativa"
+    type: checkpoint
+    file: steps/step-01-intake.md
+    outputFile: squads/agent-office-squad/output/01-intake.md
+
+  - id: step-02
+    name: "Triagem e plano da run"
+    type: agent
+    agent: orchestrator
+    execution: inline
+    tasks:
+      - triage-intake
+    file: steps/step-02-triage.md
+    inputFile: squads/agent-office-squad/output/01-intake.md
+    outputFile: squads/agent-office-squad/output/02-plan/run-plan.md
+    depends_on: step-01
+
+  - id: step-03
+    name: "Aprovação do plano da run"
+    type: checkpoint
+    file: steps/step-03-approve-plan.md
+    outputFile: squads/agent-office-squad/output/03-plan-approval.md
+    depends_on: step-02
+
+  - id: step-04
+    name: "Discovery e benchmark"
+    type: agent
+    agent: analyst
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - scan-competitors
+      - map-codebase-impact
+    file: steps/step-04-discovery.md
+    outputFile: squads/agent-office-squad/output/04-discovery/discovery-brief.md
+    depends_on: step-03
+
+  - id: step-05
+    name: "PRD / Épico"
+    type: agent
+    agent: product-manager
+    execution: inline
+    tasks:
+      - define-outcomes
+      - write-prd
+    file: steps/step-05-prd.md
+    outputFile: squads/agent-office-squad/output/05-prd/prd.md
+    depends_on: step-04
+
+  - id: step-06
+    name: "Aprovação do PRD e do escopo"
+    type: checkpoint
+    file: steps/step-06-approve-prd.md
+    outputFile: squads/agent-office-squad/output/06-prd-approval.md
+    depends_on: step-05
+
+  - id: step-07
+    name: "Especificação de UX"
+    type: agent
+    agent: ux-designer
+    execution: inline
+    tasks:
+      - map-flows-and-states
+      - specify-interface
+    file: steps/step-07-ux-spec.md
+    outputFile: squads/agent-office-squad/output/07-ux/ux-spec.md
+    depends_on: step-06
+
+  - id: step-08
+    name: "Especificação do mundo"
+    type: agent
+    agent: world-designer
+    execution: inline
+    tasks:
+      - design-world-behavior
+      - write-art-direction
+    file: steps/step-08-world-spec.md
+    outputFile: squads/agent-office-squad/output/08-world/world-spec.md
+    depends_on: step-06
+
+  - id: step-09
+    name: "Arquitetura e plano técnico"
+    type: agent
+    agent: architect
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - design-architecture
+      - record-decisions-and-threats
+    file: steps/step-09-architecture.md
+    outputFile: squads/agent-office-squad/output/09-architecture/architecture.md
+    depends_on: step-08
+
+  - id: step-10
+    name: "Stories"
+    type: agent
+    agent: scrum-master
+    execution: inline
+    tasks:
+      - draft-stories
+      - register-board-tickets
+    file: steps/step-10-stories.md
+    outputFile: squads/agent-office-squad/output/10-stories/stories.md
+    depends_on: step-09
+
+  - id: step-11
+    name: "Validação das stories (PO)"
+    type: agent
+    agent: product-owner
+    execution: inline
+    tasks:
+      - validate-stories
+    file: steps/step-11-po-validation.md
+    outputFile: squads/agent-office-squad/output/11-validation/po-validation.md
+    on_reject: step-10
+    depends_on: step-10
+
+  - id: step-12
+    name: "Seleção das stories da run"
+    type: checkpoint
+    file: steps/step-12-select-stories.md
+    outputFile: squads/agent-office-squad/output/12-story-selection.md
+    depends_on: step-11
+
+  - id: step-13
+    name: "Implementação — integração Claude Code"
+    type: agent
+    agent: claude-integration-engineer
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - implement-integration-stories
+    file: steps/step-13-implement-integration.md
+    outputFile: squads/agent-office-squad/output/13-integration/impl-report.md
+    depends_on: step-12
+
+  - id: step-14
+    name: "Implementação — plataforma desktop"
+    type: agent
+    agent: desktop-engineer
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - implement-platform-stories
+    file: steps/step-14-implement-platform.md
+    outputFile: squads/agent-office-squad/output/14-platform/impl-report.md
+    depends_on: step-13
+
+  - id: step-15
+    name: "Implementação — mundo 3D"
+    type: agent
+    agent: world-engineer
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - implement-world-stories
+    file: steps/step-15-implement-world.md
+    outputFile: squads/agent-office-squad/output/15-world/impl-report.md
+    depends_on: step-14
+
+  - id: step-16
+    name: "Implementação — interface"
+    type: agent
+    agent: ui-engineer
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - implement-ui-stories
+    file: steps/step-16-implement-ui.md
+    outputFile: squads/agent-office-squad/output/16-ui/impl-report.md
+    depends_on: step-15
+
+  - id: step-17
+    name: "Quality gate (QA)"
+    type: agent
+    agent: qa-engineer
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - run-quality-checks
+      - issue-gate-verdict
+    file: steps/step-17-qa-gate.md
+    outputFile: squads/agent-office-squad/output/17-qa/qa-gate.md
+    on_reject: step-13
+    depends_on: step-16
+
+  - id: step-18
+    name: "Security gate"
+    type: agent
+    agent: security-engineer
+    execution: subagent
+    model_tier: powerful
+    tasks:
+      - review-security
+    file: steps/step-18-security-gate.md
+    outputFile: squads/agent-office-squad/output/18-security/security-gate.md
+    on_reject: step-13
+    depends_on: step-17
+
+  - id: step-19
+    name: "Docs, i18n e notas de versão"
+    type: agent
+    agent: content-designer
+    execution: inline
+    tasks:
+      - review-copy-and-i18n
+      - write-docs-and-notes
+    file: steps/step-19-docs.md
+    outputFile: squads/agent-office-squad/output/19-docs/docs-report.md
+    depends_on: step-18
+
+  - id: step-20
+    name: "Preparação do release / PR"
+    type: agent
+    agent: release-engineer
+    execution: inline
+    tasks:
+      - prepare-release
+    file: steps/step-20-release-prep.md
+    outputFile: squads/agent-office-squad/output/20-release/release-plan.md
+    depends_on: step-19
+
+  - id: step-21
+    name: "Aprovação de publicação"
+    type: checkpoint
+    file: steps/step-21-approve-publish.md
+    outputFile: squads/agent-office-squad/output/21-publish-approval.md
+    depends_on: step-20
+
+  - id: step-22
+    name: "Publicação"
+    type: agent
+    agent: release-engineer
+    execution: inline
+    tasks:
+      - publish-release
+    file: steps/step-22-publish.md
+    outputFile: squads/agent-office-squad/output/22-publish/publish-report.md
+    depends_on: step-21
+
+  - id: step-23
+    name: "Kit de lançamento e comunidade"
+    type: agent
+    agent: devrel
+    execution: inline
+    tasks:
+      - build-launch-kit
+    file: steps/step-23-launch-kit.md
+    outputFile: squads/agent-office-squad/output/23-launch/launch-kit.md
+    depends_on: step-22
+
+  - id: step-24
+    name: "Encerramento e retrospectiva"
+    type: agent
+    agent: orchestrator
+    execution: inline
+    tasks:
+      - close-run
+    file: steps/step-24-close.md
+    outputFile: squads/agent-office-squad/output/24-close/run-summary.md
+    depends_on: step-23
+
+checkpoints:
+  - step-01  # intake: track, descrição, referências, quadro do escritório
+  - step-03  # aprovação do run-plan (track, complexidade, steps, orçamento)
+  - step-06  # aprovação do PRD e do escopo (Gate 1 do AIOX)
+  - step-12  # seleção das stories que serão implementadas
+  - step-21  # aprovação de push / PR / tag / release (ação irreversível)
+
+review_loops:
+  - { from: step-11, to: step-10, verdict_reject: "NEEDS_REVISION" }
+  - { from: step-17, to: step-13, verdict_reject: "FAIL" }
+  - { from: step-18, to: step-13, verdict_reject: "BLOCK" }
+
+output:
+  artifacts:
+    - output/01-intake.md
+    - output/02-plan/run-plan.md
+    - output/03-plan-approval.md
+    - output/04-discovery/discovery-brief.md
+    - output/05-prd/prd.md
+    - output/06-prd-approval.md
+    - output/07-ux/ux-spec.md
+    - output/08-world/world-spec.md
+    - output/09-architecture/architecture.md
+    - output/10-stories/stories.md
+    - output/11-validation/po-validation.md
+    - output/12-story-selection.md
+    - output/13-integration/impl-report.md
+    - output/14-platform/impl-report.md
+    - output/15-world/impl-report.md
+    - output/16-ui/impl-report.md
+    - output/17-qa/qa-gate.md
+    - output/18-security/security-gate.md
+    - output/19-docs/docs-report.md
+    - output/20-release/release-plan.md
+    - output/21-publish-approval.md
+    - output/22-publish/publish-report.md
+    - output/23-launch/launch-kit.md
+    - output/24-close/run-summary.md
