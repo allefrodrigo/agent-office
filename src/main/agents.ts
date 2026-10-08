@@ -19,11 +19,15 @@ import type {
 import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
 import { buildMessage } from './attachments'
 import { findClaude } from './claude-path'
+import { claudeNotFoundMessage } from './claude-messages'
 import { sessionIdForName } from './peers'
 import type { Store } from './store'
 
 const LOG_LIMIT = 400
 const PERSISTED_LOG = 150
+// Re-exported so the contract (ARQ: agents.ts) holds; the text lives in a module tests can load.
+export { claudeNotFoundMessage }
+
 export const DESK_COUNT = 10
 
 /** A plain string, or content blocks when the message carries attachments. */
@@ -279,10 +283,7 @@ export class AgentManager extends EventEmitter {
     const claude = findClaude()
     if (!claude) {
       this.deliver(agent, {
-        text:
-          'Não encontrei o Claude Code neste computador.\n\n' +
-          'Instale com `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) ou veja https://code.claude.com/docs, ' +
-          'faça login rodando `claude` uma vez no terminal e tente de novo.',
+        text: claudeNotFoundMessage(process.platform),
         isError: true,
         costUsd: s.costUsd,
         durationMs: 0,

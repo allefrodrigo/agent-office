@@ -5,6 +5,7 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "strict": true,
+    "allowImportingTsExtensions": true,
     "noUnusedLocals": true,
     "skipLibCheck": true,
     "composite": true,
