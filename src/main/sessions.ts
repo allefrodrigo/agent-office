@@ -1,11 +1,12 @@
 import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, resolve as resolvePath } from 'node:path'
 import { getSessionInfo, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
-import type { LogEntry, SessionEntry } from '@shared/types'
+import type { LogEntry, OpenTerminalResult, SessionEntry } from '@shared/types'
 import { toolDetail } from './agents'
 import { findClaude } from './claude-path'
+import { launchOnWindows } from './terminal-launch'
 
 /**
  * Resume center: recent Claude Code sessions saved on this machine
@@ -86,18 +87,37 @@ export async function transcript(sessionId: string, keep = 80): Promise<{ log: L
   return { log: tail, model }
 }
 
-/** Opens a new Terminal window running `claude --resume <id>` in the session's folder (macOS). */
-export function openInTerminal(sessionId: string, cwd: string): Promise<{ ok: boolean; message?: string }> {
+const OPEN_THROTTLE_MS = 1500
+let lastOpen = 0
+
+/**
+ * Runs `claude --resume <id>` in the session's folder: a new Terminal window on
+ * macOS; a Windows Terminal tab or a console window of its own on Windows.
+ * `cwd` comes from ~/.claude, so it is untrusted: absolute, existing, no control
+ * characters; on Windows only a .exe runs (a .cmd/.ps1 would need a shell).
+ */
+export function openInTerminal(sessionId: string, cwd: string): Promise<OpenTerminalResult> {
   if (!isSessionId(sessionId)) return Promise.resolve({ ok: false, message: 'ID de sessão inválido.' })
+  // One terminal per click burst: a compromised or stuck renderer cannot open dozens.
+  const now = Date.now()
+  if (now - lastOpen < OPEN_THROTTLE_MS) return Promise.resolve({ ok: false, message: 'Já estou abrindo um terminal.' })
+  lastOpen = now
+  if (!isAbsolute(cwd) || /[\u0000-\u001f\u007f]/.test(cwd)) return Promise.resolve({ ok: false, message: 'A pasta dessa sessão é inválida.' })
   if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return Promise.resolve({ ok: false, message: `A pasta ${cwd} não existe mais.` })
-  if (process.platform !== 'darwin') return Promise.resolve({ ok: false, message: 'Abrir no terminal ainda só funciona no Mac. Use "Copiar comando".' })
+
+  if (process.platform === 'win32') {
+    const exe = findClaude()
+    if (!exe || !exe.toLowerCase().endsWith('.exe')) return Promise.resolve({ ok: false, message: 'Não encontrei o Claude Code neste computador.' })
+    return launchOnWindows(resolvePath(cwd), exe, sessionId)
+  }
+  if (process.platform !== 'darwin') return Promise.resolve({ ok: false, message: 'Abrir no terminal funciona no Mac e no Windows. Use "Copiar comando".' })
   // A .command file opens in Terminal without needing Automation permission.
   // Paths go in single quotes; the session id is a validated UUID.
   const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
   const file = join(tmpdir(), `agent-office-resume-${sessionId}.command`)
   writeFileSync(file, `#!/bin/zsh -l\ncd -- ${q(cwd)} && exec ${q(findClaude() ?? 'claude')} --resume ${sessionId}\n`, { mode: 0o700 })
   return new Promise((resolve) => {
-    execFile('open', ['-a', 'Terminal', file], (err) => resolve(err ? { ok: false, message: err.message } : { ok: true }))
+    execFile('open', ['-a', 'Terminal', file], (err) => resolve(err ? { ok: false, message: err.message } : { ok: true, via: 'terminal-app' }))
   })
 }
 
