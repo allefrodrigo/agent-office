@@ -50,11 +50,12 @@ Pesquisa feita em 2026-10-07 (pesquisa web + leitura de READMEs). Confiança: **
 ### App desktop oficial do Claude Code
 - Redesenho em meados de abril/2026: barra lateral de sessões paralelas, layout arrastável, terminal e editor integrados, **isolamento por worktree** (média — imprensa e blogs; detalhes como worktree automático vs. opcional divergem).
 - Incluso nos planos Pro/Max/Team/Enterprise; só modelos Claude (média).
+- No Windows é distribuído como pacote MSIX (`C:\Program Files\WindowsApps\Claude_…`) e seu processo se chama `claude.exe`, igual ao CLI — quem conta processos por nome mistura os dois (alta — documentação oficial + inspeção local, 2026-10-07).
 - **Leitura**: maior risco de plataforma; o Agent Office não deve competir em "abas de sessão" e sim em governança espacial, quadro operado por agentes e ponte com terminal.
 
 ### Conductor (Mac)
 - Cada workspace com sua worktree e branch; roda Claude Code, Codex e Cursor lado a lado; visualizador de diff; gratuito, usa o login existente; v0.63.0 (jun/2026) trouxe Cursor e "Dispatcher"; `.worktreeinclude` para arquivos não versionados (média).
-- Só macOS (média).
+- Só macOS Apple Silicon; sem anúncio de Windows; lançou o "Conductor Cloud" (média — agregadores, 2026-10-07).
 
 ### Nimbalyst (sucessor do Crystal)
 - Kanban + diffs inline + worktrees; Crystal descontinuado em fev/2026 apontando para o Nimbalyst (média).
@@ -79,8 +80,11 @@ Pesquisa feita em 2026-10-07 (pesquisa web + leitura de READMEs). Confiança: **
 
 ### Agent Teams e mensagens entre sessões (Claude Code)
 - Agent Teams: experimental, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1`, v2.1.32+; líder + teammates com contexto próprio, mensagens diretas (`SendMessage`); relatos de que `TeamCreate` saiu na v2.1.178 e teammates nascem pela ferramenta `Agent` (média/baixa — não confirmado no changelog).
-- Mensagens entre sessões independentes: v2.1.224 (07/08/2026), macOS e Linux; Windows só via WSL 2; descoberta por `ListAgents` (alta — documentação oficial).
-- **Leitura**: a animação de conversa entre sessões do Agent Office não aparece no Windows nativo; subagentes/teammates ainda não são visualizados.
+- Mensagens entre sessões independentes: macOS, Linux e WSL 2 desde v2.1.224 (07/08/2026); **Windows nativo desde v2.1.234** (named pipe por sessão; conexões exigem token no Windows); sessão no WSL 2 e sessão nativa na mesma máquina não se falam; descoberta por `ListAgents` (alta — documentação oficial, 2026-10-07).
+- **Leitura**: a animação de conversa entre sessões do Agent Office pode funcionar no Windows nativo (`peers.ts` já lê `name`/`sessionId`; não verificado); subagentes/teammates ainda não são visualizados.
+
+### Claude Code no Windows nativo (nota técnica)
+- Instalador `install.ps1` (`irm https://claude.ai/install.ps1 | iex`) em `%USERPROFILE%\.local\bin\claude.exe`; também npm (`%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe`; o npm só cria `claude.cmd`/`claude.ps1` em `%APPDATA%\npm`) e WinGet (`Anthropic.ClaudeCode`); Git Bash opcional (sem ele, ferramenta PowerShell); sem sandboxing no nativo (alta — documentação oficial + inspeção local, 2026-10-07).
 
 ## 3. Matriz de capacidades
 
@@ -101,7 +105,7 @@ Legenda: ✅ tem · ◐ parcial · ✗ não tem · ? não documentado.
 | Subagentes / teams visíveis | ◐ (só conversa entre sessões) | ✅ | ✗ (roadmap) | ✗ | ◐ | ? | ✗ | ✗ | ? |
 | Editor/customização do escritório | ✗ | ✅ | ? | ✗ | — | — | — | — | — |
 | Remoto/celular | ✗ | ◐ (navegador) | ◐ (web) | ✗ | ◐ | ✗ | ◐ | ✅ | ✗ |
-| Plataformas | macOS arm64, Windows (porte) | VS Code (Win/Mac/Linux), navegador | web/Node | web local | macOS, Windows | macOS | web local | web, VS Code, CLI, celular | macOS, Windows, Linux |
+| Plataformas | macOS arm64, Windows (porte; na v0.2.0 o `claude.exe` instalado via npm não era detectado — corrigido na run `2026-10-07-185405`, ainda não lançada) | VS Code (Win/Mac/Linux), navegador | web/Node | web local | macOS, Windows | macOS | web local | web, VS Code, CLI, celular | macOS, Windows, Linux |
 | Licença / preço | MIT (privado) | MIT, grátis | Apache-2.0 | MIT | incluso no plano | grátis | open source (comunidade) | Copilot pago | grátis (indivíduos) |
 
 ## 4. Conclusões estratégicas
@@ -110,7 +114,7 @@ Legenda: ✅ tem · ◐ parcial · ✗ não tem · ? não documentado.
 2. **O líder vem na nossa direção.** O roadmap do Pixel Agents inclui barras de limite, orquestração e quadro. Prioridade: consolidar o que já temos e que ele não tem (decisões no app, quadro com MCP, limites/contexto) com polimento e distribuição.
 3. **Paridade mínima com as mesas de controle**: worktree por agente, revisão de diff e PR viraram expectativa (app oficial, Conductor, Vibe Kanban, Cursor, Agent HQ, Antigravity).
 4. **Caixa de decisões é padrão**: Antigravity e Agent HQ têm inbox; o nosso "agente vem até você" é a versão memorável — manter também a caixa de entrada clássica eficiente (teclado, lote).
-5. **Windows é diferencial**: Conductor é só Mac, Claude Squad exige WSL, o AIOX Cockpit sofre no Windows. Windows impecável é vantagem competitiva — e metade dos sócios usa Windows.
+5. **Windows é diferencial**: Conductor é só Mac, Claude Squad exige WSL, o AIOX Cockpit sofre no Windows. Windows impecável é vantagem competitiva — e metade dos sócios usa Windows. Frente às plataformas (app oficial, Antigravity), é paridade; o diferencial está nos GUIs de sessões paralelas (Conductor só Mac, Claude Squad via WSL, AIOX Cockpit instável) (média).
 6. **Acessibilidade e i18n quase não existem nos concorrentes** — oportunidade de qualidade e de mercado (en-US abre o mercado global; pt-BR segura a comunidade local).
 7. **Ecossistema brasileiro de squads** (AIOX, opensquad) quer cockpits/escritórios e ainda só observa ou é instável: integrar squads ao Agent Office (ler `state.json`, checkpoints como cartões) é uma cunha de distribuição.
 8. **Sustentabilidade**: Vibe Kanban (empresa encerrada), Opcode (manutenção parada) e Crystal (descontinuado) mostram o risco de produtos populares sem modelo de negócio. Decidir cedo entre open source puro, open core ou recursos pagos de time.
@@ -142,3 +146,5 @@ Provas para comunicar: aprovar permissão/pergunta/plano no escritório; ticket 
 - Greenlight — https://aigreenlight.app/
 - Monitores de uso — https://github.com/ryoppippi/ccusage · https://github.com/Maciek-roboblog/Claude-Code-Usage-Monitor · https://github.com/lionhylra/cc-usage-bar · https://github.com/svenedik/cli-usage-bar
 - Agent Teams e mensagens entre sessões — https://code.claude.com/docs/en/agent-teams · https://code.claude.com/docs/en/cross-session-messaging
+- Claude Code no Windows (instalação nativa, npm, WinGet) — https://code.claude.com/docs/en/setup
+- Conductor (atualização de 2026-10-07) — https://www.conductor.build/workflows/run-parallel-claude-codes · agregadores citados no discovery da run `2026-10-07-185405`

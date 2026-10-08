@@ -8,8 +8,8 @@ import { posix, win32 } from 'node:path'
 
 export const OPEN_THROTTLE_MS = 1500
 export const BUSY_MESSAGE = 'Já estou abrindo um terminal.'
-export const INVALID_CWD_MESSAGE = 'A pasta dessa sessão é inválida.'
-export const NO_CLAUDE_MESSAGE = 'Não encontrei o Claude Code neste computador.'
+export const INVALID_CWD_MESSAGE = 'A pasta dessa sessão é inválida. Abra um terminal na pasta do projeto e use "Copiar comando".'
+export const NO_CLAUDE_MESSAGE = 'Não encontrei o Claude Code neste computador. Instale e tente de novo, ou use "Copiar comando".'
 
 export type GuardResult = { ok: true; exe?: string } | { ok: false; message: string }
 export type IsDir = (path: string) => boolean

@@ -29,11 +29,12 @@ Convenções observadas no código atual (v0.2.0) e regras que o squad segue. Qu
 |---|---|
 | Instalar | `npm install` (se faltar o binário: `node node_modules/electron/install.js`) |
 | Rodar | `npm run dev` |
-| Demo sem tokens | `npm run demo` (zsh) · `$env:AGENT_OFFICE_DEMO=1; npm run dev` (PowerShell) |
+| Demo sem tokens | `npm run demo` (zsh, PowerShell e CMD; `scripts/demo.mjs`) |
 | Tipos | `npm run typecheck` |
+| Testes | `npm test` (`node --test "src/**/*.test.ts"`; Node ≥ 22.18) |
 | Build sem empacotar | `npm run build` |
 | Pacote Mac | `npm run dist:mac` (só em Mac; arm64; assinatura ad-hoc) |
-| Pacote Windows | `npm run dist:win` (só em Windows; NSIS x64) |
+| Pacote Windows | `npm run dist:win` (só em Windows; NSIS x64 e arm64 em instaladores separados, não assinados; arm64 não verificado) |
 | Ícone | `npm run icon` |
 
 Helpers de desenvolvimento: `AGENT_OFFICE_SHOTS`, `AGENT_OFFICE_EVAL`, `AGENT_OFFICE_DATA_DIR`, `AGENT_OFFICE_SEED`, `AGENT_OFFICE_CLAUDE`, `AGENT_OFFICE_DEMO` (detalhes e sintaxe PowerShell em `run-conventions.md` §8).
@@ -42,7 +43,7 @@ Helpers de desenvolvimento: `AGENT_OFFICE_SHOTS`, `AGENT_OFFICE_EVAL`, `AGENT_OF
 
 | Item | Hoje | Alvo |
 |---|---|---|
-| Testes unitários | inexistentes | Vitest para main e shared (sem Electron), começando por `cleanDraft`, `hookDecision`, `permissionFromTool`, `sniff`/`buildMessage`, `describeTool`, `ticketBrief`, `lookFromSeed` |
+| Testes unitários | `node:test` nativo (ADR 0009, run `2026-10-07-185405`): `npm test` roda `src/**/*.test.ts` (65 testes na entrega); cobre só os módulos puros do porte para Windows (`claude-path`, `badge`, `window-frame`, `win-processes`, `terminal-launch`, `resume-guard`, `session-process`, `claude-messages`, `shared/commands`, `ui/os-text`) | estender a `cleanDraft`, `hookDecision`, `permissionFromTool`, `sniff`/`buildMessage`, `describeTool`, `ticketBrief`, `lookFromSeed`; Vitest só se precisar de alias ou mock de Electron (ADR próprio) |
 | Testes de integração | inexistentes | `AgentManager` com SDK simulado (fixtures de `SDKMessage`), `Bridge` com requisições HTTP reais em porta aleatória |
 | E2E | inexistente | Playwright para Electron com `AGENT_OFFICE_DEMO=1` e `AGENT_OFFICE_DATA_DIR` temporário |
 | Regressão visual | manual | capturas `AGENT_OFFICE_SHOTS` comparadas por story |
@@ -50,7 +51,11 @@ Helpers de desenvolvimento: `AGENT_OFFICE_SHOTS`, `AGENT_OFFICE_EVAL`, `AGENT_OF
 | CI | inexistente | GitHub Actions: typecheck + build + testes em `macos-latest` e `windows-latest` |
 | Cobertura | — | não diminuir depois que existir |
 
-Até a story de infraestrutura de testes ser entregue, o quality gate aceita evidência manual/visual e marca a ausência de teste automatizado como CONCERNS (ver `quality-criteria.md`). Depois dela, lógica nova sem teste é FAIL.
+O test runner existe desde a run `2026-10-07-185405` (Q-1 do checkpoint 12): **lógica nova sem teste é FAIL** no quality gate. Regras do `node:test`:
+
+- Funções testadas moram em módulos que só importam `node:*` e `import type` (o Node não resolve o alias `@shared/*` nem o SDK); lógica com efeitos recebe dependências injetadas (padrão de `WindowsClaude`, `ClaudeIdentities`, `createOpenGuard`).
+- Testes importam com a extensão `.ts` (`allowImportingTsExtensions: true` nos dois tsconfig). Em código de produção, preferir import sem extensão; `session-process.ts` importa `./win-processes.ts` com extensão (funciona porque o bundler resolve) — convenção a padronizar (QA-11).
+- Exige Node ≥ 22.18 de quem roda os testes (o app continua com Node 20+).
 
 ## 5. Definition of Done (por story)
 
@@ -69,8 +74,19 @@ Até a story de infraestrutura de testes ser entregue, o quality gate aceita evi
 - Ramificar com `process.platform` explícito e comentário do motivo. Nunca supor caminhos POSIX.
 - Caminhos com `node:path` (`join`, `sep`, `delimiter`); nunca concatenar com `/`.
 - Processos externos com `execFile` (sem shell), `timeout` e `windowsHide: true`.
-- Diferenças conhecidas: badge (`app.dock.setBadge` no Mac; `setBadgeCount` não funciona no Windows → usar `win.setOverlayIcon`), barra de título (`hiddenInset` só no Mac), PID por porta (`lsof` × `netstat -ano`), checagem de processo (`ps` × `tasklist`), sinais (Windows não tem SIGHUP e trata SIGTERM como encerramento forçado), CPU dos processos `claude` (`null` no Windows), abrir no Terminal (só Mac), PATH do shell de login (só macOS/Linux), mensagens entre sessões do Claude Code (oficial só macOS/Linux).
-- Scripts npm devem rodar em PowerShell e zsh: não usar `VAR=x cmd` em `package.json` (o `npm run demo` atual viola isso — dívida conhecida).
+- Diferenças conhecidas (estado da branch da run `2026-10-07-185405`):
+  - badge: `app.dock.setBadge` no Mac; overlay `win.setOverlayIcon` no Windows, com PNG gerado em `badge.ts` e descrição acessível; `setBadgeCount` só no Linux;
+  - chamada de atenção: `dock.bounce` no Mac; `flashFrame(true)` no Windows com a janela sem foco, desligado no `focus`;
+  - barra de título: `hiddenInset` no Mac; `hidden` + `titleBarOverlay` no Windows (`window-frame.ts`), com UI nova perto do topo respeitando 32 px e ~138 px dos botões nativos; moldura padrão no Linux;
+  - PID por porta (`lsof` × `netstat -ano`); checagem de processo (`ps` × CIM por PID com nome exato, caminho fora do Claude Desktop e horário de criação; sem PowerShell, `tasklist` com nome exato);
+  - sinais: o Windows não tem SIGHUP e trata SIGTERM como `TerminateProcess` — exceção declarada do I-11 (ADR 0005);
+  - CPU dos processos `claude`: no Windows, amostra CIM a cada `sampleEveryMs(cores)` (15–60 s), separando o Claude Desktop pelo caminho; PowerShell bloqueado → `null`;
+  - abrir no terminal: Terminal (`.command`) no Mac; Windows Terminal (`wt.exe` sem shell) ou console próprio no Windows; indisponível no Linux;
+  - comando copiado: `cd '…' && claude --resume` no Mac/Linux; `Set-Location -LiteralPath '…'; claude --resume` no Windows (PowerShell 5.1; não roda no CMD);
+  - executável do Claude Code: no Windows só `claude.exe` (nunca `.cmd`/`.ps1`, que exigem shell);
+  - PATH do shell de login: só macOS/Linux;
+  - mensagens entre sessões do Claude Code: macOS, Linux e WSL 2 desde 2.1.224; Windows nativo desde 2.1.234 (named pipe).
+- Scripts npm devem rodar em PowerShell, CMD e zsh: não usar `VAR=x cmd` em `package.json`; quando precisar de variável de ambiente, usar um script Node em `scripts/` (padrão de `scripts/demo.mjs`, ADR 0008). Dívida do `npm run demo` quitada.
 
 ## 7. Acessibilidade (base)
 

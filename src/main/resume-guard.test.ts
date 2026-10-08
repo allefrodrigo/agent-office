@@ -14,7 +14,7 @@ test('checkResumeTarget: relative or control characters are refused with the sam
   for (const cwd of ['x\\y', 'C:\\a\nb', 'C:\\a\u007fb', 'C:\\a\tb', 'C:\\a\u0000b']) {
     assert.deepEqual(checkResumeTarget(cwd, 'win32', EXE, exists), { ok: false, message: INVALID_CWD_MESSAGE }, JSON.stringify(cwd))
   }
-  assert.equal(INVALID_CWD_MESSAGE, 'A pasta dessa sessão é inválida.')
+  assert.equal(INVALID_CWD_MESSAGE, 'A pasta dessa sessão é inválida. Abra um terminal na pasta do projeto e use "Copiar comando".')
   assert.deepEqual(checkResumeTarget('x/y', 'darwin', undefined, exists), { ok: false, message: INVALID_CWD_MESSAGE })
   assert.deepEqual(checkResumeTarget('/Users/a\nb', 'darwin', undefined, exists), { ok: false, message: INVALID_CWD_MESSAGE })
 })
@@ -30,7 +30,7 @@ test('checkResumeTarget win32: only a .exe runs (no .cmd, .ps1 or missing claude
   for (const exe of ['C:\\npm\\claude.cmd', 'C:\\npm\\claude.ps1', undefined, '']) {
     assert.deepEqual(checkResumeTarget('C:\\x', 'win32', exe, exists), { ok: false, message: NO_CLAUDE_MESSAGE }, String(exe))
   }
-  assert.equal(NO_CLAUDE_MESSAGE, 'Não encontrei o Claude Code neste computador.')
+  assert.equal(NO_CLAUDE_MESSAGE, 'Não encontrei o Claude Code neste computador. Instale e tente de novo, ou use "Copiar comando".')
 })
 
 test('checkResumeTarget darwin: no exe needed, POSIX absolute path accepted', () => {
