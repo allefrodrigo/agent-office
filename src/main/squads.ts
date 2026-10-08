@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { AgentDefinition, HookCallbackMatcher } from '@anthropic-ai/claude-agent-sdk'
 import { parse } from 'yaml'
 import type { SquadInfo, SquadMember, SquadProgress, SquadStep } from '@shared/types'
@@ -49,7 +49,9 @@ export function squadInfo(s: SquadDefinition): SquadInfo {
 
 function loadSquad(cwd: string, dir: string): SquadDefinition {
   const y = (parse(readFileSync(join(dir, 'squad.yaml'), 'utf8')) ?? {}) as Record<string, unknown>
-  const code = str(y.code) || dir.split(/[\\/]/).pop()!
+  // The code builds paths (state.json, the watcher) and goes into the orchestrator prompt: keep it plain.
+  const folder = dir.split(/[\\/]/).pop()!
+  const code = /^[\w-]+$/.test(str(y.code)) ? str(y.code) : folder
   const members: SquadMember[] = []
   const prompts: Record<string, string> = {}
   for (const raw of Array.isArray(y.agents) ? y.agents : []) {
@@ -217,7 +219,7 @@ function frontmatter(text: string): { meta: Record<string, unknown>; body: strin
 function inside(dir: string, rel: string): string | null {
   const p = resolve(dir, rel)
   const r = relative(dir, p)
-  return r && !r.startsWith('..') && !r.startsWith('/') ? p : null
+  return r && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r) ? p : null
 }
 
 function str(v: unknown): string {
