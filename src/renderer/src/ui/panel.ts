@@ -5,6 +5,7 @@ import { formatCost, h, icon } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
 import { cleanError } from './modals'
+import { osText } from './os-text'
 import { portrait } from './portrait'
 
 export interface PanelActions {
@@ -178,7 +179,7 @@ export class AgentPanel {
       h(
         'div',
         { class: 'panel-meta' },
-        h('button', { class: 'meta-path', title: 'Mostrar no Finder', onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 13), shortPath(a.cwd)),
+        h('button', { class: 'meta-path', title: osText(this.state.platform).revealTitle, onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 13), shortPath(a.cwd)),
         a.model ? h('span', { class: 'meta-item' }, a.model) : null,
         a.costUsd ? h('span', { class: 'meta-item' }, formatCost(a.costUsd)) : null,
       ),

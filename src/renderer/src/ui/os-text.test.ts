@@ -1,0 +1,40 @@
+import { test } from 'node:test'
+import assert from 'node:assert/strict'
+import { osText } from './os-text.ts'
+
+test('osText darwin: the exact texts of v0.2.0', () => {
+  const t = osText('darwin')
+  assert.equal(t.revealTitle, 'Mostrar no Finder')
+  assert.equal(t.cpuTitle, 'Uso de CPU do Mac inteiro')
+  assert.equal(t.ramTitle, 'Memória em uso, como no Monitor de Atividade')
+  assert.equal(t.agentsTitle, 'Todos os processos claude: agentes do escritório e sessões do terminal')
+  assert.equal(
+    t.closeSessionText('dev/app'),
+    'O Claude Code rodando no terminal em …/dev/app vai ser encerrado, como se você fechasse aquela aba.\nA conversa fica salva: dá para voltar com claude --resume.',
+  )
+  assert.equal(t.copiedToast, 'Comando copiado. Cole no terminal.')
+})
+
+test('osText win32: Windows names, honest close text and PowerShell toast', () => {
+  const t = osText('win32')
+  assert.equal(t.revealTitle, 'Mostrar no Explorador')
+  assert.equal(t.cpuTitle, 'Uso de CPU do computador inteiro')
+  assert.equal(t.ramTitle, 'Memória em uso, como no Gerenciador de Tarefas')
+  assert.match(t.agentsTitle, /sem o app Claude Desktop/)
+  assert.equal(
+    t.closeSessionText('Repo/app'),
+    'O Claude Code rodando no terminal em …/Repo/app vai ser encerrado na hora (o Windows não tem fechamento suave).\nA conversa fica salva: dá para voltar com claude --resume.',
+  )
+  assert.equal(t.copiedToast, 'Comando copiado para o PowerShell.')
+})
+
+test('osText linux and unknown: neutral texts without Mac or Windows names', () => {
+  for (const p of ['linux', 'freebsd', '']) {
+    const t = osText(p)
+    assert.equal(t.revealTitle, 'Mostrar na pasta')
+    assert.equal(t.cpuTitle, 'Uso de CPU do computador inteiro')
+    assert.equal(t.ramTitle, 'Memória em uso')
+    const all = [t.revealTitle, t.cpuTitle, t.ramTitle, t.agentsTitle, t.closeSessionText('a/b'), t.copiedToast].join(' ')
+    assert.doesNotMatch(all, /Mac|Finder|Monitor de Atividade|Windows|Explorador|Gerenciador|PowerShell/)
+  }
+})
