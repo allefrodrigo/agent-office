@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { osText } from './os-text.ts'
+import { osText, terminalError, terminalToast } from './os-text.ts'
 
 test('osText darwin: the exact texts of v0.2.0', () => {
   const t = osText('darwin')
@@ -37,4 +37,21 @@ test('osText linux and unknown: neutral texts without Mac or Windows names', () 
     const all = [t.revealTitle, t.cpuTitle, t.ramTitle, t.agentsTitle, t.closeSessionText('a/b'), t.copiedToast].join(' ')
     assert.doesNotMatch(all, /Mac|Finder|Monitor de Atividade|Windows|Explorador|Gerenciador|PowerShell/)
   }
+})
+
+test('terminalToast: one text per via; without via it depends on the OS', () => {
+  for (const platform of ['darwin', 'win32', 'linux']) {
+    assert.equal(terminalToast('windows-terminal', platform), 'Abrindo a sessão no Windows Terminal.')
+    assert.equal(terminalToast('console', platform), 'Abrindo a sessão num terminal novo.')
+    assert.equal(terminalToast('terminal-app', platform), 'Abrindo a sessão no Terminal.')
+  }
+  assert.equal(terminalToast(undefined, 'darwin'), 'Abrindo a sessão no Terminal.') // v0.2.0
+  assert.equal(terminalToast(undefined, 'win32'), 'Abrindo a sessão num terminal novo.')
+})
+
+test('terminalError: the main process message wins; fallback by OS, darwin as in v0.2.0', () => {
+  assert.equal(terminalError('Já estou abrindo um terminal.', 'darwin'), 'Já estou abrindo um terminal.')
+  assert.equal(terminalError('A pasta dessa sessão é inválida.', 'win32'), 'A pasta dessa sessão é inválida.')
+  assert.equal(terminalError(undefined, 'darwin'), 'Não consegui abrir o Terminal.')
+  assert.equal(terminalError(undefined, 'win32'), 'Não consegui abrir o terminal. Use "Copiar comando".')
 })

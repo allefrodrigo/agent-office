@@ -56,3 +56,18 @@ const OTHER: OsText = {
 export function osText(platform: string): OsText {
   return platform === 'darwin' ? DARWIN : platform === 'win32' ? WIN32 : OTHER
 }
+
+/** Same values as TerminalVia in shared/types.ts (kept local: this module has no imports). */
+export type TerminalViaName = 'terminal-app' | 'windows-terminal' | 'console'
+
+/** Toast after "Abrir no terminal" succeeds, by where the main process opened the session. */
+export function terminalToast(via: TerminalViaName | undefined, platform: string): string {
+  if (via === 'windows-terminal') return 'Abrindo a sessão no Windows Terminal.'
+  if (via === 'console' || (via === undefined && platform !== 'darwin')) return 'Abrindo a sessão num terminal novo.'
+  return 'Abrindo a sessão no Terminal.'
+}
+
+/** Toast when "Abrir no terminal" fails: the main process message, or a fallback by OS. */
+export function terminalError(message: string | undefined, platform: string): string {
+  return message ?? (platform === 'darwin' ? 'Não consegui abrir o Terminal.' : 'Não consegui abrir o terminal. Use "Copiar comando".')
+}

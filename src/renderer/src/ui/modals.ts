@@ -1,9 +1,9 @@
 import { resumeCommand } from '@shared/commands'
 import { AGENT_NAMES, HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
-import type { Look, OfficePermissionMode, OpenTerminalResult, SessionEntry } from '@shared/types'
+import type { Look, OfficePermissionMode, SessionEntry } from '@shared/types'
 import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
-import { osText } from './os-text'
+import { osText, terminalError, terminalToast } from './os-text'
 import { portrait } from './portrait'
 
 export const LAST_CWD = 'agent-office:last-cwd'
@@ -356,12 +356,6 @@ export function openResume(
   const mac = state.platform === 'darwin'
   /** "Terminal" is the Mac app's name; elsewhere it means any terminal. */
   const terminalLabel = mac ? 'Abrir no Terminal' : 'Abrir no terminal'
-  const openingToast = (via: OpenTerminalResult['via']): string =>
-    via === 'windows-terminal'
-      ? 'Abrindo a sessão no Windows Terminal.'
-      : via === 'console' || (via === undefined && !mac)
-        ? 'Abrindo a sessão num terminal novo.'
-        : 'Abrindo a sessão no Terminal.'
 
   const row = (s: SessionEntry): HTMLElement => {
     const owner = [...state.agents.values()].find((a) => a.sessionId === s.sessionId)
@@ -394,8 +388,8 @@ export function openResume(
                 'aria-label': terminalLabel,
                 onclick: async () => {
                   const r = await window.office.openInTerminal(s.sessionId)
-                  if (r.ok) actions.toast(openingToast(r.via), 'ok')
-                  else actions.toast(r.message ?? (mac ? 'Não consegui abrir o Terminal.' : 'Não consegui abrir o terminal. Use "Copiar comando".'), 'err')
+                  if (r.ok) actions.toast(terminalToast(r.via, state.platform), 'ok')
+                  else actions.toast(terminalError(r.message, state.platform), 'err')
                 },
               }, icon('terminal', 15))
             : null,
