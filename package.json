@@ -14,7 +14,7 @@
     "test": "node --test \"src/**/*.test.ts\"",
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
-    "demo": "AGENT_OFFICE_DEMO=1 electron-vite dev",
+    "demo": "node scripts/demo.mjs",
     "icon": "node scripts/make-icon.mjs"
   },
   "dependencies": {
