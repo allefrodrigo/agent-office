@@ -57,7 +57,9 @@ export class TicketDesk {
           name: '',
           cwd: t.cwd,
           task: ticketBrief(t),
-          model: target.hire.model ?? (s.defaultModel || undefined),
+          model: 'model' in target.hire ? target.hire.model : s.defaultModel || undefined,
+          effort: 'effort' in target.hire ? target.hire.effort : s.defaultEffort || undefined,
+          accounts: target.hire.accounts,
           // Tickets may come from other people or agents: never run one with "bypass".
           permissionMode: mode === 'bypassPermissions' ? 'default' : mode,
         },

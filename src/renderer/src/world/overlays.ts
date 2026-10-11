@@ -11,6 +11,7 @@ export class Tag {
   private bubbleEl: HTMLDivElement
   private heartsEl: HTMLSpanElement
   private helpersEl: HTMLSpanElement
+  private accountEl: HTMLSpanElement
   private bubbleText = ''
   private bubbleKind: BubbleKind | null = null
   hidden = false
@@ -35,7 +36,9 @@ export class Tag {
     this.heartsEl.className = 'hearts hidden'
     this.helpersEl = document.createElement('span')
     this.helpersEl.className = 'helpers hidden'
-    pill.append(this.dotEl, this.nameEl, this.helpersEl, this.heartsEl)
+    this.accountEl = document.createElement('span')
+    this.accountEl.className = 'tag-account hidden'
+    pill.append(this.dotEl, this.nameEl, this.accountEl, this.helpersEl, this.heartsEl)
     this.el.append(this.bubbleEl, pill)
     if (onClick) {
       pill.addEventListener('click', onClick)
@@ -64,6 +67,17 @@ export class Tag {
     this.helpersEl.textContent = text
     this.helpersEl.className = n ? 'helpers' : 'helpers hidden'
     this.helpersEl.title = n === 1 ? '1 ajudante trabalhando' : `${n} ajudantes trabalhando`
+  }
+
+  /** The account the agent runs on, as a tinted chip; null hides it. */
+  setAccount(name: string | null, color = ''): void {
+    const key = name ? `${name}|${color}` : ''
+    if (this.accountEl.dataset.key === key) return
+    this.accountEl.dataset.key = key
+    this.accountEl.textContent = name ?? ''
+    this.accountEl.className = name ? 'tag-account' : 'tag-account hidden'
+    this.accountEl.style.setProperty('--acct', color)
+    this.accountEl.title = name ? `Conta ${name}` : ''
   }
 
   setDot(status: string): void {

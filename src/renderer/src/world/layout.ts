@@ -153,34 +153,40 @@ export function inBossRoom(x: number, z: number): boolean {
   return x >= 0 && x < 9 && z >= 0 && z < 9
 }
 
-// ---------- squad floor (1º andar) ----------
+// ---------- project floors (1º andar and up) ----------
 // Same footprint and elevator as the ground floor. Diretoria top-right around the
 // elevator, so orchestrators and members step straight in and out of it; a lobby
-// top-left, a corridor across the middle and up to six sector rooms around it.
+// top-left; the team rooms with the project's agents along the back wall; a corridor
+// across the middle and the squad sectors in front of it.
 
 export const DEFAULT_SECTOR = 'Equipe'
-const MAX_DESKS_PER_SECTOR = 6
-/** Sector rooms, filled in this order: the ones nearest the Diretoria first. */
-const SECTOR_SLOTS: { rect: [number, number, number, number]; top: boolean }[] = [
-  { rect: [14, 0, 22, 10], top: true },
-  { rect: [6, 0, 14, 10], top: true },
-  { rect: [24, 13, 32, 24], top: false },
-  { rect: [16, 13, 24, 24], top: false },
-  { rect: [8, 13, 16, 24], top: false },
-  { rect: [0, 13, 8, 24], top: false },
+export const TEAM_ROOM = 'Agentes'
+const DESKS_PER_ROOM = 6
+type Rect = [number, number, number, number]
+/** Back rooms open to the corridor at z = 10, nearest the Diretoria first. */
+const BACK_ROOMS: Rect[] = [
+  [14, 0, 22, 10],
+  [6, 0, 14, 10],
 ]
-export const DIRECTOR_RECT: [number, number, number, number] = [22, 0, 32, 10]
-export const LOBBY_RECT: [number, number, number, number] = [0, 0, 6, 10]
+/** Front rooms open to the corridor at z = 13, nearest the Diretoria first. */
+const FRONT_ROOMS: Rect[] = [
+  [24, 13, 32, 24],
+  [16, 13, 24, 24],
+  [8, 13, 16, 24],
+  [0, 13, 8, 24],
+]
+export const DIRECTOR_RECT: Rect = [22, 0, 32, 10]
+export const LOBBY_RECT: Rect = [0, 0, 6, 10]
 
 export interface SectorRoom {
   name: string
-  rect: [number, number, number, number]
+  rect: Rect
   /** Rooms along the back wall open to the corridor at z = 10; front rooms at z = 13. */
   top: boolean
   desks: DeskSlot[]
   /** Free tiles where members stand when every desk of the sector is taken. */
   stand: [number, number][]
-  /** Member ids that work here. */
+  /** Member ids that work here; empty for team rooms. */
   members: string[]
 }
 
@@ -199,7 +205,13 @@ export interface DirectorDesk {
   deliver: [number, number][]
 }
 
-export interface SquadPlan {
+export interface ProjectPlan {
+  /** Rooms with a desk for each of the project's agents. */
+  team: SectorRoom[]
+  /** Team desks in order: an agent's desk number indexes this list. */
+  teamDesks: DeskSlot[]
+  /** Corridor tiles for agents beyond the team desks. */
+  teamStand: [number, number][]
   sectors: SectorRoom[]
   directors: DirectorDesk[]
   partitions: Partition[]
@@ -210,7 +222,27 @@ export interface SquadPlan {
 /** Squad members share one floor: `squad/member` ids keep two squads with the same member id apart. */
 export const memberKey = (squad: string, member: string) => `${squad}/${member}`
 
-export function squadPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[]): SquadPlan {
+/** Desks of a room, rows nearest the door first so a lone agent doesn't walk to the far wall. */
+function roomDesks(rect: Rect, top: boolean, count: number, first: number): { desks: DeskSlot[]; stand: [number, number][] } {
+  const [x0, z0] = rect
+  const rows = top ? [z0 + 7, z0 + 4, z0 + 1] : [z0 + 2, z0 + 5, z0 + 8]
+  const desks: DeskSlot[] = []
+  for (const z of rows) {
+    for (const x of [x0 + 1, x0 + 5]) {
+      if (desks.length >= Math.min(DESKS_PER_ROOM, count)) break
+      desks.push({ index: first + desks.length, x, z, seat: { x: x + 1, z: z + 1.45 }, approach: [x, z + 1] })
+    }
+  }
+  const stand: [number, number][] = []
+  for (const z of rows) stand.push([x0 + 3, z + 1], [x0 + 4, z + 1], [x0 + 3, z], [x0 + 4, z])
+  return { desks, stand }
+}
+
+/**
+ * Plan of a project floor. Team rooms take the back wall; squad sectors the front.
+ * A project with five or more sectors gives one back room to them.
+ */
+export function projectPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[]): ProjectPlan {
   // Sectors in order of first appearance; inline members work in the Diretoria, so they need no room.
   const bySector = new Map<string, string[]>()
   for (const s of squads) {
@@ -221,28 +253,27 @@ export function squadPlan(squads: { code: string; members: { id: string; executi
     }
   }
   let entries = [...bySector.entries()]
+  const teamRects = entries.length > FRONT_ROOMS.length ? BACK_ROOMS.slice(0, 1) : BACK_ROOMS
+  const sectorSlots = [...FRONT_ROOMS.map((rect) => ({ rect, top: false })), ...BACK_ROOMS.slice(teamRects.length).map((rect) => ({ rect, top: true }))]
   // More sectors than rooms: the last room takes everyone left over.
-  if (entries.length > SECTOR_SLOTS.length) {
-    const rest = entries.slice(SECTOR_SLOTS.length - 1).flatMap(([, ids]) => ids)
-    entries = [...entries.slice(0, SECTOR_SLOTS.length - 1), ['Outros setores', rest]]
+  if (entries.length > sectorSlots.length) {
+    const rest = entries.slice(sectorSlots.length - 1).flatMap(([, ids]) => ids)
+    entries = [...entries.slice(0, sectorSlots.length - 1), ['Outros setores', rest]]
   }
-  const sectorOf = new Map<string, string>()
+
+  // Team desks come first, so an agent's desk number is its index in teamDesks.
   let index = 0
+  const team: SectorRoom[] = teamRects.map((rect) => {
+    const { desks, stand } = roomDesks(rect, true, DESKS_PER_ROOM, index)
+    index += desks.length
+    return { name: TEAM_ROOM, rect, top: true, desks, stand, members: [] }
+  })
+  const sectorOf = new Map<string, string>()
   const sectors: SectorRoom[] = entries.map(([name, members], i) => {
-    const { rect, top } = SECTOR_SLOTS[i]
-    const [x0, z0] = rect
+    const { rect, top } = sectorSlots[i]
     for (const id of members) sectorOf.set(id, name)
-    // Rows nearest the door first, so a lone member doesn't walk to the far wall.
-    const rows = top ? [z0 + 7, z0 + 4, z0 + 1] : [z0 + 2, z0 + 5, z0 + 8]
-    const desks: DeskSlot[] = []
-    for (const z of rows) {
-      for (const x of [x0 + 1, x0 + 5]) {
-        if (desks.length >= Math.min(MAX_DESKS_PER_SECTOR, members.length)) break
-        desks.push({ index: index++, x, z, seat: { x: x + 1, z: z + 1.45 }, approach: [x, z + 1] })
-      }
-    }
-    const stand: [number, number][] = []
-    for (const z of rows) stand.push([x0 + 3, z + 1], [x0 + 4, z + 1], [x0 + 3, z], [x0 + 4, z])
+    const { desks, stand } = roomDesks(rect, top, members.length, index)
+    index += desks.length
     return { name, rect, top, desks, stand, members }
   })
 
@@ -252,7 +283,7 @@ export function squadPlan(squads: { code: string; members: { id: string; executi
     { axis: 'z', at: dz1, from: dx0, to: dx1, doors: [Math.floor((dx0 + dx1) / 2) - 1, Math.floor((dx0 + dx1) / 2)] },
   ]
   const xWalls = new Set<string>()
-  for (const r of sectors) {
+  for (const r of [...team, ...sectors]) {
     const [x0, z0, x1, z1] = r.rect
     const mid = Math.floor((x0 + x1) / 2)
     partitions.push({ axis: 'z', at: r.top ? 10 : 13, from: x0, to: x1, doors: [mid - 1, mid] })
@@ -275,5 +306,9 @@ export function squadPlan(squads: { code: string; members: { id: string; executi
     sideApproach: [x + 3, 4],
     deliver: [[x + 1, 5], [x + 2, 5], [x, 5], [x + 1, 6], [x + 2, 6], [x, 6]],
   }))
-  return { sectors, directors, partitions, sectorOf }
+  // The middle row of the corridor, off the doors, so people still get by.
+  const doors = new Set(partitions.filter((p) => p.axis === 'z').flatMap((p) => p.doors))
+  const teamStand: [number, number][] = []
+  for (let x = 7; x < dx0; x++) if (!doors.has(x)) teamStand.push([x, 11])
+  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf }
 }

@@ -1,12 +1,13 @@
 import * as THREE from 'three'
-import type { AgentSummary, SquadInfo, SquadMember, SubagentInfo } from '@shared/types'
+import type { AgentSummary, ProjectFloor, SquadInfo, SquadMember, SubagentInfo } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
 import type { State } from './state'
-import { Avatar } from './world/avatar'
+import { Avatar, type Uniform } from './world/avatar'
+import { brandOf, DEFAULT_BRAND } from './world/brand'
 import { Engine } from './world/engine'
 import * as L from './world/layout'
 import { buildOffice, type GroundFloor, type Office } from './world/office'
-import { buildSquadFloor, type SquadFloor } from './world/squad-floor'
+import { buildUpperFloor, type UpperFloor } from './world/upper-floor'
 import { Overlays, Tag, type BubbleKind } from './world/overlays'
 import type { ScreenMode } from './world/screens'
 import { Effects, pickupGun, sfx } from './world/weapons'
@@ -38,6 +39,18 @@ interface Actor {
   trip: number
   /** Inside the elevator between floors: goal changes wait for the doors to open. */
   riding: boolean
+  /** Project and desk the actor last headed to; a change (floors edited) sends it there. */
+  seat: string
+}
+
+/** A project floor on screen: floor n is uppers[n - 1]. */
+interface Upper {
+  project: ProjectFloor
+  scene: UpperFloor
+  /** "Contratar squad" on the Diretoria board; null when the project has no squads. */
+  boardTag: Tag | null
+  /** One "Passo 3/6 · Texto" line over each Diretoria desk. */
+  stepTags: Tag[]
 }
 
 /** A subagent shown as a small copy of its parent, standing by the parent's desk. */
@@ -92,8 +105,8 @@ export interface GameHooks {
   onKnockout(agentId: string): void
   /** Player clicked their own computer: call an agent. */
   onComputer(): void
-  /** Player clicked the cycle board in the Diretoria. */
-  onRunSquad(): void
+  /** Player clicked the board in the Diretoria of a project floor. */
+  onRunSquad(project: ProjectFloor): void
   /** The player (and the camera) arrived on another floor. */
   onFloor(floor: number): void
   /** Player clicked the lounge TV: Claude FM on/off. */
@@ -133,14 +146,10 @@ export class Game {
   readonly engine: Engine
   /** Ground floor. */
   readonly office: GroundFloor
-  /** Squad floor (1º andar); only exists while there is a squad folder. */
-  private squadFloor: SquadFloor | null = null
-  private squadKey = ''
-  private floorName = ''
-  private boardTag: Tag | null = null
+  /** Project floors, 1º andar first. */
+  private uppers: Upper[] = []
+  private uppersKey = ''
   private members = new Map<string, Member>()
-  /** One "Passo 3/6 · Texto" line over each Diretoria desk. */
-  private stepTags: Tag[] = []
   private pcTag: Tag
   readonly overlays: Overlays
   readonly player: Avatar
@@ -149,6 +158,8 @@ export class Game {
   private helpers = new Map<string, Helper>()
   private keys = new Set<string>()
   private follow = true
+  /** Agent the camera tracks until it settles (sits or stops); `until` drops it if it never shows up. */
+  private watch: { id: string; until: number } | null = null
   private hover: THREE.LineSegments
   private time = 0
   private nearId: string | null = null
@@ -225,7 +236,7 @@ export class Game {
     this.pcTag = this.overlays.add(new Tag(pc, 'Chamar agente', false, () => hooks.onComputer()))
     this.pcTag.setDot('term')
 
-    this.setSquads(state.squads, state.squadFloorName, false)
+    this.setProjects(state.settings.projects, state.squads, false)
     for (const a of state.agents.values()) this.addActor(a, false)
     state.onChange(() => this.sync())
     this.bindInput(container)
@@ -250,11 +261,11 @@ export class Game {
   private addActor(a: AgentSummary, animate: boolean): void {
     const avatar = new Avatar(a.look, a.id)
     const tag = this.overlays.add(new Tag(avatar.anchor, a.name, false, () => (this.armed ? this.shootAt(a.id, null) : this.hooks.onAgentClick(a.id))))
-    const actor: Actor = { id: a.id, avatar, tag, goal: null, arrived: false, spot: null, hang: null, waveUntil: 0, down: false, shoutUntil: 0, shout: '', shoutKind: 'error', chatUntil: 0, restSince: null, trip: 0, riding: false }
+    const actor: Actor = { id: a.id, avatar, tag, goal: null, arrived: false, spot: null, hang: null, waveUntil: 0, down: false, shoutUntil: 0, shout: '', shoutKind: 'error', chatUntil: 0, restSince: null, trip: 0, riding: false, seat: seatKey(a) }
     // agents already idle when the office opens (restored sessions) start in the lounge
     if (!animate && this.resting(a)) actor.restSince = 0
-    // orchestrators live upstairs
-    if (this.upstairs(a)) avatar.floor = 1
+    // project agents and orchestrators arrive on their project's floor
+    avatar.floor = this.homeFloor(a)
     if (a.role === 'orchestrator') avatar.speed = SQUAD_SPEED
     this.actors.set(a.id, actor)
     this.engine.scene.add(avatar.root)
@@ -323,6 +334,7 @@ export class Game {
   private addHelper(a: AgentSummary, parent: Actor, id: string): Helper {
     // Same id as the parent so clicking the helper opens the parent's panel.
     const avatar = new Avatar(a.look, a.id)
+    avatar.setUniform(this.uniformFor(a))
     avatar.speed = 2.4
     const tag = this.overlays.add(new Tag(avatar.anchor, 'Ajudante', false, () => this.hooks.onAgentClick(a.id)))
     tag.el.classList.add('tag-mini')
@@ -411,9 +423,8 @@ export class Game {
 
   private syncMembers(): void {
     const live = new Set<string>()
-    const plan = this.squadFloor?.plan
     for (const a of this.state.agents.values()) {
-      if (a.role !== 'orchestrator' || !plan) continue
+      if (a.role !== 'orchestrator' || !this.upperOf(this.homeFloor(a))) continue
       const parent = this.actors.get(a.id)
       if (!parent || parent.down || parent.goal === 'leave') continue
       const squad = this.squadOf(a)
@@ -447,7 +458,8 @@ export class Game {
   private addMember(a: AgentSummary, info: SquadMember, id: string, inline: boolean): Member {
     // The same person every cycle: the look comes from the squad and the member id.
     const avatar = new Avatar(lookFromSeed(L.memberKey(a.squad ?? '', info.id)), `member:${id}`)
-    avatar.floor = 1
+    avatar.floor = this.homeFloor(a)
+    this.dress(avatar, a)
     avatar.speed = SQUAD_SPEED
     avatar.placeAt(SPAWN_POINT.x, SPAWN_POINT.z)
     avatar.face(0)
@@ -456,13 +468,13 @@ export class Game {
     tag.setDot('starting')
     const m: Member = { id, parentId: a.id, info, avatar, tag, inline, desk: null, tile: null, phase: 'arriving', bornAt: this.time, endAt: null, failed: null, sub: null, infoUntil: 0 }
     this.members.set(id, m)
-    this.floorOf(1).ding()
+    this.floorOf(avatar.floor).ding()
     const arrive = () => {
       if (m.phase !== 'arriving') return
       m.phase = 'working'
       m.tag.setDot('working')
       this.memberPose(m)
-      if (m.desk) this.squadFloor?.deskScreens[m.desk.index]?.setMode('working')
+      if (m.desk) this.floorOf(avatar.floor).deskScreens[m.desk.index]?.setMode('working')
     }
     if (inline) {
       const desk = this.directorDesk(a)
@@ -481,7 +493,8 @@ export class Game {
 
   /** A free desk in the member's sector; when all are taken, a free spot standing in the room. */
   private memberSpot(a: AgentSummary, info: SquadMember): { desk: L.DeskSlot | null; tile: [number, number] | null } {
-    const plan = this.squadFloor!.plan
+    const floor = this.homeFloor(a)
+    const plan = this.upperOf(floor)!.scene.plan
     const name = plan.sectorOf.get(L.memberKey(a.squad ?? '', info.id)) ?? info.sector
     const room = plan.sectors.find((r) => r.name === name) ?? plan.sectors.find((r) => r.name === L.DEFAULT_SECTOR) ?? plan.sectors[0]
     if (!room) return { desk: null, tile: null }
@@ -494,7 +507,7 @@ export class Game {
     }
     const desk = room.desks.find((d) => !taken.has(d.index))
     if (desk) return { desk, tile: null }
-    const grid = this.floorOf(1).grid
+    const grid = this.floorOf(floor).grid
     return { desk: null, tile: room.stand.find((t) => grid.walkable(t[0], t[1]) && !tiles.has(t.join(','))) ?? null }
   }
 
@@ -505,7 +518,7 @@ export class Game {
       const parent = this.actors.get(m.parentId)
       const a = this.state.agents.get(m.parentId)
       const desk = a && this.directorDesk(a)
-      if (parent?.avatar.floor === 1) av.faceTowards(parent.avatar.position.x, parent.avatar.position.z)
+      if (parent?.avatar.floor === av.floor) av.faceTowards(parent.avatar.position.x, parent.avatar.position.z)
       else if (desk) av.faceTowards(desk.seat.x, desk.seat.z)
       av.pose = 'sit'
     } else if (m.desk) {
@@ -562,7 +575,7 @@ export class Game {
   }
 
   private memberDeliver(m: Member): void {
-    if (m.desk) this.squadFloor?.deskScreens[m.desk.index]?.setMode(m.failed ? 'error' : 'done')
+    if (m.desk) this.floorOf(m.avatar.floor).deskScreens[m.desk.index]?.setMode(m.failed ? 'error' : 'done')
     m.avatar.pose = 'stand'
     m.avatar.seatY = 0
     const a = this.state.agents.get(m.parentId)
@@ -589,14 +602,14 @@ export class Game {
     if (m.phase === 'leaving') return
     m.phase = 'leaving'
     if (m.desk) {
-      const screen = this.squadFloor?.deskScreens[m.desk.index]
+      const screen = this.floorOf(m.avatar.floor).deskScreens[m.desk.index]
       setTimeout(() => screen?.setMode('off'), 2500)
     }
     m.desk = null
     m.tile = null
     if (!m.failed) this.memberBubble(m)
     this.route(m.avatar, L.SPAWN_TILE, SPAWN_POINT, () => {
-      this.floorOf(1).ding()
+      this.floorOf(m.avatar.floor).ding()
       setTimeout(() => this.memberGone(m), 500)
     })
   }
@@ -610,15 +623,23 @@ export class Game {
 
   /** "Passo 3/6 · Texto" over the desk of each orchestrator, from squads/<code>/state.json. */
   private syncStepTags(): void {
-    const byDesk = new Map<number, AgentSummary>()
-    for (const a of this.state.agents.values()) if (a.role === 'orchestrator') byDesk.set(a.desk, a)
-    this.stepTags.forEach((tag, i) => {
-      const st = byDesk.get(i)?.squadStep
-      const text =
-        st?.status === 'completed' ? '✓ Ciclo concluído' : st?.current ? `${st.type === 'checkpoint' ? '⏸' : '▸'} Passo ${st.current}/${st.total} · ${clip(st.label, 32)}` : 'Aguardando o próximo ciclo'
-      tag.setName(text)
-      tag.setDot(st?.type === 'checkpoint' && st.status !== 'completed' ? 'waiting' : st?.current && st.status !== 'completed' ? 'working' : 'idle')
+    this.uppers.forEach((u, i) => {
+      const byDesk = this.directorsOn(i + 1)
+      u.stepTags.forEach((tag, d) => {
+        const st = byDesk.get(d)?.squadStep
+        const text =
+          st?.status === 'completed' ? '✓ Ciclo concluído' : st?.current ? `${st.type === 'checkpoint' ? '⏸' : '▸'} Passo ${st.current}/${st.total} · ${clip(st.label, 32)}` : 'Aguardando o próximo ciclo'
+        tag.setName(text)
+        tag.setDot(st?.type === 'checkpoint' && st.status !== 'completed' ? 'waiting' : st?.current && st.status !== 'completed' ? 'working' : 'idle')
+      })
     })
+  }
+
+  /** Orchestrators of a floor by Diretoria desk. */
+  private directorsOn(floor: number): Map<number, AgentSummary> {
+    const out = new Map<number, AgentSummary>()
+    for (const a of this.state.agents.values()) if (a.role === 'orchestrator' && this.homeFloor(a) === floor) out.set(a.desk, a)
+    return out
   }
 
   /** Nothing to do and nothing to deliver. */
@@ -636,7 +657,8 @@ export class Game {
     }
     if (this.resting(a)) {
       actor.restSince ??= Date.now()
-      return Date.now() - actor.restSince >= LOUNGE_AFTER_MS ? 'hang' : 'desk'
+      // The lounge is on the ground floor: project agents rest at their desks.
+      return this.homeFloor(a) === 0 && Date.now() - actor.restSince >= LOUNGE_AFTER_MS ? 'hang' : 'desk'
     }
     actor.restSince = null
     const items = this.state.itemsFor(a.id)
@@ -653,8 +675,15 @@ export class Game {
     actor.tag.setDot(a.status)
     actor.tag.setHelpers(a.subagents?.length ?? 0)
     if (actor.avatar.look !== a.look && JSON.stringify(actor.avatar.look) !== JSON.stringify(a.look)) actor.avatar.setLook(a.look)
+    this.dress(actor.avatar, a)
+    this.showAccount(actor, a)
     this.screenFor(a)?.setMode(screenMode(a))
 
+    // Moved to another floor or desk: head there even if the goal stays the same.
+    if (seatKey(a) !== actor.seat) {
+      actor.seat = seatKey(a)
+      actor.goal = null
+    }
     const goal = this.desired(actor, a)
     if (goal !== actor.goal) {
       actor.goal = goal
@@ -672,25 +701,57 @@ export class Game {
     this.bubble(actor, a)
   }
 
+  /** The uniform of the agent's company: its project floor, when that floor asks for one. */
+  private uniformFor(a: AgentSummary): Uniform | null {
+    const p = this.upperOf(this.homeFloor(a))?.project
+    return p?.uniform ? { color: p.brandColor ?? DEFAULT_BRAND, logo: p.logo } : null
+  }
+
+  /** Uniform on (or off) and the account diamond over the head. */
+  private dress(avatar: Avatar, a: AgentSummary): void {
+    avatar.setUniform(this.uniformFor(a))
+    const acc = a.source === 'office' && a.account ? this.state.account(a.account) : undefined
+    avatar.setGem(acc?.color ?? null)
+  }
+
+  /** The account chip on the name tag, only while there is more than one account. */
+  private showAccount(actor: Actor, a: AgentSummary): void {
+    const acc = this.state.settings.accounts.length > 1 && a.source === 'office' && a.account ? this.state.account(a.account) : undefined
+    actor.tag.setAccount(acc?.name ?? null, acc?.color)
+  }
+
   private screenFor(a: AgentSummary) {
-    return a.role === 'orchestrator' ? undefined : this.office.deskScreens[a.desk]
+    return this.deskOf(a) ? this.floorOf(this.homeFloor(a)).deskScreens[a.desk] : undefined
   }
 
-  private deskOf(a: AgentSummary) {
-    return a.role === 'orchestrator' ? undefined : L.DESKS[a.desk]
+  private deskOf(a: AgentSummary): L.DeskSlot | undefined {
+    if (a.role === 'orchestrator') return undefined
+    const up = this.upperOf(this.homeFloor(a))
+    return up ? up.scene.plan.teamDesks[a.desk] : L.DESKS[a.desk]
   }
 
-  /** Orchestrators work upstairs while the squad floor exists. */
-  private upstairs(a: AgentSummary): boolean {
-    return a.role === 'orchestrator' && !!this.squadFloor
+  /** Floor an agent works on: its project's floor, or the ground floor. */
+  private homeFloor(a: AgentSummary): number {
+    return a.project ? this.uppers.findIndex((u) => u.project.id === a.project) + 1 : 0
+  }
+
+  private upperOf(n: number): Upper | undefined {
+    return n > 0 ? this.uppers[n - 1] : undefined
   }
 
   private directorDesk(a: AgentSummary): L.DirectorDesk | undefined {
-    return this.squadFloor?.plan.directors[a.desk]
+    return a.role === 'orchestrator' ? this.upperOf(this.homeFloor(a))?.scene.plan.directors[a.desk] : undefined
   }
 
   floorOf(n: number): Office {
-    return n === 1 && this.squadFloor ? this.squadFloor : this.office
+    return this.upperOf(n)?.scene ?? this.office
+  }
+
+  /** Where an agent stands when every desk of its floor is taken. */
+  private overflowTile(a: AgentSummary, floor: number): [number, number] {
+    const plan = this.upperOf(floor)?.scene.plan
+    if (!plan || a.role === 'orchestrator') return OVERFLOW_TILES[a.desk % OVERFLOW_TILES.length]
+    return plan.teamStand[(a.desk - plan.teamDesks.length) % plan.teamStand.length] ?? L.SPAWN_TILE
   }
 
   /**
@@ -728,24 +789,27 @@ export class Game {
 
   private goDesk(actor: Actor, a: AgentSummary, instant: boolean): void {
     if (a.role === 'orchestrator') return this.goDirector(actor, a, instant)
+    const floor = this.homeFloor(a)
     const desk = this.deskOf(a)
     const done = () => {
       actor.arrived = true
       const now = this.state.agents.get(actor.id)
       if (now) this.pose(actor, now)
     }
-    if (!desk) {
-      const tile = OVERFLOW_TILES[a.desk % OVERFLOW_TILES.length]
+    this.travel(actor, floor, instant, () => {
+      if (!desk) {
+        const tile = this.overflowTile(a, floor)
+        if (instant) {
+          actor.avatar.placeAt(tile[0] + 0.5, tile[1] + 0.5)
+          done()
+        } else this.route(actor.avatar, tile, null, done)
+        return
+      }
       if (instant) {
-        actor.avatar.placeAt(tile[0] + 0.5, tile[1] + 0.5)
+        actor.avatar.placeAt(desk.seat.x, desk.seat.z)
         done()
-      } else this.route(actor.avatar, tile, null, done)
-      return
-    }
-    if (instant) {
-      actor.avatar.placeAt(desk.seat.x, desk.seat.z)
-      done()
-    } else this.route(actor.avatar, desk.approach, desk.seat, done)
+      } else this.route(actor.avatar, desk.approach, desk.seat, done)
+    })
   }
 
   /** The orchestrator's chair in the Diretoria. */
@@ -756,17 +820,18 @@ export class Game {
       const now = this.state.agents.get(actor.id)
       if (now) this.pose(actor, now)
     }
+    const floor = this.homeFloor(a)
     if (!desk) {
-      // no squad floor (folder removed): wait by the elevator downstairs
-      const tile = OVERFLOW_TILES[a.desk % OVERFLOW_TILES.length]
-      return this.travel(actor, 0, instant, () => {
+      // floor gone (downstairs) or both Diretoria desks taken: wait by the elevator
+      const tile = this.overflowTile(a, floor)
+      return this.travel(actor, floor, instant, () => {
         if (instant) {
           actor.avatar.placeAt(tile[0] + 0.5, tile[1] + 0.5)
           done()
         } else this.route(actor.avatar, tile, null, done)
       })
     }
-    this.travel(actor, 1, instant, () => {
+    this.travel(actor, floor, instant, () => {
       if (instant) {
         actor.avatar.placeAt(desk.seat.x, desk.seat.z)
         done()
@@ -774,10 +839,10 @@ export class Game {
     })
   }
 
-  /** Visits happen wherever the player is: orchestrators take the elevator, everyone else stays downstairs. */
+  /** Visits: project agents take the elevator to wherever the player is; the ground floor's go to the boss office. */
   private goBoss(actor: Actor, instant: boolean): void {
     const a = this.state.agents.get(actor.id)
-    const floor = a?.role === 'orchestrator' ? this.player.floor : actor.avatar.floor
+    const floor = a && this.homeFloor(a) > 0 ? this.player.floor : 0
     this.travel(actor, floor, instant, () => {
       const spot = this.pickVisitSpot(actor)
       actor.spot = spot
@@ -837,7 +902,7 @@ export class Game {
       const items = this.state.itemsFor(a.id)
       const result = items.results[0]
       av.setProp(items.permissions.length ? 'none' : result ? (result.isError ? 'redPaper' : 'paper') : 'none')
-      if (av.floor === this.player.floor && (av.floor === 1 || this.playerInBossRoom())) av.faceTowards(this.player.position.x, this.player.position.z)
+      if (av.floor === this.player.floor && (av.floor > 0 || this.playerInBossRoom())) av.faceTowards(this.player.position.x, this.player.position.z)
       else av.faceTowards(L.BOSS_SEAT.x, L.BOSS_SEAT.z)
       av.pose = this.time < actor.waveUntil ? 'wave' : actor.id === this.nearId ? 'talk' : 'stand'
     } else if (actor.goal === 'hang' && actor.hang !== null) {
@@ -881,8 +946,8 @@ export class Game {
     for (const o of this.actors.values()) if (o !== actor && o.spot && o.avatar.floor === actor.avatar.floor) taken.add(o.spot.join(','))
     const [px, pz] = tileOf(this.player.position)
     // Upstairs there is no boss office: stand next to the player, wherever they are.
-    if (actor.avatar.floor === 1) {
-      const grid = this.floorOf(1).grid
+    if (actor.avatar.floor > 0) {
+      const grid = this.floorOf(actor.avatar.floor).grid
       let best: [number, number] | null = null
       let bestD = Infinity
       for (let dx = -2; dx <= 2; dx++) {
@@ -1045,12 +1110,33 @@ export class Game {
     this.walkPlayerTo([4, 2])
   }
 
+  /** Points the camera at an agent and keeps it there until the agent settles, even one still on its way in. */
   focusAgent(agentId: string): void {
     const actor = this.actors.get(agentId)
-    if (!actor || actor.riding) return
-    this.goFloor(actor.avatar.floor)
+    if (actor && !actor.riding) this.goFloor(actor.avatar.floor)
+    // after goFloor, which hands the camera back to the player
     this.follow = false
-    this.engine.target.set(actor.avatar.position.x, 0, actor.avatar.position.z)
+    this.watch = { id: agentId, until: this.time + 5 }
+  }
+
+  /** Follows the watched agent; done once it sits or stands still, and as soon as the player takes the camera back. */
+  private updateWatch(): void {
+    const w = this.watch
+    if (!w) return
+    if (this.follow) return void (this.watch = null)
+    const actor = this.actors.get(w.id)
+    // a just-summoned agent appears with the next state update
+    if (!actor) {
+      if (this.time > w.until) this.watch = null
+      return
+    }
+    if (actor.goal === 'leave') return void (this.watch = null)
+    if (actor.riding) return
+    const av = actor.avatar
+    if (av.floor !== this.player.floor) this.goFloor(av.floor)
+    this.follow = false
+    this.engine.target.set(av.position.x, 0, av.position.z)
+    if (!av.isWalking && (actor.arrived || this.time > w.until)) this.watch = null
   }
 
   private moveWithKeys(dt: number): void {
@@ -1129,6 +1215,7 @@ export class Game {
         if (this.dragging.moved || Math.hypot(dx, dy) > 5) {
           this.dragging.moved = true
           this.follow = false
+          this.watch = null
           this.engine.pan(dx, dy)
           this.dragging.x = e.clientX
           this.dragging.y = e.clientY
@@ -1182,8 +1269,8 @@ export class Game {
       this.hooks.onTv()
       return
     }
-    if (this.player.floor === 1) {
-      const roots = [...this.members.values()].filter((m) => m.phase !== 'leaving').map((m) => m.avatar.root)
+    if (this.player.floor > 0) {
+      const roots = [...this.members.values()].filter((m) => m.phase !== 'leaving' && m.avatar.floor === this.player.floor).map((m) => m.avatar.root)
       const hit = this.engine.pick(x, y, roots).find((h) => String(h.object.userData.avatarId ?? '').startsWith('member:'))
       if (hit) return this.memberClick(String(hit.object.userData.avatarId).slice('member:'.length))
     }
@@ -1261,7 +1348,7 @@ export class Game {
     this.updateHelpers(dt)
     this.updateMembers(dt)
     this.office.update(dt)
-    this.squadFloor?.update(dt)
+    for (const u of this.uppers) u.scene.update(dt)
     this.showFloor()
     this.updateGun(dt)
     this.effects.update(dt)
@@ -1281,6 +1368,7 @@ export class Game {
       }
     }
 
+    this.updateWatch()
     if (this.follow) this.engine.target.set(this.player.position.x, 0, this.player.position.z)
     this.engine.render(dt)
     this.overlays.update()
@@ -1297,8 +1385,9 @@ export class Game {
     for (const actor of this.actors.values()) {
       if (actor.goal !== 'boss' || !actor.arrived || actor.avatar.isWalking || actor.down || actor.riding) continue
       if (actor.avatar.floor !== this.player.floor) {
-        // An orchestrator follows the player to the other floor; agents downstairs wait in the boss office.
-        if (this.state.agents.get(actor.id)?.role === 'orchestrator' && !this.player.isWalking) {
+        // Project agents follow the player to the other floor; agents of the ground floor wait in the boss office.
+        const a = this.state.agents.get(actor.id)
+        if (a && this.homeFloor(a) > 0 && !this.player.isWalking) {
           actor.arrived = false
           actor.trip++
           this.goBoss(actor, false)
@@ -1306,7 +1395,7 @@ export class Game {
         continue
       }
       const d = Math.hypot(actor.avatar.position.x - pp.x, actor.avatar.position.z - pp.z)
-      const follows = actor.avatar.floor === 1 || inRoom
+      const follows = actor.avatar.floor > 0 || inRoom
       if (follows && d > 2.8 && !this.player.isWalking) {
         actor.arrived = false
         actor.spot = null
@@ -1497,66 +1586,89 @@ export class Game {
 
   // ---------- floors ----------
 
-  /** Builds, rebuilds or removes the squad floor when the squads change. */
-  setSquads(squads: SquadInfo[], name: string, notify = true): void {
-    const plan = L.squadPlan(squads)
-    const key = JSON.stringify([name, plan.sectors.map((r) => [r.name, r.desks.length])])
-    if (squads.length && key === this.squadKey && this.squadFloor) return
-    if (!squads.length && !this.squadFloor) return
-    this.squadKey = key
-    this.floorName = name
-    if (this.squadFloor) {
-      this.engine.scene.remove(this.squadFloor.group)
-      this.overlays.clearLabels(1)
-      if (this.boardTag) this.overlays.remove(this.boardTag)
-      this.boardTag = null
-      for (const t of this.stepTags) this.overlays.remove(t)
-      this.stepTags = []
-      for (const m of this.members.values()) this.memberGone(m)
-      this.squadFloor = null
-    }
-    if (squads.length) {
-      const floor = buildSquadFloor(plan, name)
-      this.squadFloor = floor
-      this.engine.scene.add(floor.group)
-      this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, 1)
-      for (const r of plan.sectors) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, 1)
-      this.boardTag = this.overlays.add(new Tag(floor.board, '▶ Rodar ciclo', false, () => this.hooks.onRunSquad()))
-      this.boardTag.setDot('term')
-      for (const d of plan.directors) {
+  /** Builds the project floors again when the floors or their squads change. */
+  setProjects(projects: ProjectFloor[], squads: SquadInfo[], notify = true): void {
+    const squadsOf = (p: ProjectFloor) => squads.filter((q) => q.cwd === p.cwd)
+    const plans = projects.map((p) => L.projectPlan(squadsOf(p)))
+    const logoKey = (p: ProjectFloor) => (p.logo ? `${p.logo.length}:${p.logo.slice(-48)}` : '')
+    const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
+    if (key === this.uppersKey) return
+    this.uppersKey = key
+    const playerOn = this.upperOf(this.player.floor)?.project.id
+
+    for (const m of this.members.values()) this.memberGone(m)
+    this.uppers.forEach((u, i) => {
+      this.engine.scene.remove(u.scene.group)
+      this.overlays.clearLabels(i + 1)
+      if (u.boardTag) this.overlays.remove(u.boardTag)
+      for (const t of u.stepTags) this.overlays.remove(t)
+    })
+    this.uppers = projects.map((project, i) => {
+      const n = i + 1
+      const plan = plans[i]
+      const scene = buildUpperFloor(plan, brandOf(project))
+      this.engine.scene.add(scene.group)
+      this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
+      for (const r of [...plan.team, ...plan.sectors]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
+      let boardTag: Tag | null = null
+      if (squadsOf(project).length) {
+        boardTag = this.overlays.add(new Tag(scene.board, '▶ Contratar squad', false, () => this.hooks.onRunSquad(project)))
+        boardTag.setDot('term')
+      }
+      const stepTags = plan.directors.map((d) => {
         const anchor = new THREE.Object3D()
         anchor.position.set(d.x + d.w / 2, 0.95, d.z + 1.2)
-        floor.group.add(anchor)
+        scene.group.add(anchor)
         const tag = this.overlays.add(new Tag(anchor, ''))
         tag.el.classList.add('tag-step')
-        this.stepTags.push(tag)
-      }
-    }
-    this.office.setFloors(squads.length ? 2 : 1)
-    this.squadFloor?.setFloors(2)
-    // Everyone upstairs starts over on the new plan (or comes down if the floor is gone).
-    if (!this.squadFloor && this.player.floor === 1) this.goFloor(0)
+        return tag
+      })
+      return { project, scene, boardTag, stepTags }
+    })
+    this.office.setFloors(projects.length + 1)
+    for (const u of this.uppers) u.scene.setFloors(projects.length + 1)
+
+    // The player stays with the same project, wherever its floor is now; a floor that is gone sends them down.
+    const at = playerOn ? this.uppers.findIndex((u) => u.project.id === playerOn) + 1 : 0
+    if (this.player.floor > 0 && at === 0) this.goFloor(0)
+    else this.player.floor = at
+    // Everyone upstairs starts over on the new plans, on their project's floor (or downstairs if it is gone).
     for (const actor of this.actors.values()) {
       const a = this.state.agents.get(actor.id)
-      if (a?.role !== 'orchestrator' || actor.goal === 'leave') continue
+      if (!a || actor.goal === 'leave' || (actor.avatar.floor === 0 && this.homeFloor(a) === 0)) continue
       actor.goal = null
-      if (!this.squadFloor && actor.avatar.floor === 1) actor.avatar.floor = 0
+      actor.avatar.floor = this.homeFloor(a)
       this.reconcile(actor, true)
+    }
+    for (const h of this.helpers.values()) h.avatar.floor = this.actors.get(h.parentId)?.avatar.floor ?? 0
+    // Uniforms follow the floor settings, even for agents that did not move.
+    for (const actor of this.actors.values()) {
+      const a = this.state.agents.get(actor.id)
+      if (a) this.dress(actor.avatar, a)
+    }
+    for (const h of this.helpers.values()) {
+      const a = this.state.agents.get(h.parentId)
+      if (a) h.avatar.setUniform(this.uniformFor(a))
     }
     if (notify) this.hooks.onFloor(this.player.floor)
   }
 
   get floors(): string[] {
-    return this.squadFloor ? ['Térreo', this.floorName] : ['Térreo']
+    return ['Térreo', ...this.uppers.map((u) => u.project.name)]
   }
 
   get currentFloor(): number {
     return this.player.floor
   }
 
+  /** The project of the floor the player is on; null on the ground floor. */
+  get currentProject(): ProjectFloor | null {
+    return this.upperOf(this.player.floor)?.project ?? null
+  }
+
   /** The player takes the elevator: out on the other floor, with the camera. */
   goFloor(n: number): void {
-    if (n === this.player.floor || (n === 1 && !this.squadFloor) || n < 0 || n > 1) return
+    if (n === this.player.floor || n < 0 || n > this.uppers.length) return
     const p = this.player
     p.stop()
     p.pose = 'stand'
@@ -1576,7 +1688,6 @@ export class Game {
   private showFloor(): void {
     const view = this.player.floor
     this.office.group.visible = view === 0
-    if (this.squadFloor) this.squadFloor.group.visible = view === 1
     this.overlays.floor = view
     for (const a of this.actors.values()) {
       const here = a.avatar.floor === view
@@ -1588,14 +1699,18 @@ export class Game {
       h.tag.hidden = h.avatar.floor !== view
     }
     for (const m of this.members.values()) {
-      m.avatar.root.visible = view === 1
-      m.tag.hidden = view !== 1
+      m.avatar.root.visible = m.avatar.floor === view
+      m.tag.hidden = m.avatar.floor !== view
     }
-    const orchestrators = new Set([...this.state.agents.values()].filter((a) => a.role === 'orchestrator').map((a) => a.desk))
-    this.stepTags.forEach((t, i) => (t.hidden = view !== 1 || !orchestrators.has(i)))
+    this.uppers.forEach((u, i) => {
+      const here = view === i + 1
+      u.scene.group.visible = here
+      if (u.boardTag) u.boardTag.hidden = !here
+      const seated = here ? this.directorsOn(i + 1) : null
+      u.stepTags.forEach((t, d) => (t.hidden = !seated?.has(d)))
+    })
     this.gun.tag.hidden = !this.gun.root.visible || view !== 0
     this.pcTag.hidden = view !== 0
-    if (this.boardTag) this.boardTag.hidden = view !== 1
   }
 
   setPixelSize(n: number): void {
@@ -1606,6 +1721,9 @@ export class Game {
     this.engine.zoomStep(delta)
   }
 }
+
+/** Floor and desk an agent should be at; it changes when its folder moves to another floor. */
+const seatKey = (a: AgentSummary) => `${a.project ?? ''}:${a.desk}`
 
 function screenMode(a: AgentSummary): ScreenMode {
   switch (a.status) {

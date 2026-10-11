@@ -25,6 +25,8 @@ const MAX_CRITERIA = 30
 const MAX_TAGS = 12
 const MAX_COMMENTS = 300
 const MAX_ACTIVITY = 200
+const MAX_CLOSED_SHOWN = 200
+const DAY = 86_400_000
 
 const STATUS_VALUES = STATUSES.map((s) => s.value) as [TicketStatus, ...TicketStatus[]]
 const TYPE_VALUES = TYPES.map((s) => s.value) as [TicketType, ...TicketType[]]
@@ -39,17 +41,37 @@ interface Data {
  * The office kanban. Lives in its own file (userData/tickets.json) so a shared,
  * online board can later replace this store without touching agent state.
  * Every change names its actor, so the history reads the same for people and agents.
+ *
+ * Closed tickets leave the board for a second file (tickets-closed.json), read only
+ * when someone looks them up, so the board stays small however long it runs.
  */
 export class TicketBoard extends EventEmitter {
   private file: string
+  private closedFile: string
   private data: Data
+  /** The archive, loaded on first use. */
+  private closedData: Ticket[] | null = null
   private timer: NodeJS.Timeout | null = null
+  private closedDirty = false
 
   constructor(dir: string) {
     super()
     mkdirSync(dir, { recursive: true })
     this.file = join(dir, 'tickets.json')
+    this.closedFile = join(dir, 'tickets-closed.json')
     this.data = this.load()
+  }
+
+  private get closed(): Ticket[] {
+    if (!this.closedData) {
+      try {
+        const raw = JSON.parse(readFileSync(this.closedFile, 'utf8')) as { tickets?: Ticket[] }
+        this.closedData = Array.isArray(raw.tickets) ? raw.tickets : []
+      } catch {
+        this.closedData = []
+      }
+    }
+    return this.closedData
   }
 
   private load(): Data {
@@ -71,11 +93,20 @@ export class TicketBoard extends EventEmitter {
     return this.data.tickets.find((t) => t.id === id)
   }
 
-  /** Finds by key ("AO-12", "ao-12" or just "12"). */
-  byKey(key: string): Ticket | undefined {
+  /** Finds by key ("AO-12", "ao-12" or just "12"); `closed` also looks in the archive. */
+  byKey(key: string, closed = false): Ticket | undefined {
     const k = key.trim().toUpperCase()
     const n = /^\d+$/.test(k) ? `${KEY_PREFIX}-${k}` : k
-    return this.data.tickets.find((t) => t.key === n)
+    return this.data.tickets.find((t) => t.key === n) ?? (closed ? this.closed.find((t) => t.key === n) : undefined)
+  }
+
+  /** Closed tickets, newest first, matching the text in key, title, description or tags. */
+  listClosed(search?: string, limit = MAX_CLOSED_SHOWN): Ticket[] {
+    const q = typeof search === 'string' ? search.toLowerCase().trim() : ''
+    return this.closed
+      .filter((t) => !q || [t.key, t.title, t.description, ...t.tags].some((v) => v.toLowerCase().includes(q)))
+      .sort((a, b) => (b.closedAt ?? 0) - (a.closedAt ?? 0))
+      .slice(0, limit)
   }
 
   /** Tickets an agent is assigned to and still working on. */
@@ -205,12 +236,58 @@ export class TicketBoard extends EventEmitter {
     this.save()
   }
 
+  /** Moves tickets in "Feito" to the archive (all of them when no ids). Returns how many closed. */
+  close(ids: string[] | undefined, by: Actor): number {
+    const pick = ids ? new Set(ids) : null
+    const going = this.data.tickets.filter((t) => t.status === 'done' && (!pick || pick.has(t.id)))
+    if (!going.length) return 0
+    const now = Date.now()
+    for (const t of going) {
+      this.log(t, by, 'fechou o ticket')
+      t.closedAt = now
+      t.updatedAt = now
+      this.closed.push(t)
+    }
+    const gone = new Set(going.map((t) => t.id))
+    this.data.tickets = this.data.tickets.filter((t) => !gone.has(t.id))
+    for (const id of gone) this.emitEvent({ type: 'ticket:removed', ticketId: id })
+    this.closedDirty = true
+    this.save()
+    return going.length
+  }
+
+  /** Closes what has sat in "Feito" for `days` days or more; 0 turns it off. */
+  autoClose(days: number): number {
+    if (!(days > 0)) return 0
+    const limit = Date.now() - days * DAY
+    const old = this.data.tickets.filter((t) => t.status === 'done' && (t.doneAt ?? t.updatedAt) <= limit).map((t) => t.id)
+    return old.length ? this.close(old, { kind: 'agent', name: 'Quadro' }) : 0
+  }
+
+  /** A closed ticket comes back to "A fazer", history and comments intact. */
+  reopen(id: string, by: Actor): Ticket {
+    const i = this.closed.findIndex((t) => t.id === id)
+    if (i < 0) throw new Error('Esse ticket não está entre os fechados.')
+    const [t] = this.closed.splice(i, 1)
+    delete t.closedAt
+    delete t.doneAt
+    t.status = 'todo'
+    t.order = this.nextOrder('todo')
+    this.log(t, by, 'reabriu o ticket em A fazer')
+    this.data.tickets.push(t)
+    this.closedDirty = true
+    this.changed(t)
+    return t
+  }
+
   // ---------- helpers ----------
 
   private setStatus(t: Ticket, status: TicketStatus, by: Actor): void {
     this.log(t, by, `moveu de ${labelOf(STATUSES, t.status)} para ${labelOf(STATUSES, status)}`)
     t.status = status
     t.order = this.nextOrder(status)
+    if (status === 'done') t.doneAt = Date.now()
+    else delete t.doneAt
   }
 
   private column(status: TicketStatus): Ticket[] {
@@ -253,6 +330,12 @@ export class TicketBoard extends EventEmitter {
     const tmp = this.file + '.tmp'
     writeFileSync(tmp, JSON.stringify(this.data))
     renameSync(tmp, this.file)
+    if (this.closedDirty && this.closedData) {
+      const ctmp = this.closedFile + '.tmp'
+      writeFileSync(ctmp, JSON.stringify({ tickets: this.closedData }))
+      renameSync(ctmp, this.closedFile)
+      this.closedDirty = false
+    }
   }
 
   // ---------- agent tools ----------
@@ -266,6 +349,7 @@ export class TicketBoard extends EventEmitter {
     const me: Actor = { kind: 'agent', name: agent.name, id: agent.id }
     const find = (key: string) => {
       const t = this.byKey(key)
+      if (!t && this.byKey(key, true)) throw new Error(`${key} está fechado: só dá para ler (ticket_get). Peça para uma pessoa reabrir se precisar mexer.`)
       if (!t) throw new Error(`Não achei o ticket ${key}. Use tickets_list para ver as chaves.`)
       return t
     }
@@ -285,7 +369,7 @@ export class TicketBoard extends EventEmitter {
         'Quadro kanban do escritório (Agent Office). Colunas: backlog, todo (a fazer), doing (fazendo), review (revisão), done (feito). ' +
         'Tickets têm chave curta como AO-12. Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
         'Um bom ticket se explica sozinho: título no imperativo, contexto com arquivos e passos de reprodução, critérios de aceite verificáveis. ' +
-        'Só pessoas movem para done.',
+        'Só pessoas movem para done. Tickets fechados (arquivados depois de done) saem do quadro: consulte só quando precisar, com tickets_list closed=true ou ticket_get.',
       tools: [
         tool(
           'tickets_list',
@@ -294,9 +378,14 @@ export class TicketBoard extends EventEmitter {
             status: z.array(z.enum(STATUS_VALUES)).optional().describe('Colunas a incluir; omita para todas menos done'),
             search: z.string().optional().describe('Texto no título, descrição ou tags'),
             mine: z.boolean().optional().describe('Só os tickets atribuídos a você'),
+            closed: z.boolean().optional().describe('Busca nos tickets fechados (arquivo) em vez do quadro; combine com search'),
           },
           (args) =>
             run(() => {
+              if (args.closed) {
+                const found = this.listClosed(args.search, 50).filter((t) => !args.mine || t.assignee?.id === agent.id)
+                return found.length ? found.map((t) => `${listLine(t)} · fechado`).join('\n') : 'Nenhum ticket fechado com esses filtros.'
+              }
               const q = args.search?.toLowerCase().trim()
               const shown = this.list()
                 .filter((t) => (args.status?.length ? args.status.includes(t.status) : t.status !== 'done'))
@@ -314,8 +403,9 @@ export class TicketBoard extends EventEmitter {
           { key: z.string().describe('Chave do ticket, ex.: AO-12') },
           (args) =>
             run(() => {
-              const t = find(args.key)
-              const head = `Status: ${t.status} · Responsável: ${t.assignee?.name ?? 'ninguém'}${t.cwd ? ` · Pasta: ${t.cwd}` : ''}`
+              const t = this.byKey(args.key, true)
+              if (!t) throw new Error(`Não achei o ticket ${args.key}. Use tickets_list para ver as chaves.`)
+              const head = `Status: ${t.closedAt ? 'fechado' : t.status} · Responsável: ${t.assignee?.name ?? 'ninguém'}${t.cwd ? ` · Pasta: ${t.cwd}` : ''}`
               return `${head}\n\n${ticketBrief(t)}`
             })(),
           { annotations: { readOnlyHint: true } },

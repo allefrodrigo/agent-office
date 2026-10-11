@@ -4,7 +4,7 @@ import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
-import { cleanError, confirmDialog, field, LAST_CWD, modal } from './modals'
+import { brainFields, cleanError, confirmDialog, field, LAST_CWD, modal } from './modals'
 import { portrait } from './portrait'
 
 export interface BoardActions {
@@ -27,10 +27,13 @@ const EMPTY: Record<TicketStatus, string> = {
   todo: 'Pronto para pegar. Arraste para cá o que vem a seguir.',
   doing: 'Delegue um ticket e ele aparece aqui.',
   review: 'Entregas dos agentes esperando sua revisão.',
-  done: 'Nada fechado ainda.',
+  done: 'Aprovados ficam aqui até você fechar.',
 }
 
 const DONE_SHOWN = 40
+
+/** Auto-close choices, in days; 0 = only by hand. */
+const AUTO_CLOSE = [0, 1, 3, 7, 14, 30]
 
 /** Full-screen kanban: columns, filters and a detail drawer to edit, delegate and review. */
 export class Board {
@@ -87,6 +90,7 @@ export class Board {
         this.prioFilter,
         this.whoFilter,
         h('span', { class: 'grow' }),
+        h('button', { class: 'btn', title: 'Tickets fechados: buscar, ler e reabrir', onclick: () => this.openClosed() }, icon('archive', 16), 'Fechados'),
         h('button', { class: 'btn btn-primary', onclick: () => this.create('todo') }, icon('plus', 16), 'Novo ticket'),
         h('button', { class: 'icon-btn', title: 'Fechar (Esc)', onclick: () => this.close() }, icon('x', 18)),
       ),
@@ -221,6 +225,9 @@ export class Board {
         h('span', { class: 'tcol-count' }, String(tickets.length + hidden)),
         status === 'backlog' || status === 'todo'
           ? h('button', { class: 'icon-btn', title: `Novo ticket em ${label}`, onclick: () => this.create(status) }, icon('plus', 15))
+          : null,
+        status === 'done' && tickets.length + hidden
+          ? h('button', { class: 'icon-btn', title: 'Fechar todos: saem do quadro e ficam em Fechados', onclick: () => void this.closeAll() }, icon('archive', 15))
           : null,
       ),
       list,
@@ -452,7 +459,17 @@ export class Board {
       rows.push(this.delegateControls(t, agent))
     }
 
-    return this.section('Responsável', h('div', { class: 'tassign' }, ...(rows.length ? rows : [h('div', { class: 'field-hint' }, 'Ticket fechado.')])))
+    if (t.status === 'done') {
+      rows.push(
+        h(
+          'div',
+          { class: 'treview' },
+          h('div', { class: 'treview-text' }, this.autoCloseText(t)),
+          h('div', { class: 'treview-actions' }, h('button', { class: 'btn btn-small', onclick: () => void this.closeOne(t) }, icon('archive', 14), 'Fechar agora')),
+        ),
+      )
+    }
+    return this.section('Responsável', h('div', { class: 'tassign' }, ...rows))
   }
 
   private delegateControls(t: Ticket, current: AgentSummary | undefined): HTMLElement {
@@ -466,7 +483,14 @@ export class Board {
     if (current && free.includes(current)) who.value = current.id
     const mode = h('select', { class: 'input' }, ...DELEGATE_MODES.map((m) => h('option', { value: m.value }, m.label)))
     mode.value = DELEGATE_MODES.some((m) => m.value === this.state.settings.defaultPermissionMode) ? this.state.settings.defaultPermissionMode : 'default'
-    const syncMode = () => mode.classList.toggle('hidden', !!who.value)
+    const brain = brainFields({ model: this.state.settings.defaultModel, effort: this.state.settings.defaultEffort }, true)
+    brain.model.title = 'Modelo do agente novo'
+    const brainRow = h('div', { class: 'tdelegate-row' }, brain.model)
+    const brainHint = h('div', { class: 'tdelegate-brain' }, h('div', { class: 'field-hint' }, brain.hint), brain.meter)
+    // Model and effort only matter for a new hire; an agent already here keeps its own.
+    const syncMode = () => {
+      for (const el of [mode, brainRow, brainHint]) el.classList.toggle('hidden', !!who.value)
+    }
     who.addEventListener('change', syncMode)
     syncMode()
 
@@ -475,7 +499,7 @@ export class Board {
       if (!t.cwd && !who.value) return this.actions.toast('Escolha a pasta do projeto antes de contratar um agente para o ticket.', 'err')
       go.setAttribute('disabled', '')
       try {
-        const a = await window.office.delegateTicket(t.id, who.value ? { agentId: who.value } : { hire: { permissionMode: mode.value as OfficePermissionMode } })
+        const a = await window.office.delegateTicket(t.id, who.value ? { agentId: who.value } : { hire: { ...brain.value(), permissionMode: mode.value as OfficePermissionMode } })
         this.actions.toast(who.value ? `${a.name} pegou o ${t.key}.` : `${a.name} foi contratado para o ${t.key} e está subindo.`, 'ok')
       } catch (err) {
         this.actions.toast(cleanError(err), 'err')
@@ -494,6 +518,8 @@ export class Board {
       'div',
       { class: 'tdelegate' },
       h('div', { class: 'tdelegate-row' }, who, mode, go, take),
+      brainRow,
+      brainHint,
       h('div', { class: 'field-hint' }, 'O agente recebe o ticket completo (veja "O que o agente lê"), o ticket vai para Fazendo e, quando ele termina, o relatório chega aqui e o ticket vai para Revisão.'),
     )
   }
@@ -674,6 +700,129 @@ export class Board {
     }
   }
 
+  // ---------- closing ----------
+
+  private autoCloseText(t: Ticket): string {
+    const days = this.state.settings.ticketAutoCloseDays
+    if (!days) return 'Aprovado. Feche quando quiser tirar do quadro.'
+    const left = Math.ceil(((t.doneAt ?? t.updatedAt) + days * 86_400_000 - Date.now()) / 86_400_000)
+    return left > 1 ? `Aprovado. Fecha sozinho em ${left} dias.` : 'Aprovado. Fecha sozinho em até um dia.'
+  }
+
+  private async closeOne(t: Ticket): Promise<void> {
+    try {
+      await window.office.closeTickets([t.id])
+      this.select(null)
+      this.actions.toast(`${t.key} fechado. Está em Fechados se precisar.`, 'ok')
+    } catch (err) {
+      this.actions.toast(cleanError(err), 'err')
+    }
+  }
+
+  private async closeAll(): Promise<void> {
+    const n = [...this.state.tickets.values()].filter((t) => t.status === 'done').length
+    const yes = await confirmDialog(this.root, {
+      title: n === 1 ? 'Fechar 1 ticket?' : `Fechar ${n} tickets?`,
+      text: 'Os tickets de Feito saem do quadro e vão para Fechados, com comentários e histórico. Dá para reabrir depois.',
+      confirm: 'Fechar',
+      cancel: 'Agora não',
+    })
+    if (!yes) return
+    try {
+      const closed = await window.office.closeTickets()
+      this.actions.toast(closed === 1 ? '1 ticket fechado.' : `${closed} tickets fechados.`, 'ok')
+    } catch (err) {
+      this.actions.toast(cleanError(err), 'err')
+    }
+  }
+
+  /** Closed tickets: search, read and reopen; also where auto-close is set. */
+  private openClosed(): void {
+    const search = h('input', { class: 'input', placeholder: 'Buscar por chave, título, tag…' }) as HTMLInputElement
+    const list = h('div', { class: 'closed-list' })
+    const auto = h(
+      'select',
+      { class: 'input closed-auto' },
+      ...AUTO_CLOSE.map((d) => h('option', { value: d }, d === 0 ? 'Só quando eu fechar' : d === 1 ? 'Depois de 1 dia em Feito' : `Depois de ${d} dias em Feito`)),
+    ) as HTMLSelectElement
+    auto.value = String(this.state.settings.ticketAutoCloseDays)
+    auto.addEventListener('change', async () => {
+      try {
+        const saved = await window.office.saveSettings({ ticketAutoCloseDays: Number(auto.value) })
+        this.state.apply({ type: 'settings', settings: saved })
+      } catch (err) {
+        this.actions.toast(cleanError(err), 'err')
+      }
+    })
+    let open: string | null = null
+    let found: Ticket[] = []
+    const draw = () =>
+      list.replaceChildren(
+        ...(found.length
+          ? found.map((t) => {
+              const reopen = h('button', { class: 'btn btn-small', title: 'Volta para A fazer' }, 'Reabrir')
+              reopen.addEventListener('click', async (e) => {
+                e.stopPropagation()
+                try {
+                  await window.office.reopenTicket(t.id)
+                  found = found.filter((x) => x.id !== t.id)
+                  draw()
+                  this.actions.toast(`${t.key} voltou para A fazer.`, 'ok')
+                } catch (err) {
+                  this.actions.toast(cleanError(err), 'err')
+                }
+              })
+              const row = h(
+                'div',
+                { class: 'closed-row' + (open === t.id ? ' open' : '') },
+                h(
+                  'div',
+                  { class: 'closed-head' },
+                  h('span', { class: 'tkey' }, t.key),
+                  h('span', { class: 'closed-title' }, t.title),
+                  h('span', { class: 'closed-when', title: t.closedAt ? new Date(t.closedAt).toLocaleString('pt-BR') : '' }, t.closedAt ? timeAgo(t.closedAt) : ''),
+                  reopen,
+                ),
+                open === t.id ? closedBody(t) : null,
+              )
+              row.querySelector('.closed-head')!.addEventListener('click', () => {
+                open = open === t.id ? null : t.id
+                draw()
+              })
+              return row
+            })
+          : [h('div', { class: 'field-hint' }, search.value.trim() ? 'Nenhum ticket fechado com essa busca.' : 'Nenhum ticket fechado ainda.')]),
+      )
+    let seq = 0
+    const load = async () => {
+      const mine = ++seq
+      const r = await window.office.listClosed(search.value)
+      if (mine !== seq) return
+      found = r
+      draw()
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    search.addEventListener('input', () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => void load(), 200)
+    })
+    const el = modal(
+      'Tickets fechados',
+      [
+        field('Fechar sozinho', auto, 'Tickets aprovados saem do quadro depois desse tempo. Ficam aqui, com comentários e histórico.'),
+        search,
+        list,
+      ],
+      [h('button', { class: 'btn', onclick: () => el.remove() }, 'Fechar janela')],
+      () => el.remove(),
+    )
+    el.classList.add('closed-modal')
+    el.addEventListener('keydown', (e) => e.stopPropagation())
+    this.root.append(el)
+    search.focus()
+    void load()
+  }
+
   private async remove(t: Ticket): Promise<void> {
     const yes = await confirmDialog(this.root, {
       title: `Excluir ${t.key}?`,
@@ -772,6 +921,18 @@ export class Board {
 }
 
 // ---------- helpers ----------
+
+/** What a closed ticket was about and how it ended: context, criteria, the last comments. */
+function closedBody(t: Ticket): HTMLElement {
+  const last = t.comments.slice(-3)
+  return h(
+    'div',
+    { class: 'closed-body' },
+    t.description.trim() ? renderMarkdown(t.description) : h('div', { class: 'field-hint' }, 'Sem contexto.'),
+    t.acceptance.length ? h('ul', { class: 'closed-criteria' }, ...t.acceptance.map((c) => h('li', {}, `${c.done ? '✓' : '○'} ${c.text}`))) : null,
+    ...last.map((c) => h('div', { class: 'closed-comment' }, h('div', { class: 'closed-comment-who' }, `${c.author.name} · ${new Date(c.t).toLocaleDateString('pt-BR')}`), renderMarkdown(c.text))),
+  )
+}
 
 function filterSelect(all: string, options: { value: string; label: string }[]): HTMLSelectElement {
   return h('select', { class: 'input board-filter' }, h('option', { value: '' }, all), ...options.map((o) => h('option', { value: o.value }, o.label)))

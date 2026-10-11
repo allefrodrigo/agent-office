@@ -1,4 +1,4 @@
-import type { AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
+import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -12,7 +12,9 @@ export class State {
   settings: Settings
   bridge: BridgeStatus
   platform: string
-  usage: PlanUsage
+  /** One per account. */
+  usage: PlanUsage[]
+  accounts: AccountStatus[]
   system: SystemStats | null
   squads: SquadInfo[]
   private listeners = new Set<Listener>()
@@ -27,6 +29,7 @@ export class State {
     this.bridge = initial.bridge
     this.platform = initial.platform
     this.usage = initial.usage
+    this.accounts = initial.accounts
     this.system = initial.system
     this.squads = initial.squads
   }
@@ -39,6 +42,10 @@ export class State {
   onLog(cb: (agentId: string, entry: LogEntry) => void): () => void {
     this.logListeners.add(cb)
     return () => this.logListeners.delete(cb)
+  }
+
+  account(id: string | undefined): Account | undefined {
+    return this.settings.accounts.find((a) => a.id === id)
   }
 
   private changed(): void {
@@ -62,6 +69,9 @@ export class State {
       }
       case 'usage':
         this.usage = e.usage
+        break
+      case 'accounts':
+        this.accounts = e.accounts
         break
       case 'system':
         this.system = e.system
@@ -126,12 +136,9 @@ export class State {
     return n
   }
 
-  /** Name of the squad floor: the one in settings, or the folder's name ("apetit-studios" -> "Apetit Studios"). */
-  get squadFloorName(): string {
-    const custom = this.settings.squadFloorName.trim()
-    if (custom) return custom
-    const base = this.settings.squadFolder.split(/[\\/]/).filter(Boolean).pop() ?? ''
-    return base.replace(/[-_]+/g, ' ').replace(/\b\p{L}/gu, (c) => c.toUpperCase()) || 'Squads'
+  /** Elevator floor an agent works on: 0 = ground floor, n = settings.projects[n - 1]. */
+  floorOf(a: AgentSummary): number {
+    return a.project ? this.settings.projects.findIndex((p) => p.id === a.project) + 1 : 0
   }
 
   get inboxCount(): number {

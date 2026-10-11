@@ -53,10 +53,10 @@ $env:AGENT_OFFICE_DEMO=1; npm run dev
 
 ## 4. Usar
 
-### Contratar um agente
+### Contratar um agente com tarefa
 
-1. Clique em **Contratar agente**.
-2. Escolha a pasta do projeto e descreva a tarefa.
+1. Clique no botão do lápis na barra de baixo (ou em **Com tarefa…** no Chamar agente).
+2. Descreva a tarefa. No térreo, escolha a pasta; num andar de empresa, a pasta é a do andar.
 3. Escolha o modo de permissão. "Pedir permissão" faz o agente vir até você antes de editar arquivos ou rodar comandos.
 4. Clique em **Contratar**. O agente chega pelo elevador, senta numa mesa e começa.
 
@@ -66,8 +66,8 @@ Quando ele precisar de você, vai até a sua sala e um cartão abre com **Permit
 
 Para conversar como no terminal, sem preencher o formulário:
 
-1. Clique no botão `>_` da barra de baixo, ou na etiqueta **Chamar agente** em cima do seu computador.
-2. Escolha a pasta.
+1. Clique em **Chamar agente** na barra de baixo (funciona em qualquer andar), ou na etiqueta **Chamar agente** em cima do seu computador.
+2. No térreo, escolha a pasta. Num andar de empresa, a pasta já é a do andar.
 3. O agente chega e o painel dele abre. Digite o que quer.
 
 Ele usa o modelo e o modo de permissão padrão das Configurações.

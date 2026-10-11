@@ -1,6 +1,9 @@
 import { AGENT_NAMES, HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
-import type { AgentSummary, Look, OfficePermissionMode, SessionEntry } from '@shared/types'
+import { floorNameFor, MAX_PROJECT_FLOORS, projectFor } from '@shared/projects'
+import { DEFAULT_BRAND } from '../world/brand'
+import type { AgentBrain, AgentSummary, EffortLevel, Look, OfficePermissionMode, ProjectFloor, SessionEntry } from '@shared/types'
 import type { State } from '../state'
+import { accountField, openAccounts } from './accounts'
 import { h, icon, timeAgo } from './dom'
 import { portrait } from './portrait'
 
@@ -14,12 +17,113 @@ const MODES: { value: OfficePermissionMode; label: string; hint: string }[] = [
   { value: 'bypassPermissions', label: 'Sem pedir nada', hint: 'PERIGOSO: roda qualquer comando sem perguntar. Use só em pastas descartáveis.' },
 ]
 
-const MODELS = [
-  { value: '', label: 'Padrão do Claude Code' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'haiku', label: 'Haiku' },
+export const MODELS = [
+  { value: '', label: 'Padrão do Claude Code', hint: 'O modelo configurado no seu Claude Code (/model).' },
+  { value: 'fable', label: 'Fable', hint: 'O mais capaz e o mais caro. Pode exigir créditos de uso.' },
+  { value: 'opus', label: 'Opus', hint: 'Forte em tarefas longas e código difícil.' },
+  { value: 'sonnet', label: 'Sonnet', hint: 'Equilíbrio entre qualidade, velocidade e custo.' },
+  { value: 'haiku', label: 'Haiku', hint: 'Rápido e barato, para tarefas simples.' },
 ]
+
+export const EFFORTS: { value: EffortLevel | ''; label: string; title: string; hint: string; stats?: [depth: number, speed: number, cost: number] }[] = [
+  { value: '', label: 'Padrão do modelo', title: 'Auto', hint: 'O modelo usa o esforço padrão dele.' },
+  { value: 'low', label: 'Baixo', title: 'Passeio', hint: 'Pensa pouco. Bom para perguntas rápidas e ajustes pequenos.', stats: [1, 5, 1] },
+  { value: 'medium', label: 'Médio', title: 'Trote', hint: 'Pensa o suficiente para o trabalho do dia a dia.', stats: [2, 4, 2] },
+  { value: 'high', label: 'Alto', title: 'Foco', hint: 'Pensa com cuidado antes de agir. Bom para features e bugs chatos.', stats: [3, 3, 3] },
+  { value: 'xhigh', label: 'Extra alto', title: 'Turbo', hint: 'Pensa bastante. Para refatorações grandes e problemas difíceis.', stats: [4, 2, 4] },
+  { value: 'max', label: 'Máximo', title: 'Modo lenda', hint: 'Sem economia. O Claude Code rebaixa se o modelo não aceitar.', stats: [5, 1, 5] },
+]
+
+/**
+ * Effort as a charge meter: bars that light up to the chosen level, cool to hot,
+ * with depth/speed/cost pips so the trade-off is visible before hiring.
+ * Arrow keys move the charge; hovering previews a level without picking it.
+ */
+export function effortMeter(initial: string, compact = false): { el: HTMLElement; value(): EffortLevel | '' } {
+  let current = EFFORTS.findIndex((e) => e.value === initial)
+  if (current < 0) current = 0
+  const tiles = EFFORTS.map((e, i) =>
+    h(
+      'button',
+      { type: 'button', class: `emeter-tile emeter-l${i}`, role: 'radio', title: `${e.label}: ${e.hint}`, 'aria-label': e.label },
+      i === 0 ? h('span', { class: 'emeter-auto' }, 'A') : h('span', { class: 'emeter-bar' }),
+    ),
+  )
+  const name = h('span', { class: 'emeter-name' })
+  const tag = h('span', { class: 'emeter-tag' })
+  const hint = h('span', { class: 'emeter-hint' })
+  const pips = (label: string) => {
+    const row = h('div', { class: 'emeter-stat' }, h('span', { class: 'emeter-stat-label' }, label), h('span', { class: 'emeter-pips' }, ...Array.from({ length: 5 }, () => h('i', {}))))
+    return row
+  }
+  const stats = [pips('Profundidade'), pips('Velocidade'), pips('Custo')]
+  const card = h('div', { class: 'emeter-card' }, h('div', { class: 'emeter-head' }, name, tag), compact ? null : h('div', { class: 'emeter-stats' }, ...stats), hint)
+  const track = h('div', { class: 'emeter-track', role: 'radiogroup', 'aria-label': 'Esforço' }, ...tiles)
+  const el = h('div', { class: `emeter${compact ? ' emeter-compact' : ''}` }, track, card)
+
+  const paint = (shown: number) => {
+    const e = EFFORTS[shown]
+    el.dataset.level = String(shown)
+    tiles.forEach((t, i) => {
+      t.classList.toggle('lit', shown > 0 && i > 0 && i <= shown)
+      t.classList.toggle('on', i === current)
+      t.setAttribute('aria-checked', String(i === current))
+      t.tabIndex = i === current ? 0 : -1
+    })
+    name.textContent = e.title
+    tag.textContent = shown === 0 ? 'padrão' : `nível ${shown} · ${e.label.toLowerCase()}`
+    hint.textContent = e.hint
+    stats.forEach((row, k) => row.querySelectorAll('i').forEach((pip, j) => pip.classList.toggle('on', !!e.stats && j < e.stats[k])))
+    card.classList.toggle('emeter-unknown', !e.stats)
+  }
+  const pick = (i: number, focus = false) => {
+    current = Math.max(0, Math.min(EFFORTS.length - 1, i))
+    paint(current)
+    if (focus) tiles[current].focus()
+    // replay the "charge" pop on the new level
+    el.classList.remove('emeter-pop')
+    void el.offsetWidth
+    el.classList.add('emeter-pop')
+  }
+  tiles.forEach((t, i) => {
+    t.addEventListener('click', () => pick(i))
+    t.addEventListener('pointerenter', () => paint(i))
+  })
+  track.addEventListener('pointerleave', () => paint(current))
+  track.addEventListener('keydown', (e) => {
+    const step = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0
+    if (!step) return
+    e.preventDefault()
+    e.stopPropagation()
+    pick(current + step, true)
+  })
+  paint(current)
+  return { el, value: () => EFFORTS[current].value }
+}
+
+/**
+ * Model picker plus the effort meter, so nobody hires a Haiku on low effort
+ * for a migration by mistake.
+ */
+export function brainFields(initial: { model: string; effort: string }, compact = false): { model: HTMLSelectElement; meter: HTMLElement; hint: HTMLElement; value(): AgentBrain } {
+  const model = h('select', { class: 'input' }, ...MODELS.map((m) => h('option', { value: m.value }, m.label))) as HTMLSelectElement
+  model.value = MODELS.some((m) => m.value === initial.model) ? initial.model : ''
+  const effort = effortMeter(initial.effort, compact)
+  const hint = h('span', {})
+  const sync = () => {
+    const m = MODELS.find((x) => x.value === model.value)!
+    hint.textContent = `${m.label}: ${m.hint}`
+  }
+  model.addEventListener('change', sync)
+  sync()
+  // '' is sent on purpose: it means "Claude Code's default", not the office default.
+  return { model, meter: effort.el, hint, value: () => ({ model: model.value || undefined, effort: effort.value() || undefined }) }
+}
+
+/** Not a <label>: a label would forward clicks on its blank space to the first tile. */
+function meterField(label: string, meter: HTMLElement): HTMLElement {
+  return h('div', { class: 'field' }, h('span', { class: 'field-label' }, label), meter)
+}
 
 export function modal(title: string, body: HTMLElement[], footer: HTMLElement[], onClose: () => void): HTMLDivElement {
   const box = h(
@@ -68,14 +172,56 @@ export function confirmDialog(
 const LAST_SUMMON_MODE = 'agent-office:summon-mode'
 
 /**
- * "Chamar agente": just a folder and how much freedom the agent gets. Resolves the
- * choice, or null if the player gave up.
+ * The folder row of the hire and summon forms. On a project floor the folder is the
+ * project's and cannot change; downstairs you pick one, and a folder that belongs to
+ * a project floor says so, since the agent will work up there.
  */
-export function openSummon(root: HTMLElement, state: State): Promise<{ cwd: string; permissionMode: OfficePermissionMode } | null> {
+function folderField(state: State, project: ProjectFloor | null | undefined): { el: HTMLElement; cwd(): string; ensure(): Promise<boolean> } {
+  if (project) {
+    return {
+      el: field(
+        'Projeto',
+        h('div', { class: 'path-row path-fixed', title: project.cwd }, icon('folder', 15), h('span', { class: 'path-name' }, project.name), h('span', { class: 'path-label' }, project.cwd)),
+        `Andar ${project.name}: quem você chama aqui trabalha nesta pasta.`,
+      ),
+      cwd: () => project.cwd,
+      ensure: async () => true,
+    }
+  }
+  let cwd = localStorage.getItem(LAST_CWD) ?? ''
+  const label = h('span', { class: 'path-label' }, cwd || 'Nenhuma pasta escolhida')
+  const hint = h('span', {})
+  const set = (p: string) => {
+    cwd = p
+    label.textContent = p
+    const floor = projectFor(state.settings.projects, p)
+    hint.textContent = floor ? `Essa pasta é do andar ${floor.name}: o agente vai trabalhar lá.` : ''
+  }
+  if (cwd) set(cwd)
+  const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
+  pick.addEventListener('click', async () => {
+    const p = await window.office.pickFolder(cwd || undefined)
+    if (p) set(p)
+  })
+  return {
+    el: field('Pasta do projeto', h('div', { class: 'path-row' }, label, pick), hint),
+    cwd: () => cwd,
+    ensure: async () => {
+      if (cwd) return true
+      const p = await window.office.pickFolder()
+      if (p) set(p)
+      return !!p
+    },
+  }
+}
+
+/**
+ * "Chamar agente": just a folder and how much freedom the agent gets. On a project
+ * floor the folder is the project's. Resolves the choice, or null if the player gave up.
+ */
+export function openSummon(root: HTMLElement, state: State, project?: ProjectFloor | null, withTask?: () => void): Promise<{ cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain } | null> {
   return new Promise((resolve) => {
-    let cwd = localStorage.getItem(LAST_CWD) ?? ''
-    const cwdLabel = h('span', { class: 'path-label' }, cwd || 'Nenhuma pasta escolhida')
-    const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
+    const folder = folderField(state, project)
     const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
     const saved = localStorage.getItem(LAST_SUMMON_MODE)
     mode.value = MODES.some((m) => m.value === saved) ? saved! : state.settings.defaultPermissionMode
@@ -87,9 +233,11 @@ export function openSummon(root: HTMLElement, state: State): Promise<{ cwd: stri
     }
     mode.addEventListener('change', syncHint)
     syncHint()
+    const brain = brainFields({ model: state.settings.defaultModel, effort: state.settings.defaultEffort })
+    const account = accountField(state, () => folder.cwd())
 
     let done = false
-    const finish = (v: { cwd: string; permissionMode: OfficePermissionMode } | null) => {
+    const finish = (v: { cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain } | null) => {
       if (done) return
       done = true
       el.remove()
@@ -97,33 +245,30 @@ export function openSummon(root: HTMLElement, state: State): Promise<{ cwd: stri
     }
     const go = h('button', { class: 'btn btn-primary' }, icon('terminal', 15), 'Chamar')
     const submit = async () => {
-      if (!cwd) {
-        const p = await window.office.pickFolder()
-        if (!p) return
-        cwd = p
-        cwdLabel.textContent = p
-      }
+      if (!(await folder.ensure())) return
       if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
-      localStorage.setItem(LAST_CWD, cwd)
+      if (!project) localStorage.setItem(LAST_CWD, folder.cwd())
       localStorage.setItem(LAST_SUMMON_MODE, mode.value)
-      finish({ cwd, permissionMode: mode.value as OfficePermissionMode })
+      finish({ cwd: folder.cwd(), permissionMode: mode.value as OfficePermissionMode, brain: { ...brain.value(), accounts: account.value() } })
     }
-    pick.addEventListener('click', async () => {
-      const p = await window.office.pickFolder(cwd || undefined)
-      if (p) {
-        cwd = p
-        cwdLabel.textContent = p
-      }
-    })
     go.addEventListener('click', () => void submit())
     const el = modal(
-      'Chamar agente',
+      project ? `Chamar agente · ${project.name}` : 'Chamar agente',
       [
-        field('Pasta do projeto', h('div', { class: 'path-row' }, cwdLabel, pick)),
+        folder.el,
+        field('Modelo', brain.model, brain.hint),
+        meterField('Esforço', brain.meter),
+        ...(account.el ? [account.el] : []),
         field('Permissões', mode, modeHint),
         h('div', { class: 'field-hint' }, 'Sem tarefa: ele chega e o painel abre para você digitar.'),
       ],
-      [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), go],
+      [
+        ...(withTask
+          ? [h('button', { class: 'btn btn-left', onclick: () => (finish(null), withTask()), title: 'Nome, tarefa e modelo: ele já chega trabalhando' }, icon('edit', 15), 'Com tarefa…')]
+          : []),
+        h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'),
+        go,
+      ],
       () => finish(null),
     )
     el.addEventListener('keydown', (e) => {
@@ -134,22 +279,17 @@ export function openSummon(root: HTMLElement, state: State): Promise<{ cwd: stri
   })
 }
 
-export function openHire(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void): void {
+/**
+ * "Contratar agente": a name, a task and how the agent thinks. On a project floor the
+ * folder is the project's, and its squads are one click away (`hireSquad`).
+ */
+export function openHire(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, project?: ProjectFloor | null, hireSquad?: () => void): void {
   const used = new Set([...state.agents.values()].map((a) => a.name))
   const name = h('input', { class: 'input', value: AGENT_NAMES.find((n) => !used.has(n)) ?? `Agente ${used.size + 1}`, maxlength: 40 })
-  let cwd = localStorage.getItem(LAST_CWD) ?? ''
-  const cwdLabel = h('span', { class: 'path-label' }, cwd || 'Nenhuma pasta escolhida')
-  const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
-  pick.addEventListener('click', async () => {
-    const p = await window.office.pickFolder()
-    if (p) {
-      cwd = p
-      cwdLabel.textContent = p
-    }
-  })
+  const folder = folderField(state, project)
   const task = h('textarea', { class: 'input', rows: 5, placeholder: 'Ex.: Adicione testes para o módulo de pagamentos e corrija o que quebrar.' })
-  const model = h('select', { class: 'input' }, ...MODELS.map((m) => h('option', { value: m.value }, m.label)))
-  model.value = state.settings.defaultModel
+  const brain = brainFields({ model: state.settings.defaultModel, effort: state.settings.defaultEffort })
+  const account = accountField(state, () => folder.cwd())
   const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
   mode.value = state.settings.defaultPermissionMode
   const modeHint = h('span', {})
@@ -164,17 +304,19 @@ export function openHire(root: HTMLElement, state: State, toast: (t: string, k?:
   const close = () => el.remove()
   const submit = h('button', { class: 'btn btn-primary' }, icon('plus', 16), 'Contratar')
   submit.addEventListener('click', async () => {
+    const cwd = folder.cwd()
     if (!cwd) return toast('Escolha a pasta do projeto.', 'err')
     if (!task.value.trim()) return toast('Descreva a tarefa.', 'err')
     if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
     submit.setAttribute('disabled', '')
     try {
-      localStorage.setItem(LAST_CWD, cwd)
+      if (!project) localStorage.setItem(LAST_CWD, cwd)
       const a = await window.office.hire({
         name: name.value.trim() || 'Agente',
         cwd,
         task: task.value.trim(),
-        model: model.value || undefined,
+        ...brain.value(),
+        accounts: account.value(),
         permissionMode: mode.value as OfficePermissionMode,
       })
       toast(`${a.name} está subindo pelo elevador.`, 'ok')
@@ -185,16 +327,24 @@ export function openHire(root: HTMLElement, state: State, toast: (t: string, k?:
     }
   })
 
+  // The orchestrator is optional: plain agents work on a project floor too.
+  const squads = project ? state.squads.filter((q) => q.cwd === project.cwd).length : 0
+  const squadBtn =
+    squads && hireSquad
+      ? h('button', { class: 'btn btn-aside', title: 'Um orquestrador que sobe com o squad inteiro e roda o pipeline', onclick: () => (close(), hireSquad()) }, icon('users', 15), squads === 1 ? 'Contratar o squad' : `Contratar um squad (${squads})`)
+      : null
   const el = modal(
-    'Contratar agente',
+    project ? `Contratar agente · ${project.name}` : 'Contratar agente',
     [
       field('Nome', name),
-      field('Pasta do projeto', h('div', { class: 'path-row' }, cwdLabel, pick)),
+      folder.el,
       field('Tarefa', task),
-      h('div', { class: 'field-row' }, field('Modelo', model), field('Permissões', mode)),
-      h('div', { class: 'field-hint' }, modeHint),
+      field('Modelo', brain.model, brain.hint),
+      meterField('Esforço', brain.meter),
+      ...(account.el ? [account.el] : []),
+      field('Permissões', mode, modeHint),
     ],
-    [h('button', { class: 'btn', onclick: close }, 'Cancelar'), submit],
+    [squadBtn, h('button', { class: 'btn', onclick: close }, 'Cancelar'), submit].filter((b): b is HTMLButtonElement => !!b),
     close,
   )
   root.append(el)
@@ -241,8 +391,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   pixel.value = String(s.pixelSize)
   const notify = h('input', { type: 'checkbox' }) as HTMLInputElement
   notify.checked = s.notifications
-  const model = h('select', { class: 'input' }, ...MODELS.map((m) => h('option', { value: m.value }, m.label)))
-  model.value = s.defaultModel
+  const brain = brainFields({ model: s.defaultModel, effort: s.defaultEffort })
   const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
   mode.value = s.defaultPermissionMode
 
@@ -253,34 +402,43 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
     h('span', { class: `dot ${b.installed && b.listening ? 'dot-working' : b.installed ? 'dot-error' : 'dot-stopped'}` }),
     b.installed ? (b.listening ? `Conectado (porta ${b.port})` : `Hooks instalados, servidor parado${b.error ? `: ${b.error}` : ''}`) : 'Desconectado',
   )
-  // squad floor: a project folder with squads/<code>/squad.yaml
-  let squadFolder = s.squadFolder
-  const squadLabel = h('span', { class: 'path-label' }, squadFolder || 'Nenhuma pasta: o escritório fica só no térreo')
-  const squadPick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
-  const squadClear = h('button', { class: 'btn', type: 'button', title: 'Tirar o andar de squads' }, icon('x', 15))
-  const floorName = h('input', { class: 'input', value: s.squadFloorName, maxlength: 32, placeholder: 'Nome do andar (ex.: Apetit Studios)' })
-  const squadHint = h('span', {})
-  const checkSquads = async () => {
-    if (!squadFolder) return void (squadHint.textContent = '')
-    const found = await window.office.listSquads(squadFolder)
-    squadHint.textContent = found.length
-      ? `${found.length === 1 ? '1 squad' : `${found.length} squads`}: ${found.map((q) => `${q.icon} ${q.name} (${q.members.length} membros)`).join(' · ')}`
-      : 'Nenhum squads/<code>/squad.yaml nessa pasta.'
-    squadHint.className = found.length ? '' : 'warn'
+  // project floors: one per folder; renaming keeps whatever else a floor carries
+  let floors: ProjectFloor[] = s.projects.map((p) => ({ ...p }))
+  const floorList = h('div', { class: 'floor-list' })
+  const addFloor = h('button', { class: 'btn', type: 'button' }, icon('plus', 15), 'Adicionar andar')
+  const renderFloors = () => {
+    floorList.replaceChildren(
+      ...(floors.length
+        ? floors.map((p, i) => {
+            const nameIn = h('input', { class: 'input', value: p.name, maxlength: 32, title: 'Nome do andar' })
+            nameIn.addEventListener('input', () => (floors[i] = { ...floors[i], name: nameIn.value }))
+            const squads = state.squads.filter((q) => q.cwd === p.cwd).length
+            const remove = h('button', { class: 'icon-btn', type: 'button', title: 'Tirar o andar: os agentes dele descem para o térreo' }, icon('x', 15))
+            const set = (patch: Partial<ProjectFloor>) => (floors[i] = { ...floors[i], ...patch })
+            remove.addEventListener('click', () => {
+              floors = floors.filter((_, j) => j !== i)
+              renderFloors()
+            })
+            return h(
+              'div',
+              { class: 'floor-row' },
+              h('span', { class: 'floor-num' }, String(i + 1)),
+              h('div', { class: 'floor-row-main' }, nameIn, h('span', { class: 'floor-row-path', title: p.cwd }, p.cwd, squads ? ` · ${squads === 1 ? '1 squad' : `${squads} squads`}` : ''), brandFields(floors[i], set, toast)),
+              remove,
+            )
+          })
+        : [h('div', { class: 'field-hint' }, 'Nenhum andar: o escritório fica só no térreo.')]),
+    )
+    addFloor.classList.toggle('hidden', floors.length >= MAX_PROJECT_FLOORS)
   }
-  squadPick.addEventListener('click', async () => {
-    const p = await window.office.pickFolder(squadFolder || undefined)
+  addFloor.addEventListener('click', async () => {
+    const p = await window.office.pickFolder()
     if (!p) return
-    squadFolder = p
-    squadLabel.textContent = p
-    void checkSquads()
+    if (floors.some((x) => x.cwd === p)) return toast('Essa pasta já tem um andar.', 'err')
+    floors = [...floors, { id: `p-${Date.now().toString(36)}`, name: floorNameFor(p), cwd: p }]
+    renderFloors()
   })
-  squadClear.addEventListener('click', () => {
-    squadFolder = ''
-    squadLabel.textContent = 'Nenhuma pasta: o escritório fica só no térreo'
-    void checkSquads()
-  })
-  void checkSquads()
+  renderFloors()
 
   const bridgeBtn = h('button', { class: 'btn' }, b.installed ? 'Desconectar' : 'Conectar')
   bridgeBtn.addEventListener('click', async () => {
@@ -297,10 +455,10 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       playerLook: look,
       pixelSize: Number(pixel.value),
       notifications: notify.checked,
-      defaultModel: model.value,
+      defaultModel: brain.model.value,
+      defaultEffort: brain.value().effort ?? '',
       defaultPermissionMode: mode.value as OfficePermissionMode,
-      squadFolder,
-      squadFloorName: floorName.value.trim(),
+      projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
     close()
   })
@@ -323,16 +481,31 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
           field('Calça', swatches('pants', PANTS_COLORS)),
         ),
       ),
-      h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', model), field('Permissão padrão', mode)),
+      h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', brain.model), field('Permissão padrão', mode)),
+      meterField('Esforço padrão', brain.meter),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
       h(
         'div',
         { class: 'bridge-box' },
-        h('div', { class: 'bridge-title' }, icon('users', 16), 'Andar de squads (Opensquad)'),
-        h('div', { class: 'field-hint' }, 'Uma pasta de projeto com squads/<code>/squad.yaml ganha um andar próprio. Lá, um orquestrador roda o ciclo de cada squad só com a equipe dele.'),
-        h('div', { class: 'path-row' }, squadLabel, squadPick, squadClear),
-        h('span', { class: 'field-hint' }, squadHint),
-        field('Nome do andar', floorName),
+        h('div', { class: 'bridge-title' }, icon('users', 16), 'Andares por projeto'),
+        h(
+          'div',
+          { class: 'field-hint' },
+          'Cada andar é uma pasta de projeto: quem você contrata ou chama lá trabalha nela. Se a pasta tiver squads (squads/<code>/squad.yaml), a Diretoria do andar contrata um orquestrador com o squad.',
+        ),
+        floorList,
+        addFloor,
+      ),
+      h(
+        'div',
+        { class: 'bridge-box' },
+        h('div', { class: 'bridge-title' }, icon('users', 16), 'Contas do Claude'),
+        h(
+          'div',
+          { class: 'field-hint' },
+          `${s.accounts.length === 1 ? 'Uma conta' : `${s.accounts.length} contas`}. Adicione outras para separar projetos ou revezar quando uma bater o limite de 5h.`,
+        ),
+        h('div', { class: 'bridge-row' }, h('button', { class: 'btn', type: 'button', onclick: () => openAccounts(root, state, toast) }, 'Gerenciar contas')),
       ),
       h(
         'div',
@@ -515,16 +688,18 @@ const RUN_MODES = MODES.filter((m) => m.value !== 'bypassPermissions')
 const LAST_RUN_MODE = 'agent-office:squad-mode'
 
 /**
- * "Rodar ciclo": pick a squad of the floor and an orchestrator comes up to the
- * Diretoria to run its pipeline. Squad cycles never run with "Sem pedir nada".
+ * "Contratar squad": pick a squad of the project and an orchestrator comes up to the
+ * Diretoria with the whole team to run its pipeline. Hiring it again for the same
+ * squad just starts another cycle. Squad cycles never run with "Sem pedir nada".
  */
-export function openRunSquad(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, onStarted: (a: AgentSummary) => void): void {
-  const squads = state.squads
-  if (!squads.length) return toast('Configure a pasta de squads nas configurações.', 'err')
-  const running = new Map([...state.agents.values()].filter((a) => a.role === 'orchestrator').map((a) => [`${a.cwd}|${a.squad}`, a]))
+export function openRunSquad(root: HTMLElement, state: State, project: ProjectFloor, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, onStarted: (a: AgentSummary) => void): void {
+  const squads = state.squads.filter((q) => q.cwd === project.cwd)
+  if (!squads.length) return toast(`${project.name} não tem squads: nenhum squads/<code>/squad.yaml na pasta do projeto.`, 'err')
+  const here = new Map([...state.agents.values()].filter((a) => a.role === 'orchestrator' && a.cwd === project.cwd).map((a) => [a.squad, a]))
+  const busy = (a: AgentSummary | undefined) => !!a && a.status !== 'idle' && a.status !== 'done' && a.status !== 'error'
   let chosen = squads[0]
   const cards = squads.map((q) => {
-    const busy = running.get(`${q.cwd}|${q.code}`)
+    const boss = here.get(q.code)
     const inline = q.members.filter((m) => m.execution === 'inline').length
     const card = h(
       'button',
@@ -533,7 +708,7 @@ export function openRunSquad(root: HTMLElement, state: State, toast: (t: string,
       h(
         'span',
         { class: 'squad-main' },
-        h('span', { class: 'squad-name' }, q.name, busy && busy.status !== 'idle' && busy.status !== 'done' ? h('span', { class: 'chip chip-wait' }, 'rodando') : null),
+        h('span', { class: 'squad-name' }, q.name, boss ? h('span', { class: `chip ${busy(boss) ? 'chip-wait' : ''}` }, busy(boss) ? 'rodando' : 'na Diretoria') : null),
         h('span', { class: 'squad-meta' }, `${q.members.length} membros${inline ? ` (${inline} inline)` : ''} · ${q.steps.length} passos · ${q.steps.filter((x) => x.type === 'checkpoint').length} checkpoints`),
         q.description ? h('span', { class: 'squad-desc' }, q.description) : null,
       ),
@@ -544,8 +719,6 @@ export function openRunSquad(root: HTMLElement, state: State, toast: (t: string,
     })
     return card
   })
-  const paint = () => cards.forEach((c, i) => c.classList.toggle('on', squads[i] === chosen))
-  paint()
 
   const mode = h('select', { class: 'input' }, ...RUN_MODES.map((m) => h('option', { value: m.value }, m.label)))
   const saved = localStorage.getItem(LAST_RUN_MODE)
@@ -557,14 +730,19 @@ export function openRunSquad(root: HTMLElement, state: State, toast: (t: string,
   const note = h('textarea', { class: 'input', rows: 2, placeholder: 'Recado para o orquestrador (opcional)' })
 
   const close = () => el.remove()
-  const go = h('button', { class: 'btn btn-primary' }, '▶ Rodar ciclo')
+  const go = h('button', { class: 'btn btn-primary' })
+  const paint = () => {
+    cards.forEach((c, i) => c.classList.toggle('on', squads[i] === chosen))
+    go.textContent = here.has(chosen.code) ? '▶ Rodar ciclo' : '▶ Contratar e rodar ciclo'
+  }
+  paint()
   go.addEventListener('click', async () => {
     go.setAttribute('disabled', '')
     try {
       localStorage.setItem(LAST_RUN_MODE, mode.value)
       const a = await window.office.runSquad(chosen.cwd, chosen.code, mode.value as OfficePermissionMode, note.value)
       close()
-      toast(`${a.name} subiu para a Diretoria e começou o ciclo.`, 'ok')
+      toast(`${a.name} subiu para a Diretoria com o squad e começou o ciclo.`, 'ok')
       onStarted(a)
     } catch (err) {
       go.removeAttribute('disabled')
@@ -572,15 +750,188 @@ export function openRunSquad(root: HTMLElement, state: State, toast: (t: string,
     }
   })
   const el = modal(
-    `Rodar ciclo · ${state.squadFloorName}`,
+    `Contratar squad · ${project.name}`,
     [
       h('div', { class: 'squad-list' }, ...cards),
       field('Permissões', mode, modeHint),
-      field('Recado', note, 'Os checkpoints do ciclo descem até a sua sala como perguntas. Sem resposta, o ciclo espera.'),
+      field('Recado', note, 'Os checkpoints do ciclo vêm até você como perguntas. Sem resposta, o ciclo espera.'),
     ],
     [h('button', { class: 'btn', onclick: close }, 'Cancelar'), go],
     close,
   )
   root.append(el)
   go.focus()
+}
+
+const MAX_LOGO_PX = 256
+
+/**
+ * Reads an image file into a PNG data URL no bigger than 256 px, plus its most
+ * common vivid color. Re-encoding drops anything that is not pixels.
+ */
+async function readLogo(file: File): Promise<{ logo: string; color: string | null }> {
+  if (!/^image\/(png|jpeg|webp|gif)$/.test(file.type)) throw new Error('Use uma imagem PNG, JPG, WebP ou GIF.')
+  const url = URL.createObjectURL(file)
+  try {
+    const img = new Image()
+    img.src = url
+    await img.decode()
+    const k = Math.min(1, MAX_LOGO_PX / Math.max(img.naturalWidth, img.naturalHeight))
+    const c = document.createElement('canvas')
+    c.width = Math.max(1, Math.round(img.naturalWidth * k))
+    c.height = Math.max(1, Math.round(img.naturalHeight * k))
+    const ctx = c.getContext('2d')!
+    ctx.drawImage(img, 0, 0, c.width, c.height)
+    return { logo: c.toDataURL('image/png'), color: vividColor(ctx.getImageData(0, 0, c.width, c.height).data) }
+  } catch (err) {
+    throw new Error(err instanceof Error && err.message.startsWith('Use') ? err.message : 'Não consegui abrir essa imagem.')
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+/** The most frequent saturated color (opaque, not near white/black/gray), or null. */
+function vividColor(px: Uint8ClampedArray): string | null {
+  const counts = new Map<number, number>()
+  for (let i = 0; i < px.length; i += 4) {
+    const [r, g, b, a] = [px[i], px[i + 1], px[i + 2], px[i + 3]]
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    if (a < 200 || max < 40 || min > 225 || max - min < 50) continue
+    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4)
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  let best = -1
+  let n = 0
+  for (const [k, c] of counts) if (c > n) [best, n] = [k, c]
+  if (best < 0) return null
+  const ch = (v: number) => ((v << 4) | 8).toString(16).padStart(2, '0')
+  return `#${ch(best >> 8)}${ch((best >> 4) & 15)}${ch(best & 15)}`
+}
+
+/** Logo, brand color and the uniform toggle of one floor in Configurações. */
+function brandFields(p: ProjectFloor, set: (patch: Partial<ProjectFloor>) => void, toast: (t: string, k?: 'info' | 'ok' | 'err') => void): HTMLElement {
+  const file = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif', class: 'hidden' }) as HTMLInputElement
+  const thumb = h('button', { class: 'floor-brand-logo', type: 'button', title: 'Logo da empresa (placa do andar e farda)' })
+  const clear = h('button', { class: 'icon-btn floor-brand-clear', type: 'button', title: 'Tirar o logo' }, icon('x', 12))
+  const color = h('input', { type: 'color', class: 'floor-brand-color', value: p.brandColor ?? DEFAULT_BRAND, title: 'Cor da empresa' }) as HTMLInputElement
+  const uniform = h('input', { type: 'checkbox' }) as HTMLInputElement
+  uniform.checked = !!p.uniform
+  const showLogo = (logo: string | undefined) => {
+    thumb.replaceChildren(logo ? h('img', { src: logo, alt: '' }) : icon('image', 16))
+    clear.classList.toggle('hidden', !logo)
+  }
+  showLogo(p.logo)
+  thumb.addEventListener('click', () => file.click())
+  file.addEventListener('change', async () => {
+    const f = file.files?.[0]
+    file.value = ''
+    if (!f) return
+    try {
+      const { logo, color: found } = await readLogo(f)
+      // the logo's color becomes the brand color until the player picks one
+      const patch: Partial<ProjectFloor> = { logo }
+      if (found && !p.brandColor) {
+        patch.brandColor = found
+        color.value = found
+      }
+      set(patch)
+      p = { ...p, ...patch }
+      showLogo(logo)
+    } catch (err) {
+      toast(cleanError(err), 'err')
+    }
+  })
+  clear.addEventListener('click', () => {
+    set({ logo: undefined })
+    p = { ...p, logo: undefined }
+    showLogo(undefined)
+  })
+  color.addEventListener('input', () => {
+    set({ brandColor: color.value })
+    p = { ...p, brandColor: color.value }
+  })
+  uniform.addEventListener('change', () => set({ uniform: uniform.checked }))
+  return h(
+    'div',
+    { class: 'floor-brand-row' },
+    h('span', { class: 'floor-brand-logo-wrap' }, thumb, clear),
+    file,
+    color,
+    h('label', { class: 'check' }, uniform, 'Agentes com a farda da empresa'),
+  )
+}
+
+/**
+ * "Novo andar": a project folder becomes a floor. Resolves the floor as saved, or
+ * null if the player gave up.
+ */
+export function openNewFloor(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void): Promise<ProjectFloor | null> {
+  return new Promise((resolve) => {
+    let cwd = ''
+    let named = false
+    const label = h('span', { class: 'path-label' }, 'Nenhuma pasta escolhida')
+    const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
+    const name = h('input', { class: 'input', maxlength: 32, placeholder: 'Ex.: Apetit Studios' })
+    name.addEventListener('input', () => (named = !!name.value.trim()))
+    const hint = h('span', {})
+    const choose = async (p: string) => {
+      cwd = p
+      label.textContent = p
+      if (!named) name.value = floorNameFor(p)
+      const taken = state.settings.projects.find((x) => x.cwd === p)
+      if (taken) {
+        hint.textContent = `Essa pasta já é o andar ${taken.name}.`
+        hint.className = 'warn'
+        return
+      }
+      const found = await window.office.listSquads(p)
+      if (cwd !== p) return
+      hint.className = ''
+      hint.textContent = found.length
+        ? `${found.length === 1 ? '1 squad' : `${found.length} squads`} para contratar na Diretoria: ${found.map((q) => `${q.icon} ${q.name}`).join(' · ')}`
+        : 'Sem squads (squads/<code>/squad.yaml). O andar funciona igual: só não tem orquestrador para contratar.'
+    }
+    pick.addEventListener('click', async () => {
+      const p = await window.office.pickFolder(cwd || undefined)
+      if (p) await choose(p)
+    })
+
+    let done = false
+    const finish = (v: ProjectFloor | null) => {
+      if (done) return
+      done = true
+      el.remove()
+      resolve(v)
+    }
+    const go = h('button', { class: 'btn btn-primary' }, icon('plus', 15), 'Criar andar')
+    go.addEventListener('click', async () => {
+      if (!cwd) return toast('Escolha a pasta do projeto.', 'err')
+      if (state.settings.projects.some((x) => x.cwd === cwd)) return toast('Essa pasta já tem um andar.', 'err')
+      go.setAttribute('disabled', '')
+      try {
+        const projects = [...state.settings.projects, { id: `p-${Date.now().toString(36)}`, name: name.value.trim() || floorNameFor(cwd), cwd }]
+        const saved = await window.office.saveSettings({ projects })
+        const floor = saved.projects.find((x) => x.cwd === cwd)
+        if (!floor) throw new Error('Não consegui criar o andar: a pasta não existe mais?')
+        state.apply({ type: 'settings', settings: saved })
+        finish(floor)
+      } catch (err) {
+        go.removeAttribute('disabled')
+        toast(cleanError(err), 'err')
+      }
+    })
+    const el = modal(
+      'Novo andar de projeto',
+      [
+        h('div', { class: 'field-hint' }, 'Todo agente que você contratar ou chamar nesse andar trabalha na pasta do projeto, sem escolher pasta. Agentes de tickets, do resume ou do terminal nessa pasta também sobem para lá.'),
+        field('Pasta do projeto', h('div', { class: 'path-row' }, label, pick), hint),
+        field('Nome do andar', name),
+      ],
+      [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), go],
+      () => finish(null),
+    )
+    root.append(el)
+    pick.focus()
+  })
 }
