@@ -3,6 +3,9 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentResult, AgentSummary, LogEntry, Settings } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
+import { floorNameFor } from '@shared/projects'
+import { MAIN_ACCOUNT } from '@shared/accounts'
+import { mainAccount } from './accounts'
 
 export interface PersistedAgent {
   summary: AgentSummary
@@ -20,11 +23,30 @@ const DEFAULT_SETTINGS: Settings = {
   playerLook: { ...lookFromSeed('player'), shirt: '#4a8fe0', hairStyle: 1 },
   pixelSize: 3,
   defaultModel: '',
+  defaultEffort: '',
   defaultPermissionMode: 'default',
   notifications: true,
   bridgePort: 47821,
-  squadFolder: '',
-  squadFloorName: '',
+  projects: [],
+  accounts: [mainAccount()],
+  defaultAccounts: [],
+  ticketAutoCloseDays: 7,
+}
+
+/** Up to v0.2 one squad folder made a single squad floor; it becomes the first project floor. */
+function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
+  const { squadFolder, squadFloorName, ...rest } = (raw ?? {}) as Record<string, unknown>
+  const settings = { ...DEFAULT_SETTINGS, ...rest } as Settings
+  if (!Array.isArray(settings.projects)) settings.projects = []
+  if (!Array.isArray(settings.accounts)) settings.accounts = []
+  // The main login (~/.claude) is always there, first.
+  if (!settings.accounts.some((a) => a.id === MAIN_ACCOUNT)) settings.accounts = [mainAccount(), ...settings.accounts]
+  if (!Array.isArray(settings.defaultAccounts)) settings.defaultAccounts = []
+  if (!('projects' in rest) && typeof squadFolder === 'string' && squadFolder) {
+    const name = typeof squadFloorName === 'string' && squadFloorName.trim() ? squadFloorName.trim() : floorNameFor(squadFolder)
+    settings.projects = [{ id: 'p1', name, cwd: squadFolder }]
+  }
+  return settings
 }
 
 /** Small JSON store in the app's userData folder, written atomically and debounced. */
@@ -44,7 +66,7 @@ export class Store {
     try {
       const raw = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Data>
       return {
-        settings: { ...DEFAULT_SETTINGS, ...raw.settings },
+        settings: migrateSettings(raw.settings as Record<string, unknown> | undefined),
         agents: raw.agents ?? [],
         results: raw.results ?? [],
       }

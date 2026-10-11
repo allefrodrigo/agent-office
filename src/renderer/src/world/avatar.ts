@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { Look } from '@shared/types'
-import { blob, box, mat } from './kit'
+import { patchTexture } from './brand'
+import { blob, box, mat, panel } from './kit'
 import { shadeHex } from './furniture'
 import { heldGun } from './weapons'
 
@@ -11,8 +12,19 @@ const HIP = 0.46
 const SHOULDER = 0.8
 const HEAD_Y = 1.04
 const SNAP = Math.PI / 4
+/** Diamond height: clear of the tallest hair, below the name tag. */
+const GEM_Y = 1.7
+const TAG_Y = 1.55
+const TAG_Y_GEM = 1.96
+
+/** Company uniform: shirt in the brand color, logo patch on the chest. */
+export interface Uniform {
+  color: string
+  logo?: string
+}
 
 let shadowGeo: THREE.CircleGeometry | null = null
+let gemGeo: THREE.OctahedronGeometry | null = null
 const shadowMat = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.2, depthWrite: false })
 
 function wrapAngle(a: number): number {
@@ -43,6 +55,10 @@ export class Avatar {
   /** Seconds since being knocked down, or -1 when standing. */
   private downT = -1
   private shirtMeshes: THREE.Mesh[] = []
+  private uniform: Uniform | null = null
+  /** The Sims-style diamond over the head, tinted with the agent's account color. */
+  private gem: THREE.Mesh | null = null
+  private gemOn = false
 
   pose: Pose = 'stand'
   prop: Prop = 'none'
@@ -58,7 +74,7 @@ export class Avatar {
   speed = 3
   /** Extra height while sitting, so seats of different heights line up. */
   seatY = 0
-  /** 0 = ground floor, 1 = squad floor; the avatar only shows on the floor on screen. */
+  /** 0 = ground floor, n = the nth project floor; the avatar only shows on the floor on screen. */
   floor = 0
 
   constructor(
@@ -66,7 +82,7 @@ export class Avatar {
     readonly id: string,
   ) {
     this.root.add(this.body)
-    this.anchor.position.y = 1.55
+    this.anchor.position.y = TAG_Y
     this.root.add(this.anchor)
     if (!shadowGeo) shadowGeo = new THREE.CircleGeometry(0.26, 12).rotateX(-Math.PI / 2)
     const shadow = new THREE.Mesh(shadowGeo, shadowMat)
@@ -77,7 +93,8 @@ export class Avatar {
   }
 
   private build(): void {
-    const L = this.look
+    const U = this.uniform
+    const L = U ? { ...this.look, shirt: U.color } : this.look
     this.body.clear()
     this.shirtMeshes = []
     const shirtDark = shadeHex(L.shirt, -30)
@@ -103,6 +120,11 @@ export class Avatar {
     this.shirtMeshes.push(torso)
     box(this.body, 0.37, 0.05, 0.22, L.pants, 0, HIP - 0.04, 0)
     box(this.body, 0.2, 0.03, 0.01, shirtDark, 0, HIP + 0.26, 0.106, false)
+    if (U) {
+      // collar in a darker shade, and the logo on the left chest
+      box(this.body, 0.22, 0.04, 0.012, shadeHex(U.color, -45), 0, HIP + 0.3, 0.106, false)
+      if (U.logo) panel(this.body, 0.1, 0.1, patchTexture(U.logo), 0.08, HIP + 0.19, 0.111)
+    }
 
     // arms pivot at the shoulders
     for (const [arm, x] of [
@@ -198,6 +220,33 @@ export class Avatar {
   setLook(look: Look): void {
     this.look = look
     this.build()
+  }
+
+  /** Dresses the avatar in a company uniform; null puts its own clothes back. */
+  setUniform(u: Uniform | null): void {
+    if ((u?.color ?? null) === (this.uniform?.color ?? null) && u?.logo === this.uniform?.logo) return
+    this.uniform = u
+    this.build()
+  }
+
+  /** Shows the diamond over the head in this color; null hides it. */
+  setGem(color: string | null): void {
+    this.gemOn = !!color
+    this.anchor.position.y = color ? TAG_Y_GEM : TAG_Y
+    if (!color) {
+      if (this.gem) this.gem.visible = false
+      return
+    }
+    if (!gemGeo) gemGeo = new THREE.OctahedronGeometry(0.13, 0).scale(0.8, 1.45, 0.8)
+    if (!this.gem) {
+      this.gem = new THREE.Mesh(gemGeo, new THREE.MeshLambertMaterial({ flatShading: true, transparent: true, opacity: 0.92 }))
+      this.gem.position.y = GEM_Y
+      this.gem.userData.avatarId = this.id
+      this.root.add(this.gem)
+    }
+    const m = this.gem.material as THREE.MeshLambertMaterial
+    m.color.set(color)
+    m.emissive.set(color).multiplyScalar(0.35)
   }
 
   setProp(prop: Prop, force = false): void {
@@ -349,6 +398,12 @@ export class Avatar {
     this.angle = Math.abs(diff) < 0.01 ? this.targetAngle : this.angle + diff * Math.min(1, dt * 16)
     this.root.rotation.y = this.angle
 
+    if (this.gem) {
+      // hidden while knocked down; spins against the body so it keeps the same pace whichever way the avatar faces
+      this.gem.visible = this.gemOn && this.downT < 0
+      this.gem.rotation.y = this.t * 1.6 - this.angle
+      this.gem.position.y = GEM_Y + Math.sin(this.t * 2.4) * 0.03 + this.body.position.y
+    }
     this.animate()
   }
 

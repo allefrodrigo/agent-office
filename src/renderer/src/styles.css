@@ -128,6 +128,15 @@ button {
   font-size: 10.5px;
 }
 
+.tag-account {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--acct) 35%, transparent);
+  color: color-mix(in srgb, var(--acct) 45%, #fff);
+  font-size: 10px;
+  font-weight: 600;
+}
+
 .hearts {
   color: #ff6b81;
   font-size: 11px;
@@ -334,6 +343,16 @@ button {
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
+.brand-version {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .brand-stats {
   margin-top: 2px;
   color: var(--muted);
@@ -359,7 +378,8 @@ button {
   top: 16px;
   right: 16px;
   width: 290px;
-  max-height: calc(100vh - 120px);
+  /* 100px is where the elevator panel starts; --floors-h is its height */
+  max-height: calc(100vh - 128px - var(--floors-h, 0px));
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -810,37 +830,6 @@ body:has(.radio:not(.hidden)) .toasts {
 .inbox-empty {
   padding: 14px 10px 16px;
   color: var(--muted);
-}
-
-/* ---------- empty state ---------- */
-
-.empty {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 400px;
-  padding: 24px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-}
-
-.empty-title {
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.empty-text {
-  color: var(--muted);
-  line-height: 1.55;
-}
-
-.empty-hint {
-  color: var(--dim);
-  font-size: 11.5px;
 }
 
 /* ---------- buttons & inputs ---------- */
@@ -2926,4 +2915,568 @@ select.input {
 .tag-step .tag-pill {
   font-size: 11px;
   opacity: 0.9;
+}
+
+/* ---------- effort meter (charge bar) ---------- */
+
+.emeter {
+  --lvl: var(--dim);
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.emeter[data-level='1'] { --lvl: #5bc8f0; }
+.emeter[data-level='2'] { --lvl: var(--green); }
+.emeter[data-level='3'] { --lvl: var(--amber); }
+.emeter[data-level='4'] { --lvl: #f07a3e; }
+.emeter[data-level='5'] { --lvl: var(--red); }
+
+.emeter-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: none;
+}
+
+.emeter-tile {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 22px;
+  height: 52px;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  outline: none;
+}
+
+.emeter-tile:focus-visible {
+  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.6);
+}
+
+/* pixel bars: each level taller, with a hard 2px "bevel" like the office sprites */
+.emeter-bar {
+  display: block;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.06);
+  image-rendering: pixelated;
+  transition: background 0.12s steps(2), box-shadow 0.12s steps(2), transform 0.12s steps(2);
+}
+
+.emeter-l1 .emeter-bar { height: 20%; }
+.emeter-l2 .emeter-bar { height: 40%; }
+.emeter-l3 .emeter-bar { height: 60%; }
+.emeter-l4 .emeter-bar { height: 80%; }
+.emeter-l5 .emeter-bar { height: 100%; }
+
+.emeter-tile.lit .emeter-bar {
+  background: var(--lvl);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.3), inset 0 3px 0 rgba(255, 255, 255, 0.35), 0 0 10px color-mix(in srgb, var(--lvl) 45%, transparent);
+}
+
+.emeter-tile:hover .emeter-bar {
+  transform: translateY(-2px);
+}
+
+.emeter-tile.on {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.emeter-auto {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-bottom: 2px;
+  border: 2px solid var(--line-strong);
+  font: 700 10px/1 var(--mono);
+  color: var(--muted);
+}
+
+.emeter-tile.on .emeter-auto {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+.emeter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.emeter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.emeter-name {
+  font: 700 13px/1.2 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lvl);
+}
+
+.emeter[data-level='0'] .emeter-name {
+  color: var(--text);
+}
+
+.emeter-tag {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.emeter-stats {
+  display: grid;
+  gap: 3px;
+}
+
+.emeter-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emeter-stat-label {
+  width: 82px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.emeter-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.emeter-pips i {
+  width: 9px;
+  height: 7px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.emeter-pips i.on {
+  background: var(--lvl);
+}
+
+.emeter-unknown .emeter-pips i {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.1) 0 2px, transparent 2px 4px);
+}
+
+.emeter-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--dim);
+}
+
+/* level-up pop when a new level is picked */
+.emeter-pop .emeter-tile.on .emeter-bar,
+.emeter-pop .emeter-tile.on .emeter-auto {
+  animation: emeter-pop 0.28s steps(3);
+}
+
+@keyframes emeter-pop {
+  0% { transform: translateY(0) scaleY(0.6); }
+  60% { transform: translateY(-4px) scaleY(1.08); }
+  100% { transform: translateY(0) scaleY(1); }
+}
+
+/* "Modo lenda": the top bar flickers like a flame */
+.emeter[data-level='5'] .emeter-l5.lit .emeter-bar {
+  animation: emeter-flame 0.9s steps(2) infinite;
+}
+
+@keyframes emeter-flame {
+  50% { box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.3), inset 0 3px 0 #ffd27a, 0 0 16px rgba(239, 91, 91, 0.7); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emeter * { animation: none !important; transition: none !important; }
+}
+
+.emeter-compact {
+  padding: 6px 8px;
+  gap: 10px;
+}
+
+.emeter-compact .emeter-tile {
+  width: 18px;
+  height: 34px;
+  padding: 2px;
+}
+
+.emeter-compact .emeter-auto {
+  width: 13px;
+  height: 13px;
+  font-size: 9px;
+}
+
+.tdelegate-brain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ---------- project floors ---------- */
+
+.floor-btn.floor-add {
+  margin-top: 2px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 8px 8px;
+  color: var(--dim);
+}
+
+.floor-btn.floor-add .floor-num {
+  border-style: dashed;
+}
+
+.floor-btn.floor-add:hover {
+  color: var(--text);
+}
+
+/* the project's folder in hire/summon on a project floor: fixed, no picker */
+.path-fixed {
+  padding: 0 0 0 2px;
+  color: var(--muted);
+}
+
+.path-name {
+  font-weight: 700;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.modal-foot .btn-aside {
+  margin-right: auto;
+}
+
+.floor-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.floor-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.floor-row .floor-num {
+  flex: none;
+  color: var(--muted);
+}
+
+.floor-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.floor-brand-logo-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.floor-brand-logo {
+  width: 30px;
+  height: 30px;
+  padding: 2px;
+  border-radius: 6px;
+  border: 1px dashed var(--line);
+  background: #fff;
+  color: #8a8799;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.floor-brand-logo img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.floor-brand-clear {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--panel, #1e1d2b);
+}
+
+.floor-brand-color {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+
+.floor-brand-row .check {
+  font-size: 12px;
+}
+
+.floor-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.floor-row-path {
+  font: 11px var(--mono);
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bridge-box > .btn {
+  align-self: flex-start;
+}
+
+/* ---------- Claude accounts ---------- */
+
+.chip-account {
+  background: color-mix(in srgb, var(--acct) 22%, transparent);
+  color: color-mix(in srgb, var(--acct) 55%, #fff);
+}
+
+.usage-accounts {
+  width: 22px;
+  height: 22px;
+  margin-left: auto;
+}
+
+.usage-accounts + .usage-refresh {
+  margin-left: 0;
+}
+
+.usage-account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 20px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.acct-dot-sm {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.usage-out {
+  margin-left: auto;
+  color: var(--amber);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.acct-list,
+.acct-pools {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.acct-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.acct-dot {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.acct-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.acct-status {
+  overflow: hidden;
+  font-size: 11.5px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.acct-ok {
+  color: var(--muted);
+}
+
+.acct-warn {
+  color: var(--amber);
+}
+
+.acct-dim {
+  color: var(--dim);
+}
+
+.acct-add {
+  display: flex;
+  gap: 8px;
+}
+
+.acct-add .input {
+  flex: 1;
+}
+
+.acct-pool {
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.acct-pool-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.acct-pool-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.acct-pool-sum {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.acct-pool-path {
+  margin-top: 2px;
+  overflow: hidden;
+  color: var(--dim);
+  font: 11px var(--mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.acct-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.acct-chip {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.acct-chip.on {
+  border-color: var(--acct);
+  background: color-mix(in srgb, var(--acct) 22%, transparent);
+  color: var(--text);
+}
+
+/* a secondary action pushed to the left of a modal footer */
+.modal-foot .btn-left {
+  margin-right: auto;
+}
+
+/* ---------- closed tickets ---------- */
+.closed-modal .modal {
+  width: min(720px, 94vw);
+}
+
+.closed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 52vh;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.closed-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.closed-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.closed-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.closed-when {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.closed-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.closed-criteria {
+  margin: 8px 0 0;
+  padding-left: 4px;
+  list-style: none;
+  color: var(--muted);
+}
+
+.closed-comment {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.closed-comment-who {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
 }

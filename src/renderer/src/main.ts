@@ -6,7 +6,9 @@ import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
-import { confirmDialog, openHire, openResume, openRunSquad, openSettings, openSummon } from './ui/modals'
+import type { ProjectFloor } from '@shared/types'
+import { openAccounts } from './ui/accounts'
+import { confirmDialog, openHire, openNewFloor, openResume, openRunSquad, openSettings, openSummon } from './ui/modals'
 
 async function boot(): Promise<void> {
   const state = new State(await window.office.getState())
@@ -38,13 +40,18 @@ async function boot(): Promise<void> {
     return r.ok
   }
 
-  /** Pick a folder (and how free the agent is) and an agent shows up there, waiting for your first message. */
+  /**
+   * Pick a folder (and how free the agent is) and an agent shows up there, waiting for
+   * your first message. On a project floor the folder is the project's.
+   */
   const summon = async () => {
-    const choice = await openSummon(ui, state)
+    const project = game.currentProject
+    const choice = await openSummon(ui, state, project, () => hire())
     if (!choice) return
     try {
-      const a = await window.office.summon(choice.cwd, choice.permissionMode)
-      toast(`${a.name} chegou. Diga o que fazer.`, 'ok')
+      const a = await window.office.summon(choice.cwd, choice.permissionMode, choice.brain)
+      const floor = state.settings.projects.find((p) => p.id === a.project)
+      toast(floor && floor !== project ? `${a.name} está subindo para o andar ${floor.name}. Diga o que fazer.` : `${a.name} chegou. Diga o que fazer.`, 'ok')
       panel.open(a.id).then(() => panel.focusInput())
       game.focusAgent(a.id)
     } catch (err) {
@@ -54,6 +61,28 @@ async function boot(): Promise<void> {
 
   const openItem = (agentId: string, itemId?: string) => {
     if (!dialog.open(agentId, itemId)) panel.open(agentId)
+  }
+
+  /** An orchestrator with its squad, in the Diretoria of the project's floor. */
+  const hireSquad = (project: ProjectFloor) =>
+    openRunSquad(ui, state, project, toast, (a) => {
+      panel.open(a.id)
+      game.focusAgent(a.id)
+    })
+
+  /** The full form: name, task, model. On a project floor the folder is the project's. */
+  const hire = () => {
+    const project = game.currentProject
+    openHire(ui, state, toast, project, project ? () => hireSquad(project) : undefined)
+  }
+
+  /** A project folder becomes a floor; the player rides up to it. */
+  const newFloor = async () => {
+    const floor = await openNewFloor(ui, state, toast)
+    if (!floor) return
+    game.setProjects(state.settings.projects, state.squads)
+    game.goFloor(state.settings.projects.findIndex((p) => p.id === floor.id) + 1)
+    toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
   }
 
   const radio = new Radio(document.getElementById('overlay')!)
@@ -90,11 +119,7 @@ async function boot(): Promise<void> {
         .catch((err) => toast(String(err), 'err'))
     },
     onComputer: () => void summon(),
-    onRunSquad: () =>
-      openRunSquad(ui, state, toast, (a) => {
-        panel.open(a.id)
-        game.focusAgent(a.id)
-      }),
+    onRunSquad: (project) => hireSquad(project),
     onFloor: (n) => hud.setFloors(game.floors, n),
     onTv: () => void radio.toggle(),
     onKnockout: (id) => {
@@ -111,7 +136,7 @@ async function boot(): Promise<void> {
     },
     focusAgent: (id) => game.focusAgent(id),
     openItem: (agentId, itemId) => openItem(agentId, itemId),
-    hire: () => openHire(ui, state, toast),
+    hire: () => hire(),
     settings: () => openSettings(ui, state, toast),
     goHome: () => game.goHome(),
     bridge: () => openSettings(ui, state, toast),
@@ -119,6 +144,8 @@ async function boot(): Promise<void> {
     dropGun: () => game.dropGun(),
     summon: () => void summon(),
     goFloor: (n) => game.goFloor(n),
+    newFloor: () => void newFloor(),
+    accounts: () => openAccounts(ui, state, toast),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -175,7 +202,7 @@ async function boot(): Promise<void> {
 
   let pixelSize = state.settings.pixelSize
   state.onChange(() => {
-    game.setSquads(state.squads, state.squadFloorName)
+    game.setProjects(state.settings.projects, state.squads)
     hud.render()
     panel.render()
     dialog.sync()

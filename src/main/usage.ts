@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events'
 import { homedir } from 'node:os'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { PlanUsage, UsageWindow } from '@shared/types'
+import type { Account, PlanUsage, UsageWindow } from '@shared/types'
+import { accountEnv } from './accounts'
 import { findClaude } from './claude-path'
 
 const EVERY_MS = 3 * 60 * 1000
@@ -9,15 +10,19 @@ const EVERY_MS = 3 * 60 * 1000
 const AFTER_TURN_MS = 5000
 
 /**
- * Plan limits (5-hour window, week, per-model weeks such as Fable), the same
- * numbers /usage shows. Each read starts a Claude Code process that sends no
- * prompt, so it costs no tokens. Emits 'usage' with PlanUsage.
+ * Plan limits of every account (5-hour window, week, per-model weeks such as Fable),
+ * the same numbers /usage shows. Each read starts a Claude Code process that sends
+ * no prompt, so it costs no tokens. Emits 'usage' with PlanUsage[].
  */
 export class UsageMonitor extends EventEmitter {
-  private last: PlanUsage = { windows: [], updatedAt: 0 }
+  private last = new Map<string, PlanUsage>()
   private timer?: NodeJS.Timeout
   private soon?: NodeJS.Timeout
   private reading = false
+
+  constructor(private accounts: () => Account[]) {
+    super()
+  }
 
   start(): void {
     void this.refresh()
@@ -29,8 +34,8 @@ export class UsageMonitor extends EventEmitter {
     clearTimeout(this.soon)
   }
 
-  current(): PlanUsage {
-    return this.last
+  current(): PlanUsage[] {
+    return this.accounts().map((a) => this.last.get(a.id) ?? { accountId: a.id, windows: [], updatedAt: 0 })
   }
 
   /** An agent finished a turn: read again shortly. */
@@ -39,23 +44,31 @@ export class UsageMonitor extends EventEmitter {
     this.soon = setTimeout(() => void this.refresh(), AFTER_TURN_MS)
   }
 
-  async refresh(): Promise<PlanUsage> {
-    if (this.reading) return this.last
+  async refresh(): Promise<PlanUsage[]> {
+    if (this.reading) return this.current()
     this.reading = true
     try {
-      this.last = { windows: await read(), updatedAt: Date.now() }
-    } catch (err) {
-      // keep the last good numbers on screen, flagged as stale
-      this.last = { ...this.last, error: err instanceof Error ? err.message : String(err) }
+      await Promise.all(
+        this.accounts().map(async (a) => {
+          try {
+            this.last.set(a.id, { accountId: a.id, windows: await read(a), updatedAt: Date.now() })
+          } catch (err) {
+            // keep the last good numbers on screen, flagged as stale
+            const prev = this.last.get(a.id) ?? { accountId: a.id, windows: [], updatedAt: 0 }
+            this.last.set(a.id, { ...prev, error: err instanceof Error ? err.message : String(err) })
+          }
+        }),
+      )
     } finally {
       this.reading = false
     }
-    this.emit('usage', this.last)
-    return this.last
+    const out = this.current()
+    this.emit('usage', out)
+    return out
   }
 }
 
-async function read(): Promise<UsageWindow[]> {
+async function read(account: Account): Promise<UsageWindow[]> {
   const claude = findClaude()
   if (!claude) throw new Error('Claude Code não encontrado.')
   let finish: (r: IteratorResult<SDKUserMessage>) => void = () => undefined
@@ -65,7 +78,7 @@ async function read(): Promise<UsageWindow[]> {
   }
   const q = query({
     prompt: silent,
-    options: { cwd: homedir(), pathToClaudeCodeExecutable: claude, persistSession: false, env: { ...process.env, AGENT_OFFICE_MANAGED: '1' } },
+    options: { cwd: homedir(), pathToClaudeCodeExecutable: claude, persistSession: false, env: { ...accountEnv(account), AGENT_OFFICE_MANAGED: '1' } },
   })
   try {
     // Experimental in the SDK: if it goes away, say so instead of crashing.

@@ -1,8 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Actor, DelegateTarget, HireRequest, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
+import { floorNameFor, MAX_PROJECT_FLOORS, projectFor } from '@shared/projects'
+import { EFFORT_LEVELS } from '@shared/types'
+import type { Account, Actor, AgentBrain, DelegateTarget, HireRequest, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, ProjectFloor, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
+import { MAIN_ACCOUNT } from '@shared/accounts'
+import { Accounts } from './accounts'
 import { AgentManager } from './agents'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
@@ -66,6 +71,75 @@ async function radioVideo(): Promise<string> {
   return RADIO_FALLBACK
 }
 
+/** Model, effort and accounts from the renderer: a short model name or id, a known effort level, existing accounts. */
+function cleanBrain(raw: unknown, accounts: Account[]): AgentBrain {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const brain: AgentBrain = {}
+  // A key that is present but empty means "Claude Code's default", not the office default.
+  if ('model' in r) brain.model = typeof r.model === 'string' && /^[\w.\-[\]]{1,64}$/.test(r.model) ? r.model : undefined
+  if ('effort' in r) brain.effort = EFFORT_LEVELS.includes(r.effort as never) ? (r.effort as AgentBrain['effort']) : undefined
+  // Empty = the project's accounts.
+  if ('accounts' in r) brain.accounts = cleanAccountIds(r.accounts, accounts)
+  return brain
+}
+
+/** Account ids from the renderer that exist, without repeats. */
+function cleanAccountIds(raw: unknown, accounts: Account[]): string[] {
+  const ids = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && accounts.some((a) => a.id === id)) : []
+  return [...new Set(ids)]
+}
+
+/**
+ * Accounts from the renderer: only names, colors and order change here. Ids and
+ * config folders come from accounts made by addAccount, never from the page.
+ */
+function cleanAccounts(raw: unknown, current: Account[]): Account[] {
+  const out: Account[] = []
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const r = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+    const known = current.find((a) => a.id === r.id)
+    if (!known || out.some((o) => o.id === known.id)) continue
+    const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 32) : known.name
+    const color = typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : known.color
+    out.push({ ...known, name, color })
+  }
+  // Removing goes through removeAccount.
+  for (const a of current) if (!out.some((o) => o.id === a.id)) out.push(a)
+  return out
+}
+
+/**
+ * Project floors from the renderer: existing folders only, one floor per folder,
+ * a plain id (it becomes part of avatar seeds and lookups) and a short name.
+ */
+/** Raster logos only (no SVG: it can carry scripts), small enough for office.json. */
+const LOGO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/
+const MAX_LOGO_CHARS = 400_000
+
+function cleanBrand(p: Record<string, unknown>): Pick<ProjectFloor, 'logo' | 'brandColor' | 'uniform'> {
+  const out: Pick<ProjectFloor, 'logo' | 'brandColor' | 'uniform'> = {}
+  if (typeof p.logo === 'string' && p.logo.length <= MAX_LOGO_CHARS && LOGO_RE.test(p.logo)) out.logo = p.logo
+  if (typeof p.brandColor === 'string' && /^#[0-9a-f]{6}$/i.test(p.brandColor)) out.brandColor = p.brandColor.toLowerCase()
+  if (p.uniform === true) out.uniform = true
+  return out
+}
+
+function cleanProjects(raw: unknown, previous: ProjectFloor[]): ProjectFloor[] {
+  const out: ProjectFloor[] = []
+  for (const item of Array.isArray(raw) ? raw : []) {
+    const p = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
+    const cwd = typeof p.cwd === 'string' ? p.cwd : ''
+    if (!isAbsolute(cwd) || !isDir(cwd) || out.some((o) => o.cwd === cwd)) continue
+    const id = typeof p.id === 'string' && /^[\w-]{1,40}$/.test(p.id) && !out.some((o) => o.id === p.id) ? p.id : `p-${randomUUID().slice(0, 8)}`
+    const name = (typeof p.name === 'string' ? p.name.trim().slice(0, 32) : '') || floorNameFor(cwd)
+    // A floor's accounts change only through setAccountPool: the settings form may hold an old copy.
+    const accounts = previous.find((o) => o.id === id)?.accounts
+    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p) })
+    if (out.length === MAX_PROJECT_FLOORS) break
+  }
+  return out
+}
+
 function notify(store: Store, title: string, body: string): void {
   if (!store.settings.notifications || !Notification.isSupported()) return
   if (win?.isFocused()) return
@@ -89,7 +163,11 @@ app.whenReady().then(async () => {
   const board = new TicketBoard(app.getPath('userData'))
   manager.officeTools = (agent) => board.toolsFor(agent)
   const desk = new TicketDesk(board, manager, () => store.settings)
+  // Old tickets in "Feito" close by themselves: now, then every hour.
+  board.autoClose(store.settings.ticketAutoCloseDays)
+  setInterval(() => board.autoClose(store.settings.ticketAutoCloseDays), 3_600_000).unref()
   const player = (): Actor => ({ kind: 'player', name: store.settings.playerName })
+  const defaultBrain = (): AgentBrain => ({ model: store.settings.defaultModel || undefined, effort: store.settings.defaultEffort || undefined })
 
   const broadcast = (e: OfficeEvent) => {
     if (win && !win.isDestroyed()) win.webContents.send('office:event', e)
@@ -103,8 +181,9 @@ app.whenReady().then(async () => {
 
   const nameOf = (agentId: string) => manager.list().find((a) => a.id === agentId)?.name ?? 'Agente'
 
-  // The squad floor shows the squads of one folder (settings.squadFolder).
-  const readSquads = () => (isDir(store.settings.squadFolder) ? loadSquads(store.settings.squadFolder).map(squadInfo) : [])
+  // Each project floor shows the squads of its folder.
+  const squadDefs = () => store.settings.projects.flatMap((p) => (isDir(p.cwd) ? loadSquads(p.cwd) : []))
+  const readSquads = () => squadDefs().map(squadInfo)
   let squads = readSquads()
 
   manager.on('event', (e: OfficeEvent) => {
@@ -123,8 +202,13 @@ app.whenReady().then(async () => {
   const system = new SystemMonitor()
   system.on('system', (s) => broadcast({ type: 'system', system: s }))
 
-  const usage = new UsageMonitor()
+  const usage = new UsageMonitor(() => store.settings.accounts)
   usage.on('usage', (u) => broadcast({ type: 'usage', usage: u }))
+  const accounts = new Accounts(() => store.settings, () => usage.current())
+  manager.accounts = accounts
+  accounts.on('changed', (a) => broadcast({ type: 'accounts', accounts: a }))
+  // A limit hit moves the numbers: read them again.
+  accounts.on('limit', () => usage.nudge())
   manager.on('event', (e: OfficeEvent) => {
     if (e.type === 'result:new') usage.nudge()
   })
@@ -135,6 +219,7 @@ app.whenReady().then(async () => {
   bridge.start()
   usage.start()
   system.start()
+  void accounts.check()
 
   // ---------- IPC ----------
   ipcMain.handle('office:getState', (): OfficeState => ({
@@ -146,10 +231,45 @@ app.whenReady().then(async () => {
     settings: store.settings,
     platform: process.platform,
     usage: usage.current(),
+    accounts: accounts.statuses(),
     system: system.current(),
     squads,
   }))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
+  ipcMain.handle('office:checkAccounts', () => accounts.check())
+  ipcMain.handle('office:addAccount', (_e, name: unknown) => {
+    const account = accounts.create(typeof name === 'string' ? name : '')
+    store.settings = { ...store.settings, accounts: [...store.settings.accounts, account] }
+    broadcast({ type: 'settings', settings: store.settings })
+    void accounts.check()
+    void usage.refresh()
+    return store.settings
+  })
+  ipcMain.handle('office:removeAccount', (_e, id: unknown) => {
+    if (id === MAIN_ACCOUNT) throw new Error('A conta principal não pode ser removida.')
+    const s = store.settings
+    const drop = (ids?: string[]) => ids?.filter((x) => x !== id)
+    store.settings = {
+      ...s,
+      accounts: s.accounts.filter((a) => a.id !== id),
+      defaultAccounts: drop(s.defaultAccounts) ?? [],
+      projects: s.projects.map((p) => ({ ...p, accounts: drop(p.accounts) })),
+    }
+    broadcast({ type: 'settings', settings: store.settings })
+    broadcast({ type: 'accounts', accounts: accounts.statuses() })
+    broadcast({ type: 'usage', usage: usage.current() })
+    return store.settings
+  })
+  ipcMain.handle('office:loginAccount', (_e, id: unknown) => accounts.login(String(id)))
+  ipcMain.handle('office:setAccountPool', (_e, floorId: unknown, ids: unknown) => {
+    const s = store.settings
+    const pool = cleanAccountIds(ids, s.accounts)
+    if (floorId === null) store.settings = { ...s, defaultAccounts: pool }
+    else if (s.projects.some((p) => p.id === floorId)) store.settings = { ...s, projects: s.projects.map((p) => (p.id === floorId ? { ...p, accounts: pool.length ? pool : undefined } : p)) }
+    else throw new Error('Esse andar não existe mais.')
+    broadcast({ type: 'settings', settings: store.settings })
+    return store.settings
+  })
   ipcMain.handle('office:getLog', (_e, id: string) => manager.getLog(String(id)))
   ipcMain.handle('office:hire', (_e, req: HireRequest) => {
     if (!req || typeof req.cwd !== 'string' || !existsSync(req.cwd) || !statSync(req.cwd).isDirectory()) {
@@ -160,15 +280,15 @@ app.whenReady().then(async () => {
       name: String(req.name ?? '').slice(0, 40),
       cwd: req.cwd,
       task: req.task,
-      model: req.model ? String(req.model) : undefined,
+      ...cleanBrain(req, store.settings.accounts),
       permissionMode: req.permissionMode,
     })
   })
-  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown) => {
+  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown) => {
     if (typeof cwd !== 'string' || !existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error('Escolha uma pasta de projeto que exista.')
     const modes: OfficePermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions']
     const permissionMode = modes.includes(mode as OfficePermissionMode) ? (mode as OfficePermissionMode) : store.settings.defaultPermissionMode
-    return manager.summon(cwd, { model: store.settings.defaultModel, permissionMode })
+    return manager.summon(cwd, { ...defaultBrain(), ...cleanBrain(brain, store.settings.accounts), permissionMode })
   })
   ipcMain.handle('office:send', (_e, id: string, text: string, attachments: unknown) =>
     manager.sendMessage(String(id), String(text), undefined, Array.isArray(attachments) ? attachments : []),
@@ -190,6 +310,7 @@ app.whenReady().then(async () => {
     return manager.recall(sessionId, entry.cwd, log, {
       // keep the model the conversation was using
       model: model ?? store.settings.defaultModel,
+      effort: defaultBrain().effort,
       permissionMode: store.settings.defaultPermissionMode,
     })
   })
@@ -241,12 +362,19 @@ app.whenReady().then(async () => {
     }
   })
   ipcMain.handle('office:saveSettings', (_e, patch: Partial<Settings>) => {
-    const folder = store.settings.squadFolder
-    store.settings = { ...store.settings, ...patch, bridgePort: store.settings.bridgePort }
+    const before = JSON.stringify(store.settings.projects)
+    const accountList = patch && 'accounts' in patch ? cleanAccounts(patch.accounts, store.settings.accounts) : store.settings.accounts
+    const defaultAccounts = patch && 'defaultAccounts' in patch ? cleanAccountIds(patch.defaultAccounts, accountList) : store.settings.defaultAccounts
+    const projects = patch && 'projects' in patch ? cleanProjects(patch.projects, store.settings.projects) : store.settings.projects
+    const days = patch && 'ticketAutoCloseDays' in patch ? Number(patch.ticketAutoCloseDays) : store.settings.ticketAutoCloseDays
+    const ticketAutoCloseDays = Number.isInteger(days) && days >= 0 && days <= 365 ? days : store.settings.ticketAutoCloseDays
+    store.settings = { ...store.settings, ...patch, projects, accounts: accountList, defaultAccounts, ticketAutoCloseDays, bridgePort: store.settings.bridgePort }
     broadcast({ type: 'settings', settings: store.settings })
-    if (store.settings.squadFolder !== folder) {
+    if (patch && 'ticketAutoCloseDays' in patch) board.autoClose(ticketAutoCloseDays)
+    if (JSON.stringify(projects) !== before) {
       squads = readSquads()
       broadcast({ type: 'squads', squads })
+      manager.relocate()
     }
     return store.settings
   })
@@ -259,6 +387,9 @@ app.whenReady().then(async () => {
     board.comment(String(id), String(text), player())
   })
   ipcMain.handle('office:deleteTicket', (_e, id: string) => board.remove(String(id)))
+  ipcMain.handle('office:closeTickets', (_e, ids?: unknown) => board.close(Array.isArray(ids) ? ids.map(String) : undefined, player()))
+  ipcMain.handle('office:listClosed', (_e, search?: unknown) => board.listClosed(typeof search === 'string' ? search : undefined))
+  ipcMain.handle('office:reopenTicket', (_e, id: string) => board.reopen(String(id), player()))
   ipcMain.handle('office:assignTicket', (_e, id: string, who: unknown) => {
     const t = board.assign(String(id), who === 'me' ? player() : undefined, player())
     if (!t.assignee && t.status === 'doing') board.move(t.id, 'todo', undefined, player())
@@ -270,7 +401,7 @@ app.whenReady().then(async () => {
         ? { agentId: String(target.agentId) }
         : {
             hire: {
-              model: typeof target?.hire?.model === 'string' ? target.hire.model : undefined,
+              ...cleanBrain(target?.hire, store.settings.accounts),
               // A ticket may be written by someone else (or another agent): never run it with "bypass".
               permissionMode: DELEGATE_MODES.includes(target?.hire?.permissionMode as never) ? target.hire.permissionMode : undefined,
             },
@@ -288,6 +419,8 @@ app.whenReady().then(async () => {
   ipcMain.handle('office:listSquads', (_e, cwd: unknown) => (isDir(cwd) ? loadSquads(cwd).map(squadInfo) : []))
   ipcMain.handle('office:runSquad', (_e, cwd: unknown, code: unknown, mode: unknown, note: unknown) => {
     if (!isDir(cwd)) throw new Error('Essa pasta de squads não existe mais.')
+    // Orchestrators work in the Diretoria of their project's floor.
+    if (projectFor(store.settings.projects, cwd)?.cwd !== cwd) throw new Error('Crie um andar para esse projeto antes de contratar um squad.')
     const squad = typeof code === 'string' ? findSquad(cwd, code) : undefined
     if (!squad) throw new Error(`Não achei o squad ${String(code)} em ${cwd}/squads.`)
     const extra = typeof note === 'string' ? note.trim().slice(0, 2000) : ''
@@ -296,7 +429,7 @@ app.whenReady().then(async () => {
       `Rode um ciclo do squad ${squad.name} (squads/${squad.code}), do primeiro passo do pipeline até o fim.${extra ? `\n\nRecado de ${store.settings.playerName}: ${extra}` : ''}`,
       `Rodar um ciclo de ${squad.icon} ${squad.name}${extra ? `\n\n${extra}` : ''}`,
       {
-        model: store.settings.defaultModel,
+        ...defaultBrain(),
         // Same rule as tickets: a cycle reaches real systems, so it never runs with "bypass".
         permissionMode: DELEGATE_MODES.includes(mode as OfficePermissionMode) ? (mode as OfficePermissionMode) : 'default',
       },
@@ -309,7 +442,14 @@ app.whenReady().then(async () => {
 
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(here, '../../resources/icon.png'))
   win = createWindow()
-  if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, isDir(store.settings.squadFolder) ? loadSquads(store.settings.squadFolder) : [])
+  // Back from logging in on the terminal: check the logins again.
+  let checkedAt = 0
+  app.on('browser-window-focus', () => {
+    if (!accounts.unsure() || Date.now() - checkedAt < 30000) return
+    checkedAt = Date.now()
+    void accounts.check().then(() => usage.refresh())
+  })
+  if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, squadDefs())
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
 

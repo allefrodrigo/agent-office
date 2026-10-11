@@ -1,10 +1,11 @@
 import { ATTACH_KIND_LABEL, ATTACH_LIMITS, formatBytes, kindFromName, limitError } from '@shared/attachments'
 import type { AgentSummary, AttachmentInput, AttachmentKind, LogEntry } from '@shared/types'
 import type { State } from '../state'
+import { accountChip } from './accounts'
 import { formatCost, h, icon } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
-import { cleanError } from './modals'
+import { cleanError, EFFORTS } from './modals'
 import { portrait } from './portrait'
 
 export interface PanelActions {
@@ -180,7 +181,9 @@ export class AgentPanel {
         { class: 'panel-meta' },
         h('button', { class: 'meta-path', title: 'Mostrar no Finder', onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 13), shortPath(a.cwd)),
         a.model ? h('span', { class: 'meta-item' }, a.model) : null,
+        a.effort ? h('span', { class: 'meta-item', title: 'Esforço' }, `esforço ${EFFORTS.find((e) => e.value === a.effort)?.label.toLowerCase() ?? a.effort}`) : null,
         a.costUsd ? h('span', { class: 'meta-item' }, formatCost(a.costUsd)) : null,
+        accountChip(this.state, a),
         helpersChip(a),
       ),
       ...(a.source === 'office' && a.context ? [this.contextMeter(a, busy)] : []),

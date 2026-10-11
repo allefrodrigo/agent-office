@@ -14,6 +14,46 @@ export type AgentSource = 'office' | 'terminal'
 
 export type OfficePermissionMode = 'default' | 'acceptEdits' | 'auto' | 'plan' | 'bypassPermissions'
 
+/** How hard the model thinks, as in /effort. Unset = the model's default. */
+export type EffortLevel = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export const EFFORT_LEVELS: readonly EffortLevel[] = ['low', 'medium', 'high', 'xhigh', 'max']
+
+/** Model and effort picked when an agent is hired or summoned; '' or missing = defaults. */
+export interface AgentBrain {
+  model?: string
+  effort?: EffortLevel
+  /** Accounts picked by hand (Account.id; two or more take turns). Missing = the project's accounts. */
+  accounts?: string[]
+}
+
+/**
+ * A Claude login the office can run agents on. The main one is ~/.claude; each
+ * other one is a config folder (CLAUDE_CONFIG_DIR) with its own login and links
+ * to ~/.claude for skills, settings, sessions and memory.
+ */
+export interface Account {
+  /** 'main' for ~/.claude. */
+  id: string
+  name: string
+  /** Only Claude for now; Codex comes later. */
+  provider: 'claude'
+  /** Config folder; missing = ~/.claude. */
+  configDir?: string
+  color: string
+}
+
+export interface AccountStatus {
+  id: string
+  /** null = not checked yet, or the check failed. */
+  loggedIn: boolean | null
+  email?: string
+  /** "max", "pro"… */
+  plan?: string
+  error?: string
+  /** Hit a plan limit; agents skip it until then (ms). */
+  limitedUntil?: number
+}
+
 export interface Look {
   skin: string
   hair: string
@@ -29,6 +69,11 @@ export interface AgentSummary {
   source: AgentSource
   cwd: string
   model?: string
+  effort?: EffortLevel
+  /** Account the agent runs on now (Account.id); missing = not started yet, or a terminal session. */
+  account?: string
+  /** Accounts picked by hand when it was hired; missing = its project's accounts. */
+  accounts?: string[]
   permissionMode: OfficePermissionMode
   status: AgentStatus
   /** Short present-tense description of what the agent is doing ("Editando app.ts"). */
@@ -42,7 +87,9 @@ export interface AgentSummary {
   context?: ContextUsage
   /** Subagents (Agent tool) running for this agent right now. */
   subagents?: SubagentInfo[]
-  /** Runs a squad cycle on the squad floor instead of working at a desk downstairs. */
+  /** Project floor the agent works on: its cwd is inside that project's folder. Missing = ground floor. */
+  project?: string
+  /** Runs a squad cycle in the Diretoria of its project floor instead of working at a desk. */
   role?: 'orchestrator'
   /** Squad code, for orchestrators. */
   squad?: string
@@ -74,7 +121,7 @@ export interface SquadMember {
   title: string
   /** subagent = called with the Agent tool; inline = the orchestrator plays the part in its own conversation. */
   execution: 'subagent' | 'inline'
-  /** Sector on the squad floor: `setor:` in squad.yaml, or "Equipe". */
+  /** Sector on the project floor: `setor:` in squad.yaml, or "Equipe". */
   sector: string
 }
 
@@ -195,6 +242,8 @@ export interface HireRequest {
   cwd: string
   task: string
   model?: string
+  effort?: EffortLevel
+  accounts?: string[]
   permissionMode: OfficePermissionMode
 }
 
@@ -221,13 +270,39 @@ export interface Settings {
   playerLook: Look
   pixelSize: number
   defaultModel: string
+  /** '' = the model's default effort. */
+  defaultEffort: EffortLevel | ''
   defaultPermissionMode: OfficePermissionMode
   notifications: boolean
   bridgePort: number
-  /** Project folder with squads/<code>/squad.yaml; '' = no squad floor. */
-  squadFolder: string
-  /** Name of the squad floor in the elevator and HUD; '' = taken from the folder name. */
-  squadFloorName: string
+  /** One floor per project, in elevator order (1º andar first). */
+  projects: ProjectFloor[]
+  /** Claude logins, the main one ('main') first. */
+  accounts: Account[]
+  /** Accounts for folders outside every project floor; empty = the main one. */
+  defaultAccounts: string[]
+  /** Tickets in "Feito" close by themselves after this many days; 0 = only by hand. */
+  ticketAutoCloseDays: number
+}
+
+/**
+ * A floor tied to one project folder. Every agent hired or called there works in
+ * that folder, and agents whose folder is inside it (tickets, resumed or terminal
+ * sessions) live there too. Its squads come from <cwd>/squads.
+ */
+export interface ProjectFloor {
+  id: string
+  /** Shown in the elevator and on the lobby sign. */
+  name: string
+  cwd: string
+  /** Accounts its agents run on (Account.id); two or more take turns. Missing or empty = Settings.defaultAccounts. */
+  accounts?: string[]
+  /** The company's logo as a PNG data URL (re-encoded and capped at 256 px by the settings form). */
+  logo?: string
+  /** Brand color (#rrggbb): signs and uniforms. Missing = the office orange. */
+  brandColor?: string
+  /** Its agents wear the company uniform: shirt in the brand color with the logo on the chest. */
+  uniform?: boolean
 }
 
 // ---------- tickets (kanban) ----------
@@ -290,6 +365,10 @@ export interface Ticket {
   order: number
   createdAt: number
   updatedAt: number
+  /** When it reached "Feito"; auto-close counts from here. */
+  doneAt?: number
+  /** Closed: off the board, kept in the archive (userData/tickets-closed.json). */
+  closedAt?: number
   comments: TicketComment[]
   activity: TicketActivity[]
 }
@@ -311,7 +390,7 @@ export interface TicketDraft {
 export type TicketPatch = Partial<TicketDraft>
 
 /** Who takes a ticket: an office agent already here, or a new one hired for it. */
-export type DelegateTarget = { agentId: string } | { hire: { model?: string; permissionMode?: OfficePermissionMode } }
+export type DelegateTarget = { agentId: string } | { hire: { model?: string; effort?: EffortLevel; accounts?: string[]; permissionMode?: OfficePermissionMode } }
 
 /** One plan limit window, as in /usage. */
 export interface UsageWindow {
@@ -322,7 +401,9 @@ export interface UsageWindow {
   resetsAt?: number
 }
 
+/** Plan limits of one account. */
 export interface PlanUsage {
+  accountId: string
   windows: UsageWindow[]
   updatedAt: number
   /** Last read failed; windows hold the previous numbers. */
@@ -348,9 +429,11 @@ export interface OfficeState {
   bridge: BridgeStatus
   settings: Settings
   platform: string
-  usage: PlanUsage
+  /** One per account, in Settings.accounts order. */
+  usage: PlanUsage[]
+  accounts: AccountStatus[]
   system: SystemStats | null
-  /** Squads in settings.squadFolder. */
+  /** Squads of every project floor; each one's cwd is its project folder. */
   squads: SquadInfo[]
 }
 
@@ -364,7 +447,8 @@ export type OfficeEvent =
   | { type: 'result:acked'; resultId: string; agentId: string }
   | { type: 'bridge:status'; status: BridgeStatus }
   | { type: 'settings'; settings: Settings }
-  | { type: 'usage'; usage: PlanUsage }
+  | { type: 'usage'; usage: PlanUsage[] }
+  | { type: 'accounts'; accounts: AccountStatus[] }
   | { type: 'system'; system: SystemStats }
   /** One session messaged another; toId is null when the recipient is not in the office. */
   | { type: 'agent:chat'; fromId: string; toId: string | null; text: string }
@@ -379,7 +463,7 @@ export interface OfficeAPI {
   getLog(agentId: string): Promise<LogEntry[]>
   hire(req: HireRequest): Promise<AgentSummary>
   /** A new agent in this folder with no task yet; it waits for your first message. */
-  summon(cwd: string, permissionMode: OfficePermissionMode): Promise<AgentSummary>
+  summon(cwd: string, permissionMode: OfficePermissionMode, brain?: AgentBrain): Promise<AgentSummary>
   send(agentId: string, text: string, attachments?: AttachmentInput[]): Promise<void>
   /** Disk path of a picked or dropped file; '' for pasted data. */
   pathForFile(file: File): string
@@ -389,7 +473,17 @@ export interface OfficeAPI {
   /** Starts a fresh conversation with the same agent. */
   clearContext(agentId: string): Promise<void>
   /** Reads the plan limits again now. */
-  refreshUsage(): Promise<PlanUsage>
+  refreshUsage(): Promise<PlanUsage[]>
+  /** Checks the login of every account (claude auth status). */
+  checkAccounts(): Promise<AccountStatus[]>
+  /** A new Claude account: makes its config folder; log in next. */
+  addAccount(name: string): Promise<Settings>
+  /** Forgets the account. Its config folder stays on disk. */
+  removeAccount(id: string): Promise<Settings>
+  /** Opens a terminal running `claude auth login` for the account (macOS). */
+  loginAccount(id: string): Promise<{ ok: boolean; message?: string }>
+  /** Accounts of a project floor, or of everything outside the floors (null). Empty = the default. */
+  setAccountPool(floorId: string | null, ids: string[]): Promise<Settings>
   fire(agentId: string): Promise<void>
   /** Recent Claude Code sessions (terminal and office) for the resume center. */
   listSessions(): Promise<SessionEntry[]>
@@ -411,6 +505,12 @@ export interface OfficeAPI {
   moveTicket(ticketId: string, status: TicketStatus, beforeId?: string): Promise<void>
   commentTicket(ticketId: string, text: string): Promise<void>
   deleteTicket(ticketId: string): Promise<void>
+  /** Closes tickets in "Feito" (all of them when no ids): off the board, into the archive. Resolves how many closed. */
+  closeTickets(ticketIds?: string[]): Promise<number>
+  /** Closed tickets, newest first, filtered by key, title, description or tag. */
+  listClosed(search?: string): Promise<Ticket[]>
+  /** Brings a closed ticket back to "A fazer". */
+  reopenTicket(ticketId: string): Promise<Ticket>
   /** 'me' = the player takes it; null = nobody (a ticket in "Fazendo" goes back to "A fazer"). */
   assignTicket(ticketId: string, who: 'me' | null): Promise<void>
   /** Hands the ticket to an agent: it gets the full brief and the ticket moves to "Fazendo". */

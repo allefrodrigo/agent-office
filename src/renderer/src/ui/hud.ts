@@ -1,5 +1,7 @@
+import { MAX_PROJECT_FLOORS } from '@shared/projects'
 import type { AgentStatus, AgentSummary } from '@shared/types'
 import type { State } from '../state'
+import { accountChip } from './accounts'
 import { formatCost, h, icon, timeAgo } from './dom'
 import { contextLevel, helpersChip } from './panel'
 import { portrait } from './portrait'
@@ -20,6 +22,10 @@ export interface HudActions {
   board(ticketId?: string): void
   /** Take the elevator to a floor (0 = térreo). */
   goFloor(n: number): void
+  /** Add a floor for a project folder. */
+  newFloor(): void
+  /** Claude accounts: logins and which floor uses which. */
+  accounts(): void
 }
 
 /** 1.2 GB, 640 MB */
@@ -61,7 +67,6 @@ export class Hud {
   private dockName: HTMLSpanElement
   private dockPortrait: HTMLSpanElement
   private toasts: HTMLDivElement
-  private empty: HTMLDivElement
   private armed: HTMLDivElement
   private usage: HTMLDivElement
   private system: HTMLDivElement
@@ -82,7 +87,7 @@ export class Hud {
     const brand = h(
       'div',
       { class: 'brand' + (mac ? ' brand-mac' : '') },
-      h('div', { class: 'brand-row' }, h('span', { class: 'brand-mark' }, '✳'), h('span', { class: 'brand-name' }, 'Agent Office')),
+      h('div', { class: 'brand-row' }, h('span', { class: 'brand-mark' }, '✳'), h('span', { class: 'brand-name' }, 'Agent Office'), h('span', { class: 'brand-version', title: `Build de ${__APP_BUILD__}` }, `v${__APP_VERSION__}`)),
       this.stats,
     )
 
@@ -107,10 +112,10 @@ export class Hud {
       { class: 'dock card' },
       h('button', { class: 'dock-me', onclick: () => actions.settings(), title: 'Seu avatar' }, this.dockPortrait, h('span', { class: 'dot dot-you' }), this.dockName),
       h('div', { class: 'dock-sep' }),
-      h('button', { class: 'dock-primary', onclick: () => actions.hire() }, icon('plus'), 'Contratar agente'),
+      h('button', { class: 'dock-primary', title: 'Como o computador da sua sala: escolha a pasta (num andar de empresa, é a pasta dela) e converse', onclick: () => actions.summon() }, icon('plus'), 'Chamar agente'),
       this.inboxBtn,
       this.boardBtn,
-      h('button', { class: 'dock-btn', title: 'Chamar agente: só escolher a pasta e conversar', onclick: () => actions.summon() }, icon('terminal')),
+      h('button', { class: 'dock-btn', title: 'Contratar com tarefa: nome, tarefa e modelo', onclick: () => actions.hire() }, icon('edit')),
       h('button', { class: 'dock-btn', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
       h('button', { class: 'dock-btn', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
       this.bridgeBtn,
@@ -130,24 +135,15 @@ export class Hud {
       'Airsoft na mão: clique num agente para atirar · WASD anda',
       h('button', { class: 'btn btn-small', onclick: () => actions.dropGun() }, h('kbd', {}, 'Q'), 'Largar'),
     )
-    this.floorsEl = h('div', { class: 'floors card hidden' })
+    this.floorsEl = h('div', { class: 'floors card' })
+    // The roster ends above the elevator panel, which grows with every floor.
+    new ResizeObserver(() => document.documentElement.style.setProperty('--floors-h', `${this.floorsEl.offsetHeight}px`)).observe(this.floorsEl)
     this.usage = h('div', { class: 'usage card' })
     this.system = h('div', { class: 'usage card hidden' })
     const side = h('div', { class: 'hud-side' + (mac ? ' hud-side-mac' : '') }, this.usage, this.system)
     this.inbox = h('div', { class: 'inbox card hidden' })
     this.toasts = h('div', { class: 'toasts' })
-    this.empty = h(
-      'div',
-      { class: 'empty card hidden' },
-      h('div', { class: 'empty-title' }, 'Seu escritório está vazio'),
-      h('div', { class: 'empty-text' }, 'Contrate um agente do Claude Code: ele chega pelo elevador, senta no computador e trabalha na tarefa. Quando precisar de você, ele vem até a sua sala.'),
-      h('button', { class: 'btn btn-primary', onclick: () => actions.hire() }, icon('plus', 16), 'Contratar o primeiro agente'),
-      h('button', { class: 'btn', onclick: () => actions.summon() }, icon('terminal', 16), 'Chamar um agente sem tarefa'),
-      h('button', { class: 'btn', onclick: () => actions.resume() }, icon('history', 16), 'Retomar uma sessão recente'),
-      h('button', { class: 'btn', onclick: () => actions.board() }, icon('kanban', 16), 'Abrir o quadro de tickets'),
-      h('div', { class: 'empty-hint' }, 'Clique no chão para andar · WASD · arraste com o botão direito · roda do mouse = zoom'),
-    )
-    root.append(brand, side, this.roster, dock, zoom, this.floorsEl, this.inbox, this.toasts, this.empty, this.armed)
+    root.append(brand, side, this.roster, dock, zoom, this.floorsEl, this.inbox, this.toasts, this.armed)
     document.addEventListener('pointerdown', (e) => {
       if (!this.inbox.classList.contains('hidden') && !this.inbox.contains(e.target as Node) && !this.inboxBtn.contains(e.target as Node)) {
         this.inbox.classList.add('hidden')
@@ -165,7 +161,6 @@ export class Hud {
       : 'Nenhum agente ainda'
     this.rosterCount.textContent = String(agents.length)
     this.roster.classList.toggle('hidden', agents.length === 0)
-    this.empty.classList.toggle('hidden', agents.length > 0)
 
     this.rosterList.replaceChildren(...agents.map((a) => this.rosterRow(a)))
 
@@ -195,15 +190,16 @@ export class Hud {
     this.renderFloors()
   }
 
-  /** Agents busy or waiting on a floor: orchestrators upstairs, everyone else downstairs. */
+  /** Agents busy or waiting on a floor: each one on its project's floor, or downstairs. */
   private floorActivity(n: number): { count: number; waiting: boolean } {
     let count = 0
     let waiting = false
     for (const a of this.state.agents.values()) {
       const items = this.state.itemsFor(a.id)
       const pending = items.permissions.length + items.results.length > 0 || a.status === 'waiting'
-      // An orchestrator with something for you takes the elevator to wherever you are.
-      const floor = a.role !== 'orchestrator' ? 0 : pending ? this.floor : 1
+      // A project agent with something for you takes the elevator to wherever you are.
+      const home = this.state.floorOf(a)
+      const floor = home > 0 && pending ? this.floor : home
       if (floor !== n) continue
       if (pending || a.status === 'working' || a.status === 'starting' || a.subagents?.length) count++
       waiting ||= pending
@@ -214,8 +210,6 @@ export class Hud {
   /** Elevator panel: one button per floor, top floor first, with a badge for activity elsewhere. */
   private renderFloors(): void {
     const names = this.floorNames
-    this.floorsEl.classList.toggle('hidden', names.length < 2)
-    if (names.length < 2) return
     const rows = names
       .map((name, n) => {
         const act = this.floorActivity(n)
@@ -229,7 +223,11 @@ export class Hud {
         )
       })
       .reverse()
-    this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), ...rows)
+    const add =
+      names.length - 1 < MAX_PROJECT_FLOORS
+        ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto: quem você contrata ou chama lá trabalha na pasta dele', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Andar de projeto'))
+        : null
+    this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), ...rows, ...(add ? [add] : []))
   }
 
   /** CPU and memory: the Mac, the office itself, and every claude process. */
@@ -262,30 +260,52 @@ export class Hud {
     )
   }
 
-  /** Plan limits: 5-hour window, week and per-model weeks, as in /usage. */
+  /** Plan limits of each account: 5-hour window, week and per-model weeks, as in /usage. */
   private renderUsage(): void {
-    const u = this.state.usage
-    this.usage.classList.toggle('hidden', !u.windows.length && !u.error)
+    const list = this.state.usage.filter((u) => u.windows.length || u.error)
+    this.usage.classList.toggle('hidden', !list.length)
+    const failed = list.filter((u) => u.error)
+    const newest = Math.max(0, ...list.map((u) => u.updatedAt))
     const refresh = h('button', {
       class: 'icon-btn usage-refresh',
-      title: u.error ? `Não consegui atualizar: ${u.error}` : `Atualizado ${timeAgo(u.updatedAt)}. Clique para atualizar.`,
+      title: failed.length ? `Não consegui atualizar: ${failed.map((u) => u.error).join(' · ')}` : `Atualizado ${timeAgo(newest)}. Clique para atualizar.`,
       onclick: async () => {
         refresh.classList.add('spin')
         await window.office.refreshUsage().catch(() => undefined)
       },
     }, icon('history', 13))
+    const manage = h('button', { class: 'icon-btn usage-accounts', title: 'Contas do Claude', onclick: () => this.actions.accounts() }, icon('users', 13))
+    const many = this.state.settings.accounts.length > 1
     this.usage.replaceChildren(
-      h('div', { class: 'usage-head' }, h('span', {}, 'Limites do plano'), u.error ? h('span', { class: 'usage-stale' }, 'desatualizado') : null, refresh),
-      ...u.windows.map((w) =>
-        h(
-          'div',
-          { class: `usage-row ctx-${contextLevel(w.percent)}`, title: w.resetsAt ? `Renova ${resetText(w.resetsAt)}` : '' },
-          h('span', { class: 'usage-label' }, w.label),
-          h('div', { class: 'ctx-bar' }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, w.percent)}%` })),
-          h('span', { class: 'ctx-num' }, `${w.percent}%`),
-          h('span', { class: 'usage-reset' }, w.resetsAt ? resetText(w.resetsAt) : ''),
+      h('div', { class: 'usage-head' }, h('span', {}, 'Limites do plano'), failed.length ? h('span', { class: 'usage-stale' }, 'desatualizado') : null, manage, refresh),
+      ...list.flatMap((u) => [
+        many ? this.usageAccount(u.accountId) : null,
+        ...u.windows.map((w) =>
+          h(
+            'div',
+            { class: `usage-row ctx-${contextLevel(w.percent)}`, title: w.resetsAt ? `Renova ${resetText(w.resetsAt)}` : '' },
+            h('span', { class: 'usage-label' }, w.label),
+            h('div', { class: 'ctx-bar' }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, w.percent)}%` })),
+            h('span', { class: 'ctx-num' }, `${w.percent}%`),
+            h('span', { class: 'usage-reset' }, w.resetsAt ? resetText(w.resetsAt) : ''),
+          ),
         ),
-      ),
+      ]).filter((x): x is HTMLElement => !!x),
+    )
+  }
+
+  /** Account name above its limits, with what keeps agents off it. */
+  private usageAccount(id: string): HTMLElement | null {
+    const a = this.state.account(id)
+    if (!a) return null
+    const st = this.state.accounts.find((x) => x.id === id)
+    const note = st?.loggedIn === false ? 'sem login' : st?.limitedUntil && st.limitedUntil > Date.now() ? `sem espaço até ${resetText(st.limitedUntil)}` : ''
+    return h(
+      'div',
+      { class: 'usage-account', title: [st?.email, st?.plan].filter(Boolean).join(' · ') },
+      h('span', { class: 'acct-dot-sm', style: `background:${a.color}` }),
+      h('span', { class: 'usage-account-name' }, a.name),
+      note ? h('span', { class: 'usage-out' }, note) : null,
     )
   }
 
@@ -320,6 +340,7 @@ export class Hud {
           h('span', { class: 'name' }, a.name),
           a.source === 'terminal' ? h('span', { class: 'chip chip-term' }, 'terminal') : null,
           helpersChip(a, true),
+          accountChip(this.state, a),
           this.ticketChip(a.id),
         ),
         h('div', { class: 'roster-activity' }, pending ? (items.permissions.length ? 'Esperando sua decisão' : 'Quer te entregar o resultado') : a.activity),

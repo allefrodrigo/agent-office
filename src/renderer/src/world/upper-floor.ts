@@ -1,15 +1,17 @@
 import * as THREE from 'three'
+import { brandSign, logoPlaque, type Brand } from './brand'
 import * as F from './furniture'
 import { box, panel } from './kit'
-import { DIRECTOR_RECT, ELEVATOR, H, LOBBY_RECT, W, type SquadPlan } from './layout'
+import { DIRECTOR_RECT, ELEVATOR, H, LOBBY_RECT, W, type ProjectPlan, type SectorRoom } from './layout'
 import { buildPartitions, buildShell, type Office } from './office'
 import { Grid } from './pathfinding'
 import { dashboardPainter, LoopScreen, Screen } from './screens'
 import { rugTexture, WindowSky } from './textures'
 
-export interface SquadFloor extends Office {
-  plan: SquadPlan
-  /** Big screen in the Diretoria: clicking it starts a cycle. */
+/** A project floor. deskScreens holds the team desks first, then the sector desks (DeskSlot.index). */
+export interface UpperFloor extends Office {
+  plan: ProjectPlan
+  /** Big screen in the Diretoria: clicking it hires a squad. */
   board: THREE.Object3D
 }
 
@@ -23,8 +25,8 @@ const RUGS: [string, string, string][] = [
   ['#e9eef0', '#8aa1ab', '#4f6d7a'],
 ]
 
-/** The squad floor: Diretoria with the orchestrators' desks around the elevator, sector rooms with free desks, a lobby. */
-export function buildSquadFloor(plan: SquadPlan, title: string): SquadFloor {
+/** A project floor: Diretoria with the orchestrators' desks around the elevator, team and sector rooms, a lobby with the company's sign. */
+export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   const group = new THREE.Group()
   const grid = new Grid(W, H)
   const loops: LoopScreen[] = []
@@ -71,12 +73,13 @@ export function buildSquadFloor(plan: SquadPlan, title: string): SquadFloor {
   const elev = F.elevator()
   place(elev.group, ELEVATOR.x, 0.04)
 
-  // ---------- sector rooms ----------
+  // ---------- team and sector rooms ----------
   const deskScreens: Screen[] = []
-  plan.sectors.forEach((r, i) => {
+  const rooms: [SectorRoom, number][] = [...plan.team.map((r): [SectorRoom, number] => [r, 0]), ...plan.sectors.map((r, i): [SectorRoom, number] => [r, i + 1])]
+  rooms.forEach(([r, rug]) => {
     const [x0, z0, x1, z1] = r.rect
     const cx = (x0 + x1) / 2
-    const [base, border, accent] = RUGS[i % RUGS.length]
+    const [base, border, accent] = RUGS[rug % RUGS.length]
     place(F.rug(x1 - x0 - 1, z1 - z0 - 1, rugTexture(x1 - x0 - 1, z1 - z0 - 1, base, border, accent)), cx, (z0 + z1) / 2)
     for (const d of r.desks) {
       place(F.desk(2), d.x + 1, d.z + 0.5)
@@ -102,7 +105,10 @@ export function buildSquadFloor(plan: SquadPlan, title: string): SquadFloor {
 
   // ---------- lobby ----------
   const [lx0, , lx1] = LOBBY_RECT
-  place(sign(title, '#d97757', '#ffffff', 2.4), lx0 + 1.6, 0.03, 0, 1.95)
+  place(brandSign(brand, 2.6), lx0 + 1.7, 0.03, 0, 1.85)
+  // the logo again on the side wall, facing the lobby
+  const plaque = logoPlaque(brand, 0.9)
+  if (plaque) place(plaque, 0.05, 3, Math.PI / 2, 1.4)
   const skies = [new WindowSky(31)]
   place(F.wallWindow(1.6, 1.3, skies[0]), lx1 - 1.4, 0.02, 0, 1.6)
   place(F.sofa(2, '#d97757'), lx0 + 1.5, 5.45, 0)

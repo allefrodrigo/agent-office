@@ -4,6 +4,7 @@ import { watch, type FSWatcher } from 'node:fs'
 import { basename } from 'node:path'
 import { query, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
+  AgentBrain,
   AgentResult,
   AgentStatus,
   AgentSummary,
@@ -21,7 +22,9 @@ import type {
   SubagentInfo,
 } from '@shared/types'
 import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
+import { projectFor } from '@shared/projects'
 import { buildMessage } from './attachments'
+import { accountEnv, type Accounts } from './accounts'
 import { findClaude } from './claude-path'
 import { sessionIdForName } from './peers'
 import { findSquad, memberAgents, orchestratorPrompt, outsideTeam, readProgress, squadDir, teamGuard, type SquadDefinition } from './squads'
@@ -76,6 +79,8 @@ interface Agent {
   started: boolean
   /** Running /compact: its result is housekeeping, not a report for the player. */
   compacting?: boolean
+  /** The account ran out of plan during this turn; resetsAt in ms when known. */
+  limitHit?: { resetsAt?: number }
   /** Orchestrators: the squad, read again from disk before each run. */
   squad?: SquadDefinition
   /** Orchestrators: watches squads/<code>/state.json. */
@@ -95,6 +100,8 @@ export class AgentManager extends EventEmitter {
   private results: AgentResult[]
   /** In-process tools every office agent gets (the ticket board), built per agent. */
   officeTools?: (agent: AgentSummary) => McpSdkServerConfigWithInstance
+  /** Picks the Claude account of each run; missing = the app's own login. */
+  accounts?: Accounts
 
   constructor(private store: Store) {
     super()
@@ -110,6 +117,7 @@ export class AgentManager extends EventEmitter {
       if (summary.role === 'orchestrator') this.watchSquad(agent)
     }
     this.results = store.results.filter((r) => this.agents.has(r.agentId))
+    this.relocate()
   }
 
   private send(e: OfficeEvent): void {
@@ -145,10 +153,12 @@ export class AgentManager extends EventEmitter {
       source: 'office',
       cwd: req.cwd,
       model: req.model || undefined,
+      effort: req.effort || undefined,
+      accounts: req.accounts?.length ? req.accounts : undefined,
       permissionMode: req.permissionMode,
       status: 'starting',
       activity: 'Chegando ao escritório',
-      desk: this.freeDesk(),
+      ...this.seat(req.cwd),
       look: lookFromSeed(req.name + id),
       costUsd: 0,
       createdAt: Date.now(),
@@ -163,14 +173,14 @@ export class AgentManager extends EventEmitter {
   }
 
   /** An office agent for a saved session; it waits in the lounge until it gets an instruction. */
-  recall(sessionId: string, cwd: string, log: LogEntry[], defaults: { model?: string; permissionMode: OfficePermissionMode }): AgentSummary {
+  recall(sessionId: string, cwd: string, log: LogEntry[], defaults: AgentBrain & { permissionMode: OfficePermissionMode }): AgentSummary {
     for (const a of this.agents.values()) if (a.summary.sessionId === sessionId) return a.summary
     // started = true: the next message resumes the saved conversation.
     return this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults)
   }
 
   /** A new agent with no task yet, like typing `claude` in a folder: it waits for your first message. */
-  summon(cwd: string, defaults: { model?: string; permissionMode: OfficePermissionMode }): AgentSummary {
+  summon(cwd: string, defaults: AgentBrain & { permissionMode: OfficePermissionMode }): AgentSummary {
     return this.idleAgent(randomUUID(), cwd, [], false, 'Esperando a primeira instrução', defaults)
   }
 
@@ -178,7 +188,7 @@ export class AgentManager extends EventEmitter {
    * An orchestrator for a squad: one Claude Code session that runs the squad's cycle
    * and can only call its own members. It lives on the squad floor.
    */
-  runSquad(squad: SquadInfo, task: string, display: string, defaults: { model?: string; permissionMode: OfficePermissionMode }): AgentSummary {
+  runSquad(squad: SquadInfo, task: string, display: string, defaults: AgentBrain & { permissionMode: OfficePermissionMode }): AgentSummary {
     const same = [...this.agents.values()].find((a) => a.summary.role === 'orchestrator' && a.summary.squad === squad.code && a.summary.cwd === squad.cwd)
     if (same) {
       if (this.busy(same)) throw new Error(`${same.summary.name} já está rodando um ciclo. Espere terminar ou interrompa pelo painel.`)
@@ -193,10 +203,12 @@ export class AgentManager extends EventEmitter {
       source: 'office',
       cwd: squad.cwd,
       model: defaults.model || undefined,
+      effort: defaults.effort || undefined,
+      accounts: defaults.accounts?.length ? defaults.accounts : undefined,
       permissionMode: defaults.permissionMode,
       status: 'starting',
       activity: 'Subindo para a Diretoria',
-      desk: this.freeDirectorDesk(),
+      ...this.seat(squad.cwd, true),
       look: lookFromSeed(`orquestrador:${squad.code}`),
       costUsd: 0,
       createdAt: Date.now(),
@@ -224,7 +236,7 @@ export class AgentManager extends EventEmitter {
       permissionMode: 'default',
       status: 'working',
       activity: 'Lendo o pipeline',
-      desk: this.freeDirectorDesk(),
+      ...this.seat(squad.cwd, true),
       look: lookFromSeed(`orquestrador:${squad.code}`),
       costUsd: 0,
       createdAt: Date.now(),
@@ -279,7 +291,7 @@ export class AgentManager extends EventEmitter {
     log: LogEntry[],
     started: boolean,
     activity: string,
-    defaults: { model?: string; permissionMode: OfficePermissionMode },
+    defaults: AgentBrain & { permissionMode: OfficePermissionMode },
   ): AgentSummary {
     const id = randomUUID()
     const summary: AgentSummary = {
@@ -288,10 +300,12 @@ export class AgentManager extends EventEmitter {
       source: 'office',
       cwd,
       model: defaults.model || undefined,
+      effort: defaults.effort || undefined,
+      accounts: defaults.accounts?.length ? defaults.accounts : undefined,
       permissionMode: defaults.permissionMode,
       status: 'idle',
       activity,
-      desk: this.freeDesk(),
+      ...this.seat(cwd),
       look: lookFromSeed(sessionId),
       costUsd: 0,
       createdAt: Date.now(),
@@ -419,6 +433,9 @@ export class AgentManager extends EventEmitter {
     const input = new InputQueue()
     input.push(prompt)
     agent.input = input
+    // Each run starts a new CLI process, so it can move to another account between turns.
+    const account = this.accounts?.pick(s)
+    if (account) s.account = account.id
     this.setStatus(agent, 'starting', s.status === 'starting' ? s.activity : 'Voltando ao trabalho')
 
     const q = query({
@@ -426,6 +443,7 @@ export class AgentManager extends EventEmitter {
       options: {
         cwd: s.cwd,
         model: s.model,
+        effort: s.effort,
         pathToClaudeCodeExecutable: claude,
         permissionMode: s.permissionMode,
         allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
@@ -442,7 +460,7 @@ export class AgentManager extends EventEmitter {
         ...(squad ? { agents: memberAgents(squad), hooks: { PreToolUse: teamGuard(squad) } } : {}),
         ...(this.officeTools ? { mcpServers: { office: this.officeTools(s) } } : {}),
         // Lets the terminal bridge ignore hook events coming from office-managed sessions.
-        env: { ...process.env, AGENT_OFFICE_MANAGED: '1' },
+        env: { ...accountEnv(account), AGENT_OFFICE_MANAGED: '1' },
         canUseTool: (tool, toolInput, opts) => this.askPlayer(agent, tool, toolInput, opts),
         stderr: (data) => {
           if (/error/i.test(data)) this.addLog(agent, 'error', data.trim().slice(0, 500))
@@ -458,6 +476,8 @@ export class AgentManager extends EventEmitter {
     try {
       for await (const msg of q) this.handle(agent, msg)
     } catch (err) {
+      // Closed on purpose to move to another account: the new process carries on.
+      if (agent.query && agent.query !== q) return
       const text = err instanceof Error ? err.message : String(err)
       this.addLog(agent, 'error', text)
       if (this.agents.has(agent.summary.id)) {
@@ -491,7 +511,14 @@ export class AgentManager extends EventEmitter {
           this.trackSubagents(agent, msg)
         }
         return
+      case 'rate_limit_event': {
+        const info = msg.rate_limit_info
+        if (info.status === 'rejected') agent.limitHit = { resetsAt: toMs(info.resetsAt) }
+        return
+      }
       case 'assistant': {
+        // Subagents share the process and its account, so their limit is ours too.
+        if (msg.error === 'rate_limit') agent.limitHit ??= {}
         if (msg.parent_tool_use_id) return // subagent chatter
         // Live estimate between the exact readings taken after each turn.
         const u = msg.message.usage
@@ -525,6 +552,8 @@ export class AgentManager extends EventEmitter {
         return
       }
       case 'result': {
+        const hit = agent.limitHit
+        agent.limitHit = undefined
         const isError = msg.subtype !== 'success' || msg.is_error
         const text = msg.subtype === 'success' ? msg.result : msg.errors.join('\n') || `Parei: ${msg.subtype}`
         agent.summary.costUsd = msg.total_cost_usd
@@ -538,12 +567,41 @@ export class AgentManager extends EventEmitter {
           this.setStatus(agent, 'idle', isError ? 'Não conseguiu compactar' : 'Memória organizada, esperando instruções')
           return
         }
+        if (hit && this.failover(agent, hit)) return
         this.deliver(agent, { text, isError, costUsd: msg.total_cost_usd, durationMs: msg.duration_ms, turns: msg.num_turns })
         return
       }
       default:
         return
     }
+  }
+
+  /**
+   * The account ran out of plan mid-task: carry on with the same conversation on
+   * another account of the agent's pool. Every account keeps its sessions in
+   * ~/.claude, so the new process resumes this one. False when none has room.
+   */
+  private failover(agent: Agent, hit: { resetsAt?: number }): boolean {
+    const accounts = this.accounts
+    const from = agent.summary.account
+    if (!accounts || !from) return false
+    accounts.limitHit(from, hit.resetsAt)
+    const renews = hit.resetsAt ? ` (renova às ${clock(hit.resetsAt)})` : ''
+    const next = accounts.next(agent.summary, from)
+    if (!next) {
+      if (accounts.poolFor(agent.summary).length > 1) this.addLog(agent, 'system', `${accounts.name(from)} bateu o limite${renews}, e as outras contas também estão sem espaço.`)
+      return false
+    }
+    this.addLog(agent, 'system', `${accounts.name(from)} bateu o limite${renews}. Continuando em ${next.name}.`)
+    // A CLI process is tied to one login: close it and resume on the next account.
+    agent.input?.close()
+    agent.query?.close()
+    agent.input = undefined
+    agent.query = undefined
+    agent.summary.account = next.id
+    this.setStatus(agent, 'starting', `Trocando para ${next.name}`)
+    this.run(agent, CONTINUE_PROMPT)
+    return true
   }
 
   // ---------- subagents (Agent tool) ----------
@@ -790,7 +848,7 @@ export class AgentManager extends EventEmitter {
       permissionMode: 'default',
       status: 'working',
       activity: 'Chegando do terminal',
-      desk: this.freeDesk(),
+      ...this.seat(cwd),
       look: lookFromSeed(sessionId),
       costUsd: 0,
       createdAt: Date.now(),
@@ -848,17 +906,37 @@ export class AgentManager extends EventEmitter {
     return AGENT_NAMES.find((n) => !used.has(n)) ?? fallback
   }
 
-  /** Ground-floor desks; orchestrators sit in the Diretoria upstairs. */
-  private freeDesk(): number {
-    const used = new Set([...this.agents.values()].filter((a) => a.summary.role !== 'orchestrator').map((a) => a.summary.desk))
-    for (let i = 0; i < 64; i++) if (!used.has(i)) return i
-    return used.size
+  /**
+   * Floor and desk for a new agent in `cwd`: the project floor holding the folder
+   * (ground floor when none does) and the first free desk there. Orchestrators take
+   * the desks of the Diretoria, everyone else the team desks.
+   */
+  private seat(cwd: string, orchestrator = false, except?: Agent): { project?: string; desk: number } {
+    const project = projectFor(this.store.settings.projects, cwd)?.id
+    const used = new Set(
+      [...this.agents.values()]
+        .filter((a) => a !== except && a.summary.project === project && (a.summary.role === 'orchestrator') === orchestrator)
+        .map((a) => a.summary.desk),
+    )
+    let desk = 0
+    while (used.has(desk)) desk++
+    return { project, desk }
   }
 
-  private freeDirectorDesk(): number {
-    const used = new Set([...this.agents.values()].filter((a) => a.summary.role === 'orchestrator').map((a) => a.summary.desk))
-    for (let i = 0; i < 64; i++) if (!used.has(i)) return i
-    return used.size
+  /**
+   * Floors changed: agents whose folder now belongs to another floor (or to none)
+   * move there and take a free desk. Returns whether anyone moved.
+   */
+  relocate(): boolean {
+    let moved = false
+    for (const agent of this.agents.values()) {
+      const s = agent.summary
+      if (projectFor(this.store.settings.projects, s.cwd)?.id === s.project) continue
+      Object.assign(s, this.seat(s.cwd, s.role === 'orchestrator', agent))
+      this.upsert(agent)
+      moved = true
+    }
+    return moved
   }
 
   /** Exact reading, the same numbers /context shows. */
@@ -910,6 +988,21 @@ export class AgentManager extends EventEmitter {
       .filter((a) => a.summary.source === 'office' && !a.demo)
       .map((a) => ({ summary: a.summary, log: a.log.slice(-PERSISTED_LOG) }))
   }
+}
+
+/** Sent after moving to another account, so the agent picks up the interrupted turn. */
+const CONTINUE_PROMPT =
+  'Continue de onde parou. A conta anterior atingiu o limite do plano no meio da tarefa; esta é outra conta, com o mesmo histórico.'
+
+/** Rate limit resets come in seconds. */
+function toMs(t: number | undefined): number | undefined {
+  if (!t) return undefined
+  return t < 1e12 ? t * 1000 : t
+}
+
+/** 14:30 */
+function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 function kTokens(n: number): string {
