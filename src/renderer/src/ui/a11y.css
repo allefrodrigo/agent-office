@@ -1,0 +1,81 @@
+/* AO-38: foco visível para quem usa o teclado, texto só para leitores de tela e a lista de atalhos. */
+
+/* Some rows and cards turn the outline off for their own states; the keyboard ring wins. Fields keep their own focus glow. */
+#ui :focus-visible:not(input, textarea, select, [tabindex='-1']) {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 2px;
+}
+
+#ui .roster-row:focus-visible,
+#ui .tcard:focus-visible,
+#ui .inbox-row:focus-visible {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: -2px;
+}
+
+/* Cards and windows focused as a whole: a soft ring, so it is clear where the keys go. */
+#ui .dialog:focus-visible,
+#ui .modal:focus-visible,
+#ui .inbox:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent-hi) 60%, transparent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.keys-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.keys-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.keys-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+}
+
+.keys-list dt {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.keys-list dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.keys-list kbd {
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--line-strong);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  font: 600 11.5px/1.5 var(--mono);
+  text-align: center;
+}

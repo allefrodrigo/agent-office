@@ -29,6 +29,8 @@ export interface PanelActions {
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
   exportConversation(agentId: string): void
   copyReport(agentId: string): void
+  /** Esc in the message box: focus the agent's open card. False when there is none. */
+  focusCard(): boolean
 }
 
 /** Right-hand drawer with an agent's live log and a message box. */
@@ -74,11 +76,15 @@ export class AgentPanel {
     this.feed.addEventListener('scroll', () => {
       this.stickToBottom = this.feed.scrollTop + this.feed.clientHeight >= this.feed.scrollHeight - 30
     })
-    this.input = h('textarea', { class: 'composer-input', rows: 2, placeholder: 'Mande uma nova instrução…' })
+    this.input = h('textarea', { class: 'composer-input', rows: 2, placeholder: 'Mande uma nova instrução…', 'aria-label': 'Mensagem para o agente (Enter envia, Esc vai ao cartão aberto)' })
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault()
         this.send()
+      } else if (e.key === 'Escape' && !e.isComposing) {
+        // Leaves the box: to the card waiting for a decision, or out, so shortcuts work again.
+        e.preventDefault()
+        if (!this.actions.focusCard()) this.input.blur()
       }
       e.stopPropagation()
     })
@@ -133,7 +139,7 @@ export class AgentPanel {
       h('button', { class: 'icon-btn', title: 'Fechar busca (Esc)', onclick: () => this.closeSearch() }, icon('x', 15)),
     )
     this.renderTools()
-    this.el = h('div', { class: 'panel card hidden' }, this.head, this.banner, this.tools, this.searchBar, this.feed, this.composer)
+    this.el = h('div', { class: 'panel card hidden', role: 'region', 'aria-label': 'Painel do agente' }, this.head, this.banner, this.tools, this.searchBar, this.feed, this.composer)
     this.el.addEventListener('dragover', (e) => {
       if (!e.dataTransfer?.types.includes('Files') || this.terminal) return
       e.preventDefault()
@@ -162,6 +168,8 @@ export class AgentPanel {
         return
       }
       if (e.key !== 'Escape' || !this.agentId || document.activeElement === this.input) return
+      // Esc on the card closes the card only.
+      if (document.activeElement?.closest('.dialog')) return
       if (this.memMenuOpen) {
         this.memMenuOpen = false
         this.render()

@@ -1,5 +1,6 @@
 import type { AgentResult, AgentSummary, PermissionDecision, PermissionRequest } from '@shared/types'
 import type { State } from '../state'
+import { asDialog, FocusReturn, isTyping, labelDialog } from './a11y'
 import { formatCost, formatDuration, h, icon } from './dom'
 import { renderMarkdown } from './markdown'
 import { portrait } from './portrait'
@@ -21,7 +22,7 @@ export class Dialog {
   private context: string | undefined
   /** Set when a subagent of the agent made the request: what it is doing, or ''. */
   private subagent: string | undefined
-  /** Atalhos do cartão aberto: Enter permite, ⌘⌫ nega (Esc fecha). */
+  /** Atalhos do cartão aberto: Enter permite (ou dá o recebido), ⌘⌫ nega (Esc fecha). */
   private keys: { allow?: () => void; deny?: () => void } = {}
   /** Quando o cartão apareceu: um Enter logo em seguida pode ser de outra coisa. */
   private shownAt = 0
@@ -30,6 +31,8 @@ export class Dialog {
   private changesFor: string | null = null
   private openDiffs = new Set<string>()
   private commitDraft: string | null = null
+  /** Who had the focus before the card took it (AO-38). */
+  private focusBack = new FocusReturn()
 
   constructor(
     root: HTMLElement,
@@ -37,6 +40,7 @@ export class Dialog {
     private actions: DialogActions,
   ) {
     this.el = h('div', { class: 'dialog card hidden' })
+    asDialog(this.el)
     root.append(this.el)
     window.addEventListener('keydown', (e) => {
       if (!this.itemId) return
@@ -80,6 +84,31 @@ export class Dialog {
     this.itemId = null
     this.agentId = null
     this.el.classList.add('hidden')
+    this.focusBack.restore(this.el)
+  }
+
+  /** Brings the focus to the open card (Esc in the message box does it). False when there is none. */
+  focus(): boolean {
+    if (!this.itemId) return false
+    this.focusBack.save(this.el)
+    this.el.setAttribute('aria-modal', 'true')
+    this.el.focus({ preventScroll: true })
+    return true
+  }
+
+  /**
+   * The card takes the focus so Tab, Enter and the screen reader land on it. Not while the
+   * player types or works in another window: the card shows, the live region speaks, and
+   * Esc in the message box comes here.
+   */
+  private takeFocus(hadFocus: boolean): void {
+    const a = document.activeElement
+    if (hadFocus) return void this.el.focus({ preventScroll: true })
+    const busy = isTyping(a) || !!a?.closest('[aria-modal="true"]')
+    this.el.setAttribute('aria-modal', String(!busy))
+    if (busy) return
+    this.focusBack.save(this.el)
+    this.el.focus({ preventScroll: true })
   }
 
   /** Closes the card if its item was resolved elsewhere (terminal, other window). */
@@ -89,15 +118,18 @@ export class Dialog {
   }
 
   private frame(agent: AgentSummary, subtitle: string, body: HTMLElement[], buttons: HTMLElement[], tone: string): void {
+    const hadFocus = !this.el.classList.contains('hidden') && this.el.contains(document.activeElement)
     this.el.className = `dialog card tone-${tone}`
     this.shownAt = performance.now()
+    const name = h('div', { class: 'dialog-name' }, agent.name)
+    const sub = h('div', { class: 'dialog-sub' }, subtitle)
     this.el.replaceChildren(
       h(
         'div',
         { class: 'dialog-head' },
         portrait(agent.look, 40),
-        h('div', { class: 'dialog-who' }, h('div', { class: 'dialog-name' }, agent.name), h('div', { class: 'dialog-sub' }, subtitle)),
-        h('button', { class: 'icon-btn', title: 'Depois (Esc)', onclick: () => this.close() }, icon('x', 18)),
+        h('div', { class: 'dialog-who' }, name, sub),
+        h('button', { class: 'icon-btn', title: 'Depois (Esc)', 'aria-label': 'Depois', onclick: () => this.close() }, icon('x', 18)),
       ),
       h('div', { class: this.context ? 'dialog-context' : 'hidden' }, this.context ?? ''),
       h(
@@ -108,6 +140,9 @@ export class Dialog {
       h('div', { class: 'dialog-body' }, ...body),
       h('div', { class: 'dialog-actions' }, ...buttons),
     )
+    // "Ada veio pedir sua permissão", then what for.
+    labelDialog(this.el, { title: [name, sub], description: body.find((b) => b.classList.contains('dialog-title')) })
+    this.takeFocus(hadFocus)
   }
 
   private async decide(d: PermissionDecision): Promise<void> {
@@ -254,6 +289,8 @@ export class Dialog {
       this.close()
       await window.office.ackResult(r.id)
     }
+    // Enter dá o recebido, com as mesmas travas do Enter que permite.
+    this.keys = { allow: () => void ack() }
     if (this.changesFor !== r.id) {
       this.changesFor = r.id
       this.openDiffs.clear()
@@ -277,7 +314,7 @@ export class Dialog {
           : null,
         h('button', { class: 'btn', title: 'Exportar a conversa em Markdown (.md)', onclick: () => this.actions.exportConversation(agent.id) }, icon('file', 15), 'Exportar'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn btn-primary', onclick: ack }, icon('check', 16), 'Recebido'),
+        h('button', { class: 'btn btn-primary', title: 'Recebido (Enter)', onclick: ack }, icon('check', 16), 'Recebido'),
       ].filter(Boolean) as HTMLElement[],
       r.isError ? 'err' : 'done',
     )

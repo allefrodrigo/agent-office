@@ -24,6 +24,12 @@ export const PRIORITIES: { value: TicketPriority; label: string }[] = [
 
 export const labelOf = <T extends string>(list: { value: T; label: string }[], v: T): string => list.find((x) => x.value === v)?.label ?? v
 
+/** The column to the left (-1) or right (1) of `status` on the board; null at the edges. ⌥←/⌥→ move a ticket there. */
+export function neighborStatus(status: TicketStatus, dir: -1 | 1): TicketStatus | null {
+  const i = STATUSES.findIndex((s) => s.value === status)
+  return i < 0 ? null : (STATUSES[i + dir]?.value ?? null)
+}
+
 /**
  * The ticket as the agent reads it. Self-contained on purpose: an agent that
  * never saw the board can do the work from this text alone.

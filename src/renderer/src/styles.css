@@ -5,10 +5,14 @@
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.14);
   --text: #eceaf6;
-  --muted: #9c9ab5;
-  --dim: #6f6d8a;
+  /* AO-38: muted e dim passam AA (4,5:1) nos cartões do HUD; antes #9c9ab5 e #6f6d8a. Confira com node scripts/contrast.mjs. */
+  --muted: #b3b1cb;
+  --dim: #9a98b4;
   --accent: #d97757;
   --accent-hi: #e8896a;
+  /* Fundo de botão com texto branco: o --accent dá só 3,1:1 com #fff. */
+  --accent-solid: #b4583a;
+  --accent-solid-hi: #a84f33;
   --green: #3ecf8e;
   --amber: #f5a524;
   --blue: #5b9cf0;
@@ -574,15 +578,15 @@ button {
   padding: 0 14px 0 10px;
   border: 0;
   border-radius: 12px;
-  background: var(--accent);
+  background: var(--accent-solid);
   color: #fff;
   font-weight: 600;
-  box-shadow: 0 2px 0 #a8553a;
+  box-shadow: 0 2px 0 #8a3f27;
   transition: transform 0.1s, background 0.15s;
 }
 
 .dock-primary:hover {
-  background: var(--accent-hi);
+  background: var(--accent-solid-hi);
 }
 
 .dock-primary:active {
@@ -896,14 +900,14 @@ body:has(.radio:not(.hidden)) .toasts {
 }
 
 .btn-primary {
-  background: var(--accent);
+  background: var(--accent-solid);
   border-color: transparent;
   color: #fff;
-  box-shadow: 0 2px 0 #a8553a;
+  box-shadow: 0 2px 0 #8a3f27;
 }
 
 .btn-primary:hover {
-  background: var(--accent-hi);
+  background: var(--accent-solid-hi);
 }
 
 .btn-danger {
