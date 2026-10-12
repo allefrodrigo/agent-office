@@ -117,7 +117,7 @@ export function pathRisk(raw: unknown, scope: NoticeScope): string {
   if (typeof raw !== 'string' || !raw) return 'sem arquivo'
   if (!scope.cwd) return 'sem a pasta do agente'
   // Só caminhos absolutos POSIX e texto comum: nada de ~, \, caracteres de controle.
-  if (!raw.startsWith('/') || /[\\\0-\x1f\x7f]/.test(raw)) return 'caminho estranho'
+  if (!raw.startsWith('/') || /[\\\0-\x1f\x7f]/.test(raw)) return 'caminho estranho' // eslint-disable-line no-control-regex
   const cwd = normalizePath(scope.cwd)
   const file = normalizePath(raw)
   if (!cwd || !file) return 'caminho estranho'
@@ -185,16 +185,8 @@ export const ALLOWED_COMMANDS: readonly CommandSpec[] = [
   { cmd: ['head'], flags: /^-(n|\d+)$/, numbers: true, paths: true },
   { cmd: ['tail'], flags: /^-(n|\d+)$/, numbers: true, paths: true },
   { cmd: ['wc'], flags: /^-[lwcm]+$/, paths: true },
-  { cmd: ['git', 'status'], flags: /^(-s|-b|-sb|--short|--branch|--porcelain)$/ },
-  { cmd: ['git', 'diff'], flags: /^(--stat|--shortstat|--cached|--staged|--name-only|--name-status|--no-ext-diff)$/, paths: true },
-  { cmd: ['git', 'log'], flags: /^(--oneline|--stat|--graph|--decorate|--name-only|--no-ext-diff|-\d{1,4})$/ },
-  { cmd: ['git', 'show'], flags: /^(--stat|--name-only|--oneline|--no-ext-diff)$/, refs: true },
-  { cmd: ['git', 'branch'], flags: /^(--show-current|--list|-a|-v|-vv)$/ },
-  { cmd: ['npm', 'test'] },
-  { cmd: ['npm', 'run', 'test'] },
-  { cmd: ['npm', 'run', 'typecheck'] },
-  { cmd: ['npm', 'run', 'build'] },
-  { cmd: ['npm', 'run', 'lint'] },
+  // Sem git nem npm: git roda filtros, textconv e fsmonitor do repo, e npm roda scripts do
+  // package.json — o agente pode ter editado qualquer um deles. Esses pedidos abrem o app.
 ]
 
 /**

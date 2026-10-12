@@ -21,20 +21,6 @@ describe('comandos que ganham Permitir', () => {
     'head -n 20 src/a.ts',
     'tail -50 out/log.txt',
     'wc -l src/main/index.ts',
-    'git status',
-    'git status --short',
-    'git diff',
-    'git diff --stat',
-    'git diff --cached src/a.ts',
-    'git log --oneline -5',
-    'git show HEAD',
-    'git show 049ef72 --stat',
-    'git branch --show-current',
-    'npm test',
-    'npm run test',
-    'npm run typecheck',
-    'npm run build',
-    'npm run lint',
   ])('%s', (c) => expect(commandRisk(c, scope)).toBe(''))
 })
 
@@ -51,6 +37,11 @@ describe('comandos fora da lista não ganham Permitir', () => {
     'npm publish',
     'npm install left-pad',
     'npm run deploy',
+    'npm test',
+    'npm run build',
+    'git status',
+    'git diff',
+    'git log --oneline -5',
     'mv a b',
     'chmod 777 a',
     'kill -9 1',
@@ -152,7 +143,7 @@ describe('comandos fora da lista não ganham Permitir', () => {
 
   it('sem a pasta do agente, argumentos de caminho não valem', () => {
     expect(commandRisk('cat package.json')).not.toBe('')
-    expect(commandRisk('git status')).toBe('')
+    expect(commandRisk('ls')).toBe('')
   })
 })
 
@@ -235,8 +226,8 @@ const req = (toolName: string, input: Record<string, unknown>, kind: NoticeInput
 
 describe('montagem da notificação', () => {
   it('Mac: Permitir e resposta em comando da lista', () => {
-    const n = permissionNotice(req('Bash', { command: 'npm test' }), 'Joana', 'darwin', scope)
-    expect(n).toMatchObject({ title: 'Joana está indo até você', body: '$ npm test', allow: true, reply: true, why: '' })
+    const n = permissionNotice(req('Bash', { command: 'ls src' }), 'Joana', 'darwin', scope)
+    expect(n).toMatchObject({ title: 'Joana está indo até você', body: '$ ls src', allow: true, reply: true, why: '' })
   })
 
   it('Mac: comando destrutivo só tem resposta, e o corpo diz para abrir o app', () => {
