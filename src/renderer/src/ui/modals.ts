@@ -559,8 +559,9 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       defaultModel: brain.model.value,
       defaultEffort: brain.value().effort ?? '',
       defaultPermissionMode: mode.value as OfficePermissionMode,
-      maxSubagents: Math.max(0, Math.round(Number(maxSubs.value) || 0)),
-      agentBudgetUsd: Math.max(0, Number(budget.value) || 0),
+      // An emptied field keeps the current value instead of saving 0 (no limit).
+      ...(numberField(maxSubs.value) !== undefined ? { maxSubagents: Math.max(0, Math.round(numberField(maxSubs.value)!)) } : {}),
+      ...(numberField(budget.value) !== undefined ? { agentBudgetUsd: Math.max(0, numberField(budget.value)!) } : {}),
       updateChannel: updates.value(),
       video: video.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
@@ -1140,4 +1141,11 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
     ...(now.length ? [h('div', { class: 'field-hint' }, now.join(' '))] : []),
   )
   return { el, value }
+}
+
+/** A number typed in a settings field, or undefined when the field is empty or not a number. */
+function numberField(raw: string): number | undefined {
+  if (!raw.trim()) return undefined
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : undefined
 }
