@@ -112,9 +112,10 @@ Requisitos: as Releases precisam ser públicas (repositório público ou um repo
 ```
 src/
   main/                 processo principal (Node)
-    agents.ts           AgentManager: roda agentes com o Claude Agent SDK (query em streaming),
-                        traduz mensagens em status/atividade/log, segura permissões (canUseTool)
-                        até você decidir, guarda resultados
+    agents/             AgentManager: roda agentes com o Claude Agent SDK (query em streaming),
+                        traduz mensagens em status/atividade/log (sdk.ts), segura permissões
+                        (canUseTool) até você decidir e guarda resultados (decisions.ts), troca
+                        de conta no limite (rotation.ts), subagentes (subagents.ts), terminal (index.ts)
     bridge.ts           servidor HTTP local para os hooks do Claude Code (sessões do terminal)
                         e instalador dos hooks em ~/.claude/settings.json
     sessions.ts         central de resume: lista sessões (listSessions do SDK), importa o histórico,
