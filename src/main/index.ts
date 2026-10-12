@@ -16,7 +16,7 @@ import { flushOnExit, setupData } from './data'
 import { dataNotices } from './fs-safe'
 import { diagnostics, guardWindow, installFatalHandlers, onFatalFlush, rendererError } from './crash'
 import { captureConsole, initLog, log, logDir, secret } from './log'
-import { dropInheritedClaudeEnv, loadShellPath } from './env'
+import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
 import { findSquad, isDir, loadSquads, squadInfo } from './squads'
 import { Store } from './store'
@@ -216,6 +216,16 @@ function notifyPermission(store: Store, manager: AgentManager, req: PermissionRe
 }
 
 dropInheritedClaudeEnv()
+
+// Before anything reads or writes userData: the stress demo never opens the real office (AO-31).
+const stressError = stressDataDirError()
+if (stressError) {
+  console.error(stressError)
+  // showErrorBox works before ready and blocks until closed.
+  dialog.showErrorBox('Modo de carga sem pasta de dados', stressError)
+  // process.exit, not app.exit: nothing below may run, not even initLog.
+  process.exit(1)
+}
 
 // Windows only shows notifications for apps with an AppUserModelID.
 app.setAppUserModelId('dev.allef.agentoffice')
