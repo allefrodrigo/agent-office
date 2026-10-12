@@ -808,8 +808,15 @@ function captureShots(w: BrowserWindow, spec: string): void {
           if (out !== undefined) console.log(`[shot ${i + 1}]`, typeof out === 'string' ? out : JSON.stringify(out))
         }
         await new Promise((r) => setTimeout(r, 400))
-        const img = await w.webContents.capturePage()
-        writeFileSync(`${prefix}-${i + 1}.png`, img.toPNG())
+        try {
+          const img = await w.webContents.capturePage()
+          writeFileSync(`${prefix}-${i + 1}.png`, img.toPNG())
+        } catch (err) {
+          // The window is hidden, so the fatal-error dialog would wait forever: report and quit.
+          console.error(`[shot ${i + 1}] falhou:`, err)
+          app.exit(1)
+          return
+        }
         if (i === delays.length - 1) app.quit()
       }, ms)
     })
