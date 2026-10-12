@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { AgentDefinition, HookCallbackMatcher } from '@anthropic-ai/claude-agent-sdk'
 import { parse } from 'yaml'
@@ -48,7 +48,11 @@ export function squadInfo(s: SquadDefinition): SquadInfo {
 }
 
 function loadSquad(cwd: string, dir: string): SquadDefinition {
-  const y = (parse(readFileSync(join(dir, 'squad.yaml'), 'utf8')) ?? {}) as Record<string, unknown>
+  // The squad folder itself must live in the project (no squads/x -> /somewhere/else).
+  if (!within(realpathSync(cwd), realpathSync(dir))) throw new Error('squad folder points outside the project')
+  const yaml = inside(dir, 'squad.yaml')
+  if (!yaml) throw new Error('squad.yaml points outside the squad folder')
+  const y = (parse(readFileSync(yaml, 'utf8')) ?? {}) as Record<string, unknown>
   // The code builds paths (state.json, the watcher) and goes into the orchestrator prompt: keep it plain.
   const folder = dir.split(/[\\/]/).pop()!
   const code = /^[\w-]+$/.test(str(y.code)) ? str(y.code) : folder
@@ -170,7 +174,9 @@ export function orchestratorPrompt(s: SquadDefinition): string {
 export function readProgress(s: SquadInfo): SquadProgress | undefined {
   let raw: Record<string, unknown>
   try {
-    raw = JSON.parse(readFileSync(join(s.cwd, 'squads', s.code, 'state.json'), 'utf8'))
+    const file = inside(join(s.cwd, 'squads', s.code), 'state.json')
+    if (!file) return undefined
+    raw = JSON.parse(readFileSync(file, 'utf8'))
   } catch {
     return undefined
   }
@@ -215,11 +221,27 @@ function frontmatter(text: string): { meta: Record<string, unknown>; body: strin
   return { meta, body: text.slice(m[0].length) }
 }
 
-/** Resolves a path from squad.yaml, refusing anything that climbs out of the squad folder. */
+/**
+ * Resolves a path from squad.yaml, refusing anything that climbs out of the squad folder,
+ * symlinks included: both sides go through realpath, so a link pointing outside is refused.
+ * A file that does not exist gives null (there is nothing to read).
+ */
 function inside(dir: string, rel: string): string | null {
-  const p = resolve(dir, rel)
+  let realDir: string
+  let p: string
+  try {
+    realDir = realpathSync(dir)
+    p = realpathSync(resolve(dir, rel))
+  } catch {
+    return null
+  }
+  return within(realDir, p) ? p : null
+}
+
+/** `p` is strictly below `dir` (both already real paths). */
+function within(dir: string, p: string): boolean {
   const r = relative(dir, p)
-  return r && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r) ? p : null
+  return !!r && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r)
 }
 
 function str(v: unknown): string {
