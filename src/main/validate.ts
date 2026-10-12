@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { isAbsolute } from 'node:path'
+import { basename, isAbsolute } from 'node:path'
 import { z } from 'zod'
 import { ATTACH_LIMITS } from '@shared/attachments'
 import { HAIR_STYLES } from '@shared/describe'
@@ -45,6 +45,17 @@ export function parse<T>(schema: z.ZodType<T>, raw: unknown, message: string): T
 }
 
 // ---------- small pieces ----------
+
+/** Exportar em Markdown (AO-36): nome sugerido e texto, até 20 MB. O caminho vem do diálogo de salvar, nunca da página. */
+export const saveMarkdownArgsSchema = z.tuple([z.string().max(200), z.string().max(20_000_000)])
+/** Copiar relatório: texto para o clipboard. */
+export const copyTextSchema = z.string().max(2_000_000)
+
+/** Nome sugerido no diálogo de salvar: sem pastas, sem caracteres estranhos, sempre .md. */
+export function markdownFileName(raw: string): string {
+  const name = basename(raw.replace(/\\/g, '/')).replace(/[^\p{L}\p{N}._ -]+/gu, '-').replace(/^[.\s-]+/, '').slice(0, 100) || 'agent-office'
+  return name.toLowerCase().endsWith('.md') ? name : `${name}.md`
+}
 
 /** Agent, ticket, request and account ids: never empty, never huge. */
 export const idSchema = z.string().min(1).max(200)

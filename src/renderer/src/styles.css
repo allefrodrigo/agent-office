@@ -1841,6 +1841,94 @@ button.ab-stamp:hover {
   color: #8ff0c4;
 }
 
+/* filtros, busca e exportação do log (AO-36) */
+.panel-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 8px 12px 0;
+}
+
+.panel-filters {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.panel-filter {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.panel-filter:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.panel-filter.on {
+  color: var(--text);
+  background: rgba(217, 119, 87, 0.18);
+}
+
+.panel-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 12px 0;
+  color: var(--muted);
+}
+
+.panel-search-input {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 12.5px;
+  resize: none;
+}
+
+.panel-search-count {
+  min-width: 38px;
+  text-align: center;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-search .arrow-up,
+.panel-search .arrow-down {
+  display: inline-flex;
+}
+
+.panel-search .arrow-up {
+  transform: rotate(-90deg);
+}
+
+.panel-search .arrow-down {
+  transform: rotate(90deg);
+}
+
+.panel-feed[data-filter='msg'] > .entry:not([data-cat~='msg']),
+.panel-feed[data-filter='tool'] > .entry:not([data-cat~='tool']),
+.panel-feed[data-filter='err'] > .entry:not([data-cat~='err']) {
+  display: none;
+}
+
+::highlight(log-search) {
+  background-color: rgba(245, 165, 36, 0.35);
+  color: inherit;
+}
+
+::highlight(log-search-current) {
+  background-color: #f5a524;
+  color: #1b1d2b;
+}
+
 .panel-feed {
   flex: 1;
   overflow-y: auto;

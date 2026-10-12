@@ -11,11 +11,24 @@ import { saveAgentAsTemplate } from './templates'
 
 const BADGE_OPEN_KEY = 'panel-badge-open'
 
+/** Filtros do log: cada entrada tem uma ou mais categorias em data-cat. */
+type LogFilter = 'all' | 'msg' | 'tool' | 'err'
+const FILTERS: { value: LogFilter; label: string; title: string }[] = [
+  { value: 'all', label: 'Tudo', title: 'Todo o log' },
+  { value: 'msg', label: 'Mensagens', title: 'Só suas mensagens, as respostas e o resultado' },
+  { value: 'tool', label: 'Ferramentas', title: 'Só ferramentas, saídas e decisões' },
+  { value: 'err', label: 'Erros', title: 'Só erros (e a ferramenta que falhou)' },
+]
+
+const MOD = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl+'
+
 export interface PanelActions {
   goTo(id: string): void
   closeTerminal(id: string): void
   openItem(agentId: string, itemId: string): void
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
+  exportConversation(agentId: string): void
+  copyReport(agentId: string): void
 }
 
 /** Right-hand drawer with an agent's live log and a message box. */
@@ -38,6 +51,17 @@ export class AgentPanel {
   private badgeOpen = localStorage.getItem(BADGE_OPEN_KEY) === '1'
   /** Compact/clear menu under the memory ring. */
   private memMenuOpen = false
+  private tools: HTMLDivElement
+  private filter: LogFilter = 'all'
+  private searchBar: HTMLDivElement
+  private searchInput: HTMLInputElement
+  private searchCount: HTMLSpanElement
+  /** Ocorrências da busca, de cima para baixo, e a atual. */
+  private matches: Range[] = []
+  private current = -1
+  private searchTimer: ReturnType<typeof setTimeout> | null = null
+  /** Última ferramenta do log: ganha a categoria "erro" quando a saída dela falha. */
+  private lastTool: HTMLElement | null = null
 
   constructor(
     private root: HTMLElement,
@@ -83,7 +107,33 @@ export class AgentPanel {
       ),
       this.picker,
     )
-    this.el = h('div', { class: 'panel card hidden' }, this.head, this.banner, this.feed, this.composer)
+    this.tools = h('div', { class: 'panel-tools' })
+    this.searchInput = h('input', { class: 'input panel-search-input', placeholder: 'Buscar no log…', spellcheck: false })
+    this.searchCount = h('span', { class: 'panel-search-count' })
+    this.searchInput.addEventListener('input', () => this.runSearch(true))
+    this.searchInput.addEventListener('keydown', (e) => {
+      e.stopPropagation()
+      if (e.key === 'Escape') this.closeSearch()
+      else if (e.key === 'ArrowDown' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault()
+        this.step(1)
+      } else if (e.key === 'ArrowUp' || (e.key === 'Enter' && e.shiftKey)) {
+        e.preventDefault()
+        this.step(-1)
+      }
+    })
+    this.searchBar = h(
+      'div',
+      { class: 'panel-search hidden' },
+      icon('search', 14),
+      this.searchInput,
+      this.searchCount,
+      h('button', { class: 'icon-btn', title: 'Anterior (↑)', onclick: () => this.step(-1) }, h('span', { class: 'arrow-up' }, icon('chevron', 15))),
+      h('button', { class: 'icon-btn', title: 'Próxima (↓)', onclick: () => this.step(1) }, h('span', { class: 'arrow-down' }, icon('chevron', 15))),
+      h('button', { class: 'icon-btn', title: 'Fechar busca (Esc)', onclick: () => this.closeSearch() }, icon('x', 15)),
+    )
+    this.renderTools()
+    this.el = h('div', { class: 'panel card hidden' }, this.head, this.banner, this.tools, this.searchBar, this.feed, this.composer)
     this.el.addEventListener('dragover', (e) => {
       if (!e.dataTransfer?.types.includes('Files') || this.terminal) return
       e.preventDefault()
@@ -105,6 +155,12 @@ export class AgentPanel {
       if (agentId === this.agentId) this.append(entry)
     })
     window.addEventListener('keydown', (e) => {
+      // ⌘F (Ctrl+F fora do Mac) busca no log do agente aberto.
+      if (this.agentId && e.key.toLowerCase() === 'f' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        e.preventDefault()
+        this.openSearch()
+        return
+      }
       if (e.key !== 'Escape' || !this.agentId || document.activeElement === this.input) return
       if (this.memMenuOpen) {
         this.memMenuOpen = false
@@ -124,20 +180,137 @@ export class AgentPanel {
     this.el.classList.remove('hidden')
     this.render()
     if (changed) {
+      this.clearMatches()
       this.feed.replaceChildren(h('div', { class: 'feed-loading' }, 'Carregando…'))
       const log = await this.state.log(agentId)
       if (this.agentId !== agentId) return
       this.feed.replaceChildren()
+      this.lastTool = null
       for (const e of log) this.append(e, false)
       this.feed.scrollTop = this.feed.scrollHeight
       this.stickToBottom = true
+      if (this.searching) this.runSearch(true)
     }
   }
 
   close(): void {
     this.agentId = null
     this.memMenuOpen = false
+    this.closeSearch()
     this.el.classList.add('hidden')
+  }
+
+  // ---------- filtros, busca e exportação (AO-36) ----------
+
+  private renderTools(): void {
+    const id = () => this.agentId
+    this.tools.replaceChildren(
+      h(
+        'div',
+        { class: 'panel-filters' },
+        ...FILTERS.map((f) =>
+          h('button', { class: `panel-filter${this.filter === f.value ? ' on' : ''}`, title: f.title, onclick: () => this.setFilter(f.value) }, f.label),
+        ),
+      ),
+      h('div', { class: 'grow' }),
+      h('button', { class: 'icon-btn', title: `Buscar no log (${MOD}F)`, onclick: () => this.openSearch() }, icon('search', 15)),
+      h('button', { class: 'icon-btn', title: 'Copiar relatório (o resultado final do agente)', onclick: () => id() && this.actions.copyReport(id()!) }, icon('copy', 15)),
+      h('button', { class: 'icon-btn', title: 'Exportar a conversa em Markdown (.md)', onclick: () => id() && this.actions.exportConversation(id()!) }, icon('file', 15)),
+    )
+  }
+
+  private setFilter(f: LogFilter): void {
+    this.filter = f
+    if (f === 'all') delete this.feed.dataset.filter
+    else this.feed.dataset.filter = f
+    this.renderTools()
+    if (this.searching) this.runSearch(true)
+    else this.feed.scrollTop = this.feed.scrollHeight
+  }
+
+  private get searching(): boolean {
+    return !this.searchBar.classList.contains('hidden')
+  }
+
+  openSearch(): void {
+    this.searchBar.classList.remove('hidden')
+    this.searchInput.focus()
+    this.searchInput.select()
+    if (this.searchInput.value) this.runSearch(false)
+  }
+
+  private closeSearch(): void {
+    this.searchBar.classList.add('hidden')
+    this.clearMatches()
+    this.searchCount.textContent = ''
+    if (document.activeElement === this.searchInput) this.searchInput.blur()
+  }
+
+  private clearMatches(): void {
+    this.matches = []
+    this.current = -1
+    CSS.highlights?.delete('log-search')
+    CSS.highlights?.delete('log-search-current')
+  }
+
+  /**
+   * Acha o termo no texto das entradas visíveis (sem diferenciar maiúsculas) e destaca
+   * com a CSS Highlight API, que não mexe no DOM do log. `jump` vai para a ocorrência
+   * mais recente; sem ele, a atual fica onde estava (log ao vivo chegando).
+   */
+  private runSearch(jump: boolean): void {
+    const term = this.searchInput.value.trim().toLowerCase()
+    const keep = this.current
+    this.clearMatches()
+    if (!term) {
+      this.searchCount.textContent = ''
+      return
+    }
+    for (const entry of this.feed.children) {
+      if (!(entry instanceof HTMLElement) || !entry.classList.contains('entry') || entry.offsetParent === null) continue
+      const walker = document.createTreeWalker(entry, NodeFilter.SHOW_TEXT)
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        const text = (node.nodeValue ?? '').toLowerCase()
+        for (let at = text.indexOf(term); at >= 0; at = text.indexOf(term, at + term.length)) {
+          const r = new Range()
+          r.setStart(node, at)
+          r.setEnd(node, at + term.length)
+          this.matches.push(r)
+        }
+      }
+    }
+    if (!this.matches.length) {
+      this.searchCount.textContent = 'nada'
+      return
+    }
+    CSS.highlights?.set('log-search', new Highlight(...this.matches))
+    this.goTo(jump || keep < 0 ? this.matches.length - 1 : Math.min(keep, this.matches.length - 1), jump)
+  }
+
+  private step(d: 1 | -1): void {
+    if (!this.matches.length) return this.runSearch(true)
+    this.goTo((this.current + d + this.matches.length) % this.matches.length, true)
+  }
+
+  private goTo(i: number, scroll: boolean): void {
+    this.current = i
+    const r = this.matches[i]
+    CSS.highlights?.set('log-search-current', new Highlight(r))
+    this.searchCount.textContent = `${i + 1}/${this.matches.length}`
+    if (!scroll) return
+    const el = r.startContainer.parentElement
+    // Saída de ferramenta recolhida abre para mostrar o termo.
+    el?.closest('.entry-result.collapsed')?.classList.remove('collapsed')
+    el?.scrollIntoView({ block: 'center' })
+    this.stickToBottom = false
+  }
+
+  private scheduleSearch(): void {
+    if (!this.searching || this.searchTimer) return
+    this.searchTimer = setTimeout(() => {
+      this.searchTimer = null
+      if (this.searching) this.runSearch(false)
+    }, 250)
   }
 
   get isOpen(): boolean {
@@ -457,9 +630,34 @@ export class AgentPanel {
 
   private append(e: LogEntry, scroll = true): void {
     this.feed.querySelector('.feed-loading')?.remove()
-    this.feed.append(entryView(e))
+    const view = entryView(e)
+    view.dataset.cat = entryCategory(e)
+    if (e.kind === 'tool') this.lastTool = view
+    else if (e.kind === 'tool_result' && e.isError && this.lastTool) this.lastTool.dataset.cat += ' err'
+    this.feed.append(view)
     while (this.feed.childElementCount > 400) this.feed.firstElementChild?.remove()
     if (scroll && this.stickToBottom) this.feed.scrollTop = this.feed.scrollHeight
+    if (scroll) this.scheduleSearch()
+  }
+}
+
+/** msg = conversa; tool = ferramentas e decisões; err = erros; other = sistema e raciocínio (só em "Tudo"). */
+export function entryCategory(e: LogEntry): string {
+  switch (e.kind) {
+    case 'user':
+    case 'assistant':
+      return 'msg'
+    case 'result':
+      return e.isError ? 'err' : 'msg'
+    case 'tool':
+    case 'decision':
+      return 'tool'
+    case 'tool_result':
+      return e.isError ? 'tool err' : 'tool'
+    case 'error':
+      return 'err'
+    default:
+      return 'other'
   }
 }
 

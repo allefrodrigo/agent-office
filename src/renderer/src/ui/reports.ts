@@ -5,6 +5,8 @@ import { DEFAULT_BRAND } from '../world/brand'
 import { mountClaudeStats } from './claude-stats'
 import { formatCost, h, icon } from './dom'
 import { cleanError, modal } from './modals'
+import { saveMarkdown } from './export'
+import { slug } from '@shared/export-md'
 import { portrait } from './portrait'
 
 // Relatórios: what the office spent, read from the cost book (AO-16), shown like the
@@ -91,6 +93,8 @@ export interface ReportsOptions {
   project: ProjectFloor | null
   /** Which tab to open on. */
   tab?: 'projects' | 'claude'
+  /** Avisos do HUD (exportação). */
+  toast?: (text: string, kind?: 'info' | 'ok' | 'err') => void
 }
 
 /** The Relatórios dialog: spend by project (Projetos) and Claude Code's own stats (Claude Code). */
@@ -139,6 +143,8 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
     unmountStats?.()
     unmountStats = null
     renderTabs()
+    // Exportar vale para a aba Projetos.
+    exportBtn.classList.toggle('hidden', tab !== 'projects')
     if (tab === 'claude') {
       const pane = h('div', { class: 'rep-claude' })
       host.replaceChildren(pane)
@@ -276,6 +282,16 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
   }
 
   /** "Nothing yet" says since when the book counts. */
+  /** O relatório na tela (período e projeto escolhidos) em Markdown. */
+  const exportReport = () => {
+    if (!ledger) return
+    const per = PERIODS.find((p) => p.n === period)!
+    const known = groupsKnown()
+    const scope = filter === ALL ? 'Todos os projetos' : (known.find((g) => g.key === filter)?.name ?? '')
+    const md = reportMarkdown(compute(ledger), per.long, scope, per.prev, ledger.agents, (key) => groupByKey(key)?.name ?? key, (cwd) => groupOf(cwd).name)
+    void saveMarkdown(`relatorio-${slug(scope)}-${dayKey()}.md`, md, opts.toast ?? (() => {}))
+  }
+
   const emptyText = (book: Ledger, filtered: boolean) => {
     const anything = Object.values(book.days).some((d) => Object.keys(d).length)
     if (!anything) return 'O livro-caixa ainda está vazio. Os gastos aparecem aqui quando os agentes do escritório terminarem as primeiras respostas.'
@@ -479,12 +495,76 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
   }
 
   renderTabs()
-  const el = modal('Relatórios', [tabs, host], [h('button', { class: 'btn', onclick: close }, 'Fechar')], close)
+  const exportBtn = h('button', { class: 'btn', title: 'Salvar o relatório deste período e projeto em Markdown (.md)', onclick: exportReport }, icon('file', 15), 'Exportar .md')
+  const el = modal('Relatórios', [tabs, host], [exportBtn, h('div', { class: 'grow' }), h('button', { class: 'btn', onclick: close }, 'Fechar')], close)
   el.classList.add('backdrop-reports')
   // The tab bar sits under the title; the X of modal() calls close().
   root.append(el)
   setTab(tab)
   void load()
+}
+
+/** Resumo, por projeto, por agente, por modelo e por dia, em tabelas Markdown. */
+function reportMarkdown(
+  r: Report,
+  label: string,
+  scope: string,
+  prevLabel: string,
+  who: Record<string, LedgerAgent>,
+  groupName: (key: string) => string,
+  folderName: (cwd: string) => string,
+): string {
+  const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
+  const table = (head: string[], rows: string[][]) =>
+    rows.length ? [`| ${head.join(' | ')} |`, `|${head.map((_, i) => (i ? ' ---: ' : ' --- ')).join('|')}|`, ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`)].join('\n') : '_Nada no período._'
+  const delta = variation(r.total.cost, r.prevCost)
+  const spenders = [...r.agents.values()].filter((a) => a.cost > 0).length
+  const out = [
+    `# Relatório de gastos · ${scope}`,
+    '',
+    `- **Período:** ${label} (${dayLong(r.days[0])} a ${dayLong(r.days[r.days.length - 1])})`,
+    `- **Exportado em:** ${new Date().toLocaleString('pt-BR')}`,
+    '',
+    '## Resumo',
+    '',
+    table(
+      ['Item', 'Valor'],
+      [
+        ['Gasto', usd(r.total.cost)],
+        [`Contra ${prevLabel}`, delta ? `${delta.text} (antes: ${usd(r.prevCost)})` : 'sem base'],
+        ['Turnos', int(r.total.turns)],
+        ['Tempo', workTime(r.total.durationMs)],
+        ['Respostas', int(r.total.results)],
+        ['Agentes', int(spenders)],
+      ],
+    ),
+    '',
+    '## Por projeto',
+    '',
+    table(
+      ['Projeto', 'Gasto', 'Turnos', 'Tempo'],
+      [...r.groups].filter(([, t]) => t.cost > 0 || t.results > 0).sort((a, b) => b[1].cost - a[1].cost).map(([key, t]) => [groupName(key), usd(t.cost), int(t.turns), workTime(t.durationMs)]),
+    ),
+    '',
+    '## Por agente',
+    '',
+    table(
+      ['Agente', 'Projeto', 'Gasto', 'Turnos'],
+      [...r.agents].filter(([, a]) => a.cost > 0).sort((a, b) => b[1].cost - a[1].cost).map(([id, a]) => {
+        const ag = who[id]
+        return [`${ag?.name ?? 'Agente'}${ag?.dismissedAt ? ' (dispensado)' : ''}`, ag ? folderName(ag.cwd) : '', usd(a.cost), int(a.turns)]
+      }),
+    ),
+    '',
+    '## Por modelo',
+    '',
+    table(
+      ['Modelo', 'Gasto', 'Tokens de saída'],
+      [...r.models].filter(([, m]) => m.cost > 0).sort((a, b) => b[1].cost - a[1].cost).map(([name, m]) => [modelName(name), usd(m.cost), tokens(m.output)]),
+    ),
+  ]
+  if (r.days.length > 1) out.push('', '## Por dia', '', table(['Dia', 'Gasto'], r.days.map((d) => [dayLong(d), usd(sum(r.byDay.get(d)?.values() ?? []))])))
+  return out.join('\n') + '\n'
 }
 
 function add(t: Totals, d: { costUsd: number; turns: number; durationMs: number; results: number }): void {

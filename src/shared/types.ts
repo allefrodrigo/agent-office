@@ -550,6 +550,8 @@ export type OfficeEvent =
   | { type: 'ledger:today'; today: LedgerToday }
   /** Claude Code statistics were read again from disk. */
   | { type: 'stats'; stats: ClaudeStats }
+  /** The player clicked a system notification: open the card of that request or result now. */
+  | { type: 'notice:open'; agentId: string; itemId: string }
   /** A data file was found corrupt after startup (the closed tickets load on first use). */
   | { type: 'data:notice'; notice: DataNotice }
   | { type: 'update'; update: UpdateStatus }
@@ -636,6 +638,10 @@ export interface OfficeAPI {
   getStats(): Promise<ClaudeStats>
   /** Reads the new bytes of the transcripts now (disk only, no API call). */
   refreshStats(): Promise<ClaudeStats>
+  /** Asks where to save (Save dialog) and writes the Markdown there. Resolves the path, or null if cancelled. */
+  saveMarkdown(fileName: string, content: string): Promise<string | null>
+  /** Puts text on the system clipboard (works even when the page has no focus). */
+  copyText(text: string): Promise<void>
   /** Copies in userData/backups, newest first. */
   listBackups(): Promise<BackupEntry[]>
   /** Asks, saves the current state as a backup, puts the backup in place and restarts. Resolves false if the user said no. */
