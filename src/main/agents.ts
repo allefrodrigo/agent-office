@@ -23,7 +23,7 @@ import type {
   SubagentInfo,
   WorktreeInfo,
 } from '@shared/types'
-import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
+import { AGENT_NAMES, describePermission, describeTool, lookFromSeed, toolDetail } from '@shared/describe'
 import { projectFor } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { buildMessage } from './attachments'
@@ -34,6 +34,9 @@ import { findSquad, memberAgents, orchestratorPrompt, outsideTeam, readProgress,
 import type { CostBook } from './ledger'
 import type { Store } from './store'
 import { changesSince, createWorktree, takeSnapshot, type Snapshot } from './git'
+import { applyStep, Coalescer, endSubagent, findSubagent, SubagentLogs, subagentStep } from './subagent-log'
+
+export { toolDetail }
 
 const LOG_LIMIT = 400
 const PERSISTED_LOG = 150
@@ -94,6 +97,12 @@ interface Agent {
   demo?: boolean
   /** The task under way: the folder as it was when it started, and the files the Edit/Write tools touched. */
   task?: { snapshot: Promise<Snapshot | null>; touched: Map<string, string> }
+  /** Logs of its subagents (AO-46), in memory only. */
+  subs?: SubagentLogs
+  /** Groups subagent updates into one IPC burst every ~250 ms. */
+  subFlush?: Coalescer
+  /** A subagent card changed since the last burst: send the summary again. */
+  subDirty?: boolean
 }
 
 /** Tools whose file_path the card lists when the folder has no git. */
@@ -123,6 +132,7 @@ export class AgentManager extends EventEmitter {
         status: p.summary.status === 'done' ? 'done' : 'idle',
         activity: 'Aguardando instruções',
         subagents: undefined,
+        subagentsDone: undefined,
       }
       const agent: Agent = { summary, log: p.log, started: true }
       this.agents.set(summary.id, agent)
@@ -152,6 +162,10 @@ export class AgentManager extends EventEmitter {
 
   getLog(id: string): LogEntry[] {
     return this.agents.get(id)?.log ?? []
+  }
+
+  getSubagentLog(agentId: string, subId: string): LogEntry[] {
+    return this.agents.get(agentId)?.subs?.get(subId) ?? []
   }
 
   // ---------- office agents (Claude Agent SDK) ----------
@@ -207,10 +221,30 @@ export class AgentManager extends EventEmitter {
   }
 
   /** An office agent for a saved session; it waits in the lounge until it gets an instruction. */
-  recall(sessionId: string, cwd: string, log: LogEntry[], defaults: AgentBrain & { permissionMode: OfficePermissionMode }, worktree?: WorktreeInfo): AgentSummary {
+  recall(
+    sessionId: string,
+    cwd: string,
+    log: LogEntry[],
+    defaults: AgentBrain & { permissionMode: OfficePermissionMode },
+    worktree?: WorktreeInfo,
+    helpers: { info: SubagentInfo; log: LogEntry[] }[] = [],
+  ): AgentSummary {
     for (const a of this.agents.values()) if (a.summary.sessionId === sessionId) return a.summary
     // started = true: the next message resumes the saved conversation.
-    return this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults, worktree)
+    const summary = this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults, worktree)
+    const agent = this.agents.get(summary.id)
+    if (agent && helpers.length) {
+      // The helpers of the saved conversation come back as ended, each with its own log.
+      const subs = this.subLogs(agent)
+      const done: SubagentInfo[] = []
+      for (const x of helpers) {
+        subs.seed(x.info.id, x.log)
+        for (const dropped of endSubagent(done, x.info)) subs.forget(dropped)
+      }
+      summary.subagentsDone = done
+      this.upsert(agent)
+    }
+    return summary
   }
 
   /** A new agent with no task yet, like typing `claude` in a folder: it waits for your first message. */
@@ -433,6 +467,7 @@ export class AgentManager extends EventEmitter {
     agent.input?.close()
     agent.query?.close()
     agent.watcher?.close()
+    agent.subFlush?.cancel()
     this.agents.delete(id)
     // Its spend stays in the cost book; reports show it as dismissed.
     this.book?.dismissed(id)
@@ -517,6 +552,8 @@ export class AgentManager extends EventEmitter {
         effort: s.effort,
         pathToClaudeCodeExecutable: claude,
         permissionMode: s.permissionMode,
+        // Subagent text comes too (not only tools), for the helper's own log (AO-46).
+        forwardSubagentText: true,
         allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
         // Counts only what this query spends, so it gets what is left of the agent's cap.
         ...(budget !== undefined ? { maxBudgetUsd: budget } : {}),
@@ -610,7 +647,8 @@ export class AgentManager extends EventEmitter {
       case 'assistant': {
         // Subagents share the process and its account, so their limit is ours too.
         if (msg.error === 'rate_limit') agent.limitHit ??= {}
-        if (msg.parent_tool_use_id) return // subagent chatter
+        // A subagent's message goes to its own log, never to the parent's.
+        if (msg.parent_tool_use_id) return this.subagentMessage(agent, msg.parent_tool_use_id, 'assistant', msg.message.content)
         // Live estimate between the exact readings taken after each turn.
         const u = msg.message.usage
         if (u && agent.summary.context) {
@@ -634,7 +672,7 @@ export class AgentManager extends EventEmitter {
         return
       }
       case 'user': {
-        if (msg.parent_tool_use_id) return
+        if (msg.parent_tool_use_id) return this.subagentMessage(agent, msg.parent_tool_use_id, 'user', msg.message.content)
         const content = msg.message.content
         if (!Array.isArray(content)) return
         for (const block of content) {
@@ -661,8 +699,7 @@ export class AgentManager extends EventEmitter {
         agent.summary.costUsd = msg.total_cost_usd
         this.readContext(agent)
         // The turn is over, so no foreground subagent can still be running (covers an interrupt that lost its notification).
-        const bg = agent.summary.subagents?.filter((x) => x.background)
-        agent.summary.subagents = bg?.length ? bg : undefined
+        for (const sub of agent.summary.subagents ?? []) if (!sub.background) this.retire(agent, sub, 'completed')
         if (agent.compacting) {
           agent.compacting = false
           if (isError) this.addLog(agent, 'error', `Não consegui compactar: ${text}`)
@@ -713,21 +750,50 @@ export class AgentManager extends EventEmitter {
     const subs = agent.summary.subagents ?? []
     switch (msg.subtype) {
       case 'task_started': {
-        const isAgent = msg.task_type === 'local_agent' || !!msg.subagent_type
+        // Workflow tool runs get the same treatment: a helper with its own log.
+        const workflow = msg.task_type === 'local_workflow'
+        const isAgent = msg.task_type === 'local_agent' || !!msg.subagent_type || workflow
         if (!isAgent || msg.ambient || msg.skip_transcript || subs.some((x) => x.id === msg.task_id)) return
-        const sub: SubagentInfo = { id: msg.task_id, description: msg.description, type: msg.subagent_type, startedAt: Date.now(), background: !!msg.is_backgrounded }
+        const sub: SubagentInfo = {
+          id: msg.task_id,
+          description: workflow && msg.workflow_name ? `${msg.workflow_name}: ${msg.description}` : msg.description,
+          type: workflow ? 'Workflow' : msg.subagent_type,
+          startedAt: Date.now(),
+          background: !!msg.is_backgrounded,
+        }
+        if (msg.tool_use_id) sub.toolUseId = msg.tool_use_id
+        if (workflow) sub.workflow = true
         const member = agent.squad?.members.find((m) => m.id === msg.subagent_type)
         if (member) sub.member = member.id
+        const logs = this.subLogs(agent)
+        logs.start(sub.id, msg.tool_use_id)
+        if (msg.prompt?.trim()) logs.note(sub.id, this.subEntry('user', msg.prompt.slice(0, 4000)))
         this.setSubagents(agent, [...subs, sub])
-        this.addLog(agent, 'system', member ? `Chamou ${member.icon} ${member.name}: ${sub.description}` : `Chamou um ajudante${sub.type ? ` (${sub.type})` : ''}: ${sub.description}`)
+        if (logs.hasPending) this.subFlusher(agent).mark()
+        this.addLog(
+          agent,
+          'system',
+          member
+            ? `Chamou ${member.icon} ${member.name}: ${sub.description}`
+            : workflow
+              ? `Rodou um workflow: ${sub.description}`
+              : `Chamou um ajudante${sub.type ? ` (${sub.type})` : ''}: ${sub.description}`,
+        )
         return
       }
       case 'task_progress': {
         const sub = subs.find((x) => x.id === msg.task_id)
         if (!sub) return
         sub.tokens = msg.usage.total_tokens
-        sub.lastTool = msg.last_tool_name
-        this.upsert(agent)
+        sub.toolUses = Math.max(sub.toolUses ?? 0, msg.usage.tool_uses)
+        if (msg.last_tool_name) {
+          sub.lastTool = msg.last_tool_name
+          // Without its messages (older CLI), the tool name is all we know.
+          if (!agent.subs?.get(sub.id).length) sub.activity = `Usando ${msg.last_tool_name}`
+        }
+        if (msg.summary) sub.summary = msg.summary.slice(0, 300)
+        agent.subDirty = true
+        this.subFlusher(agent).mark()
         return
       }
       case 'task_updated': {
@@ -738,12 +804,14 @@ export class AgentManager extends EventEmitter {
       case 'task_notification': {
         const sub = subs.find((x) => x.id === msg.task_id)
         if (!sub) return
-        this.setSubagents(agent, subs.filter((x) => x !== sub))
+        if (msg.usage?.total_tokens) sub.tokens = msg.usage.total_tokens
+        if (msg.usage?.tool_uses) sub.toolUses = msg.usage.tool_uses
         const verb = msg.status === 'completed' ? 'terminou' : msg.status === 'failed' ? 'falhou' : 'foi interrompido'
-        const tokens = msg.usage?.total_tokens ?? sub.tokens
         const ms = msg.usage?.duration_ms ?? Date.now() - sub.startedAt
-        const stats = [tokens ? `${kTokens(tokens)} tokens` : '', `${(ms / 1000).toFixed(1).replace('.', ',')} s`].filter(Boolean).join(' · ')
+        const stats = [sub.tokens ? `${kTokens(sub.tokens)} tokens` : '', `${(ms / 1000).toFixed(1).replace('.', ',')} s`].filter(Boolean).join(' · ')
         const member = sub.member ? agent.squad?.members.find((m) => m.id === sub.member) : undefined
+        if (msg.summary?.trim()) agent.subs?.note(sub.id, this.subEntry('result', msg.summary.slice(0, 4000), msg.status === 'failed'))
+        this.retire(agent, sub, msg.status, `${verb[0].toUpperCase()}${verb.slice(1)} (${stats}).`)
         this.addLog(agent, msg.status === 'failed' ? 'error' : 'system', `${member ? `${member.icon} ${member.name}` : 'Ajudante'} ${verb}: ${sub.description} (${stats})`, undefined, msg.status === 'failed')
         if (sub.member) {
           const summary = msg.status === 'failed' ? (msg.summary || 'Falhou sem dizer por quê.').slice(0, 200) : undefined
@@ -754,8 +822,7 @@ export class AgentManager extends EventEmitter {
       case 'background_tasks_changed': {
         // Level signal: a background subagent missing here is gone even if its notification was lost.
         const live = new Set(msg.tasks.map((t) => t.task_id))
-        const gone = subs.filter((x) => x.background && !live.has(x.id))
-        if (gone.length) this.setSubagents(agent, subs.filter((x) => !gone.includes(x)))
+        for (const sub of subs.filter((x) => x.background && !live.has(x.id))) this.retire(agent, sub, 'completed')
         return
       }
       default:
@@ -763,10 +830,72 @@ export class AgentManager extends EventEmitter {
     }
   }
 
+  // ---------- subagent logs (AO-46) ----------
+
+  private subLogs(agent: Agent): SubagentLogs {
+    return (agent.subs ??= new SubagentLogs())
+  }
+
+  private subFlusher(agent: Agent): Coalescer {
+    return (agent.subFlush ??= new Coalescer(() => this.flushSubagents(agent)))
+  }
+
+  private subEntry(kind: LogEntry['kind'], text: string, isError?: boolean): LogEntry {
+    return { id: randomUUID(), t: Date.now(), kind, text, ...(isError ? { isError } : {}) }
+  }
+
+  /**
+   * A message from inside a subagent (parent_tool_use_id set): its log and its card,
+   * sent to the renderer in grouped bursts. The prompt already came with task_started,
+   * so its user text is skipped here.
+   */
+  private subagentMessage(agent: Agent, parentToolUseId: string, role: 'assistant' | 'user', content: unknown): void {
+    const step = subagentStep(role, content, randomUUID)
+    step.entries = step.entries.filter((e) => e.kind !== 'user')
+    this.subLogs(agent).add(parentToolUseId, step.entries)
+    const sub = findSubagent(agent.summary.subagents, parentToolUseId)
+    if (sub && applyStep(sub, step)) agent.subDirty = true
+    if (agent.subDirty || agent.subs?.hasPending) this.subFlusher(agent).mark()
+  }
+
+  private flushSubagents(agent: Agent): void {
+    if (!this.agents.has(agent.summary.id)) return
+    const logs = agent.subs?.take() ?? []
+    if (logs.length) this.send({ type: 'agent:sublog', agentId: agent.summary.id, logs })
+    if (!agent.subDirty) return
+    agent.subDirty = false
+    this.upsert(agent)
+  }
+
+  /** A subagent ended: off the running list, into the ended one (its log stays), and the renderer hears it now. */
+  private retire(agent: Agent, sub: SubagentInfo, status: NonNullable<SubagentInfo['status']>, line?: string): void {
+    sub.status = status
+    sub.endedAt = Date.now()
+    if (line) agent.subs?.note(sub.id, this.subEntry(status === 'failed' ? 'error' : 'system', line))
+    const done = agent.summary.subagentsDone ?? []
+    for (const dropped of endSubagent(done, sub)) agent.subs?.forget(dropped)
+    agent.summary.subagentsDone = done
+    const left = (agent.summary.subagents ?? []).filter((x) => x !== sub)
+    agent.summary.subagents = left.length ? left : undefined
+    agent.subDirty = true
+    this.subFlusher(agent).now()
+  }
+
   /** Demo mode: feeds simulated task_* events to any agent. */
   demoTask(agentId: string, msg: Extract<SDKMessage, { type: 'system' }>): void {
     const agent = this.agents.get(agentId)
     if (agent) this.trackSubagents(agent, msg)
+  }
+
+  /** Demo mode: a simulated message from inside a subagent (parent_tool_use_id set). */
+  demoSubagentMessage(agentId: string, parentToolUseId: string, role: 'assistant' | 'user', content: unknown): void {
+    const agent = this.agents.get(agentId)
+    if (agent) this.subagentMessage(agent, parentToolUseId, role, content)
+  }
+
+  /** Load test: entries held in memory for an agent's subagents. */
+  subagentMemory(agentId: string): number {
+    return this.agents.get(agentId)?.subs?.size ?? 0
   }
 
   private setSubagents(agent: Agent, subs: SubagentInfo[]): void {
@@ -777,7 +906,7 @@ export class AgentManager extends EventEmitter {
   private clearSubagents(agent: Agent): void {
     const subs = agent.summary.subagents
     if (!subs?.length) return
-    this.setSubagents(agent, [])
+    for (const sub of subs) this.retire(agent, sub, 'stopped', 'Parou junto com a sessão.')
     this.addLog(agent, 'system', subs.length === 1 ? 'O ajudante parou junto com a sessão.' : `${subs.length} ajudantes pararam junto com a sessão.`)
   }
 
@@ -1069,6 +1198,7 @@ export class AgentManager extends EventEmitter {
   }
 
   private removeTerminal(agentId: string): void {
+    this.agents.get(agentId)?.subFlush?.cancel()
     this.agents.delete(agentId)
     this.send({ type: 'agent:removed', agentId })
   }
@@ -1160,7 +1290,7 @@ export class AgentManager extends EventEmitter {
   private persist(): void {
     this.store.agents = [...this.agents.values()]
       .filter((a) => a.summary.source === 'office' && !a.demo)
-      .map((a) => ({ summary: a.summary, log: a.log.slice(-PERSISTED_LOG) }))
+      .map((a) => ({ summary: { ...a.summary, subagentsDone: undefined }, log: a.log.slice(-PERSISTED_LOG) }))
   }
 }
 
@@ -1186,28 +1316,6 @@ function usd(n: number): string {
 
 function kTokens(n: number): string {
   return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n)
-}
-
-export function toolDetail(tool: string, input: Record<string, unknown>): string {
-  switch (tool) {
-    case 'Bash':
-      return `$ ${input.command ?? ''}`
-    case 'Edit':
-    case 'MultiEdit':
-    case 'Write':
-    case 'Read':
-      return `${tool} ${input.file_path ?? ''}`
-    case 'Grep':
-      return `Grep "${input.pattern ?? ''}" ${input.path ?? ''}`
-    case 'Glob':
-      return `Glob ${input.pattern ?? ''}`
-    case 'WebFetch':
-      return `WebFetch ${input.url ?? ''}`
-    case 'WebSearch':
-      return `WebSearch "${input.query ?? ''}"`
-    default:
-      return describeTool(tool, input)
-  }
 }
 
 export function permissionFromTool(

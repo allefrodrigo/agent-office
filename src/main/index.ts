@@ -61,6 +61,7 @@ import {
   copyTextSchema,
   markdownFileName,
   saveMarkdownArgsSchema,
+  subagentLogArgsSchema,
 } from './validate'
 import { Updater } from './updater'
 
@@ -436,6 +437,10 @@ app.whenReady().then(async () => {
     return store.settings
   })
   ipcMain.handle('office:getLog', (_e, raw: unknown) => manager.getLog(id(raw)))
+  ipcMain.handle('office:getSubagentLog', (_e, ...args: unknown[]) => {
+    const [agentId, subId] = parse(subagentLogArgsSchema, args, 'ID inválido.')
+    return manager.getSubagentLog(agentId, subId)
+  })
   // A permission mode outside the list falls back to the office default.
   ipcMain.handle('office:hire', (_e, req: unknown) =>
     manager.hire({ ...cleanHire(req, store.settings), look: cleanLook((req as { look?: unknown } | null)?.look) }),
@@ -595,7 +600,7 @@ app.whenReady().then(async () => {
     if (!entry.cwd || !existsSync(entry.cwd) || !statSync(entry.cwd).isDirectory()) {
       throw new Error(`A pasta dessa sessão não existe mais${entry.cwd ? `: ${entry.cwd}` : '.'}`)
     }
-    const { log, model } = await transcript(sessionId).catch(() => ({ log: [], model: undefined }))
+    const { log, model, helpers } = await transcript(sessionId).catch(() => ({ log: [], model: undefined, helpers: [] }))
     // A session that ran in an agent's worktree comes back on the project's floor, in that copy.
     const isolated = await worktreeFromPath(entry.cwd)
     return manager.recall(
@@ -609,6 +614,7 @@ app.whenReady().then(async () => {
         permissionMode: store.settings.defaultPermissionMode,
       },
       isolated?.worktree,
+      helpers,
     )
   })
   ipcMain.handle('office:openInTerminal', async (_e, sessionId: unknown) => {

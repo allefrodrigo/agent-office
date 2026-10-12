@@ -4,6 +4,7 @@ import type { OfficeAPI, OfficeEvent } from '@shared/types'
 const api: OfficeAPI = {
   getState: () => ipcRenderer.invoke('office:getState'),
   getLog: (id) => ipcRenderer.invoke('office:getLog', id),
+  getSubagentLog: (agentId, subId) => ipcRenderer.invoke('office:getSubagentLog', agentId, subId),
   hire: (req) => ipcRenderer.invoke('office:hire', req),
   summon: (cwd, mode, brain, worktree) => ipcRenderer.invoke('office:summon', cwd, mode, brain, worktree),
   isGitRepo: (cwd) => ipcRenderer.invoke('office:isGitRepo', cwd),

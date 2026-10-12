@@ -59,6 +59,8 @@ export function markdownFileName(raw: string): string {
 
 /** Agent, ticket, request and account ids: never empty, never huge. */
 export const idSchema = z.string().min(1).max(200)
+/** getSubagentLog(agentId, subId) */
+export const subagentLogArgsSchema = z.tuple([idSchema, idSchema])
 export const pathSchema = z.string().min(1).max(MAX_PATH)
 export const permissionModeSchema = z.enum(PERMISSION_MODES as [OfficePermissionMode, ...OfficePermissionMode[]])
 export const ticketStatusSchema = z.enum(STATUS_VALUES)

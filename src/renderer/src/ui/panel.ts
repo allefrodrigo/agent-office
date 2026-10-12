@@ -6,6 +6,8 @@ import { formatCost, h, icon } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
 import { cleanError, EFFORTS } from './modals'
+import { helperActivity } from '@shared/describe'
+import { renderHelpers } from './panel-helpers'
 import { portrait } from './portrait'
 import { saveAgentAsTemplate } from './templates'
 
@@ -46,6 +48,9 @@ export class AgentPanel {
   private terminal = false
   private sending = false
   agentId: string | null = null
+  /** Subagent whose log the feed shows instead of the agent's (AO-46); null = the agent's own. */
+  helper: string | null = null
+  private helpersEl: HTMLDivElement
   private stickToBottom = true
   /** Badge shows details; remembered between sessions. */
   private badgeOpen = localStorage.getItem(BADGE_OPEN_KEY) === '1'
@@ -133,7 +138,8 @@ export class AgentPanel {
       h('button', { class: 'icon-btn', title: 'Fechar busca (Esc)', onclick: () => this.closeSearch() }, icon('x', 15)),
     )
     this.renderTools()
-    this.el = h('div', { class: 'panel card hidden' }, this.head, this.banner, this.tools, this.searchBar, this.feed, this.composer)
+    this.helpersEl = h('div', { class: 'panel-helpers-slot' })
+    this.el = h('div', { class: 'panel card hidden' }, this.head, this.banner, this.helpersEl, this.tools, this.searchBar, this.feed, this.composer)
     this.el.addEventListener('dragover', (e) => {
       if (!e.dataTransfer?.types.includes('Files') || this.terminal) return
       e.preventDefault()
@@ -152,7 +158,10 @@ export class AgentPanel {
     root.append(this.el)
 
     state.onLog((agentId, entry) => {
-      if (agentId === this.agentId) this.append(entry)
+      if (agentId === this.agentId && !this.helper) this.append(entry)
+    })
+    state.onSubLog((agentId, subId, entries) => {
+      if (agentId === this.agentId && subId === this.helper) for (const e of entries) this.append(e)
     })
     window.addEventListener('keydown', (e) => {
       // ⌘F (Ctrl+F fora do Mac) busca no log do agente aberto.
@@ -174,16 +183,18 @@ export class AgentPanel {
     })
   }
 
-  async open(agentId: string): Promise<void> {
-    const changed = agentId !== this.agentId
+  /** `helper` opens the log of one of the agent's subagents instead of its own. */
+  async open(agentId: string, helper: string | null = null): Promise<void> {
+    const changed = agentId !== this.agentId || helper !== this.helper
     this.agentId = agentId
+    this.helper = helper
     this.el.classList.remove('hidden')
     this.render()
     if (changed) {
       this.clearMatches()
       this.feed.replaceChildren(h('div', { class: 'feed-loading' }, 'Carregando…'))
-      const log = await this.state.log(agentId)
-      if (this.agentId !== agentId) return
+      const log = helper ? await this.state.subLog(agentId, helper) : await this.state.log(agentId)
+      if (this.agentId !== agentId || this.helper !== helper) return
       this.feed.replaceChildren()
       this.lastTool = null
       for (const e of log) this.append(e, false)
@@ -195,6 +206,7 @@ export class AgentPanel {
 
   close(): void {
     this.agentId = null
+    this.helper = null
     this.memMenuOpen = false
     this.closeSearch()
     this.el.classList.add('hidden')
@@ -328,6 +340,7 @@ export class AgentPanel {
       this.close()
       return
     }
+    renderHelpers(this.helpersEl, a, this.helper, (id) => void this.open(a.id, id))
     const items = this.state.itemsFor(a.id)
     // A pending permission shows as "Responder" on the badge itself.
     this.renderHead(a, items.permissions[0]?.id)
@@ -713,7 +726,7 @@ export function helpersChip(a: AgentSummary, compact = false): HTMLElement | nul
   const subs = a.subagents ?? []
   if (!subs.length) return null
   const label = subs.length === 1 ? '1 ajudante' : `${subs.length} ajudantes`
-  const title = [label, ...subs.map((x) => `${x.type ? `${x.type}: ` : ''}${x.description}${x.lastTool ? ` (${x.lastTool})` : ''}`)].join('\n')
+  const title = [label, ...subs.map((x) => `${x.type ? `${x.type}: ` : ''}${x.description} · ${helperActivity(x)}`)].join('\n')
   return h('span', { class: 'chip chip-helpers', title }, compact ? `+${subs.length}` : label)
 }
 

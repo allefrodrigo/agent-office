@@ -21,6 +21,7 @@ import {
   parse,
   permissionDecisionSchema,
   searchSchema,
+  subagentLogArgsSchema,
   ticketDraftSchema,
   ticketPatchSchema,
 } from '../src/main/validate'
@@ -60,6 +61,17 @@ describe('parse', () => {
     expect(() => parse(idSchema, '', 'ruim')).toThrow('ruim')
     expect(() => parse(idSchema, 42, 'ruim')).toThrow('ruim')
     expect(() => parse(idSchema, 'x'.repeat(201), 'ruim')).toThrow('ruim')
+  })
+})
+
+describe('subagentLogArgsSchema (getSubagentLog)', () => {
+  it('dois ids válidos; o resto é recusado', () => {
+    expect(parse(subagentLogArgsSchema, ['agente', 'task-1'], 'ruim')).toEqual(['agente', 'task-1'])
+    expect(() => parse(subagentLogArgsSchema, ['agente'], 'ruim')).toThrow('ruim')
+    expect(() => parse(subagentLogArgsSchema, ['agente', ''], 'ruim')).toThrow('ruim')
+    expect(() => parse(subagentLogArgsSchema, ['agente', { id: 1 }], 'ruim')).toThrow('ruim')
+    expect(() => parse(subagentLogArgsSchema, ['a', 'b', 'c'], 'ruim')).toThrow('ruim')
+    expect(() => parse(subagentLogArgsSchema, ['a', 'x'.repeat(201)], 'ruim')).toThrow('ruim')
   })
 })
 

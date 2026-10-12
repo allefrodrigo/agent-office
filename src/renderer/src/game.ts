@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { AgentSummary, ProjectFloor, SquadInfo, SquadMember, SubagentInfo } from '@shared/types'
-import { lookFromSeed } from '@shared/describe'
+import { helperActivity, lookFromSeed } from '@shared/describe'
 import { accountPool } from '@shared/accounts'
 import { projectFor } from '@shared/projects'
 import type { State } from './state'
@@ -102,8 +102,8 @@ interface Member {
 }
 
 export interface GameHooks {
-  /** Player clicked an agent (avatar or tag). */
-  onAgentClick(agentId: string): void
+  /** Player clicked an agent (avatar or tag); `helperId` when it was one of its subagents, to open that one's log. */
+  onAgentClick(agentId: string, helperId?: string): void
   /** Player is standing next to an agent that came to deliver something. */
   onNear(agentId: string | null): void
   /** Player clicked the skull in the boss office: pick an agent to dismiss. */
@@ -333,8 +333,11 @@ export class Game {
         if (sub.member && a.role === 'orchestrator') continue
         live.add(sub.id)
         const helper = this.helpers.get(sub.id) ?? this.addHelper(a, parent, sub.id)
-        // Name only, no bubble: several helpers around one desk would bury the parent's tag.
-        if (helper.endAt === null) helper.tag.setName(clip(sub.description, 26))
+        // A small bubble with what it is doing now (AO-46); the mini tag keeps it short.
+        if (helper.endAt === null) {
+          helper.tag.setName(clip(sub.description, 26))
+          helper.tag.setBubble(clip(helperActivity(sub), 34), 'work')
+        }
       }
     }
     for (const h of this.helpers.values()) {
@@ -347,7 +350,7 @@ export class Game {
     const avatar = new Avatar(a.look, a.id)
     avatar.setUniform(this.uniformFor(a))
     avatar.speed = 2.4
-    const tag = this.overlays.add(new Tag(avatar.anchor, 'Ajudante', false, () => this.hooks.onAgentClick(a.id)))
+    const tag = this.overlays.add(new Tag(avatar.anchor, 'Ajudante', false, () => this.hooks.onAgentClick(a.id, id)))
     tag.el.classList.add('tag-mini')
     tag.setDot('working')
     const p = parent.avatar.position
@@ -408,6 +411,7 @@ export class Game {
       h.gone = true
       h.tag.setDot('done')
       h.tag.setName('✓ Pronto')
+      h.tag.setBubble(null)
       h.avatar.stop()
       h.avatar.pose = 'wave'
       const start = this.time + HELPER_BYE_S
@@ -550,7 +554,7 @@ export class Game {
     }
     if (m.phase === 'delivering') return m.tag.setBubble('✓ Entregando', 'done')
     if (m.phase === 'leaving') return m.tag.setBubble(null)
-    m.tag.setBubble(m.inline ? 'Neste passo com a Diretoria' : m.sub ? clip(m.sub.description, 40) : null, 'work')
+    m.tag.setBubble(m.inline ? 'Neste passo com a Diretoria' : m.sub ? clip(m.sub.activity ? helperActivity(m.sub) : m.sub.description, 40) : null, 'work')
   }
 
   /** Click: what the member is doing (task, tokens, last tool) for a few seconds, and the orchestrator's panel. */
@@ -559,7 +563,7 @@ export class Game {
     if (!m) return
     m.infoUntil = this.time + 6
     this.memberBubble(m)
-    this.hooks.onAgentClick(m.parentId)
+    this.hooks.onAgentClick(m.parentId, m.sub?.id)
   }
 
   /** The orchestrator reported a member failing: the bubble says why, then it leaves without delivering. */
@@ -1255,14 +1259,19 @@ export class Game {
     )
   }
 
-  /** Helpers answer with their parent's id. */
-  private agentAt(x: number, y: number): string | null {
+  /** Helpers answer with their parent's id, plus their own in `helper`. */
+  private agentAt(x: number, y: number): { id: string; helper?: string } | null {
     const view = this.player.floor
     const roots = [...this.actors.values()].filter((a) => a.goal !== 'leave' && !a.down && a.avatar.floor === view).map((a) => a.avatar.root)
-    for (const h of this.helpers.values()) if (!h.gone && h.avatar.floor === view) roots.push(h.avatar.root)
+    const helpers = [...this.helpers.values()].filter((h) => !h.gone && h.avatar.floor === view)
+    for (const h of helpers) roots.push(h.avatar.root)
     for (const hit of this.engine.pick(x, y, roots)) {
       const id = hit.object.userData.avatarId as string | undefined
-      if (id) return id
+      if (!id) continue
+      let o: THREE.Object3D | null = hit.object
+      while (o && !helpers.some((h) => h.avatar.root === o)) o = o.parent
+      const helper = o ? helpers.find((h) => h.avatar.root === o) : undefined
+      return helper ? { id, helper: helper.id } : { id }
     }
     return null
   }
@@ -1281,9 +1290,9 @@ export class Game {
       const hit = this.engine.pick(x, y, roots).find((h) => String(h.object.userData.avatarId ?? '').startsWith('member:'))
       if (hit) return this.memberClick(String(hit.object.userData.avatarId).slice('member:'.length))
     }
-    const id = this.agentAt(x, y)
-    if (id) {
-      this.hooks.onAgentClick(id)
+    const hit = this.agentAt(x, y)
+    if (hit) {
+      this.hooks.onAgentClick(hit.id, hit.helper)
       return
     }
     const p = this.engine.pickFloor(x, y)

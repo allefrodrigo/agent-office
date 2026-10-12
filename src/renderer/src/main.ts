@@ -141,10 +141,10 @@ async function boot(): Promise<void> {
   const radio = new Radio(document.getElementById('overlay')!)
 
   const game = new Game(document.getElementById('world')!, document.getElementById('overlay')!, state, {
-    onAgentClick: (id) => {
+    onAgentClick: (id, helper) => {
       const items = state.itemsFor(id)
-      if (items.permissions.length || items.results.length) openItem(id)
-      panel.open(id)
+      if (!helper && (items.permissions.length || items.results.length)) openItem(id)
+      panel.open(id, helper ?? null)
     },
     onNear: (id) => {
       if (nearId && nearId !== id) {

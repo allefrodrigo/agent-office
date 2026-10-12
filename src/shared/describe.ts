@@ -1,4 +1,4 @@
-import type { Look } from './types'
+import type { Look, SubagentInfo } from './types'
 
 const basename = (p: unknown): string => {
   if (typeof p !== 'string' || !p) return ''
@@ -57,6 +57,34 @@ export function describeTool(tool: string, input: Record<string, unknown> = {}):
 }
 
 /** Title + detail for a permission card. */
+/** What a subagent is doing, in one line, for its balloon and its row in the panel. */
+export function helperActivity(s: SubagentInfo): string {
+  return s.summary || s.activity || (s.lastTool ? `Usando ${s.lastTool}` : 'Começando')
+}
+
+/** The log line of a tool call: the command, path or pattern it ran with. */
+export function toolDetail(tool: string, input: Record<string, unknown>): string {
+  switch (tool) {
+    case 'Bash':
+      return `$ ${input.command ?? ''}`
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'Read':
+      return `${tool} ${input.file_path ?? ''}`
+    case 'Grep':
+      return `Grep "${input.pattern ?? ''}" ${input.path ?? ''}`
+    case 'Glob':
+      return `Glob ${input.pattern ?? ''}`
+    case 'WebFetch':
+      return `WebFetch ${input.url ?? ''}`
+    case 'WebSearch':
+      return `WebSearch "${input.query ?? ''}"`
+    default:
+      return describeTool(tool, input)
+  }
+}
+
 export function describePermission(tool: string, input: Record<string, unknown> = {}): { title: string; detail: string } {
   switch (tool) {
     case 'Bash':

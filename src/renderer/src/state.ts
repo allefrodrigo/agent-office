@@ -2,12 +2,17 @@ import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, L
 
 type Listener = () => void
 
+/** Same cap as the main process keeps per subagent. */
+const SUB_LOG_KEEP = 500
+
 /** Renderer-side mirror of the main process state, fed by office events. */
 export class State {
   agents = new Map<string, AgentSummary>()
   permissions = new Map<string, PermissionRequest>()
   results = new Map<string, AgentResult>()
   logs = new Map<string, LogEntry[]>()
+  /** Subagent logs already fetched, by `${agentId}/${subId}`. */
+  subLogs = new Map<string, LogEntry[]>()
   tickets = new Map<string, Ticket>()
   settings: Settings
   bridge: BridgeStatus
@@ -21,6 +26,7 @@ export class State {
   ledgerToday: LedgerToday
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
+  private subLogListeners = new Set<(agentId: string, subId: string, entries: LogEntry[]) => void>()
 
   constructor(initial: OfficeState) {
     for (const a of initial.agents) this.agents.set(a.id, a)
@@ -47,6 +53,11 @@ export class State {
     return () => this.logListeners.delete(cb)
   }
 
+  onSubLog(cb: (agentId: string, subId: string, entries: LogEntry[]) => void): () => void {
+    this.subLogListeners.add(cb)
+    return () => this.subLogListeners.delete(cb)
+  }
+
   account(id: string | undefined): Account | undefined {
     return this.settings.accounts.find((a) => a.id === id)
   }
@@ -63,11 +74,23 @@ export class State {
       case 'agent:removed':
         this.agents.delete(e.agentId)
         this.logs.delete(e.agentId)
+        for (const k of this.subLogs.keys()) if (k.startsWith(`${e.agentId}/`)) this.subLogs.delete(k)
         break
       case 'agent:log': {
         const log = this.logs.get(e.agentId)
         if (log) log.push(e.entry)
         for (const l of this.logListeners) l(e.agentId, e.entry)
+        return
+      }
+      case 'agent:sublog': {
+        for (const { subId, entries } of e.logs) {
+          const log = this.subLogs.get(`${e.agentId}/${subId}`)
+          if (log) {
+            log.push(...entries)
+            if (log.length > SUB_LOG_KEEP) log.splice(0, log.length - SUB_LOG_KEEP)
+          }
+          for (const l of this.subLogListeners) l(e.agentId, subId, entries)
+        }
         return
       }
       case 'usage':
@@ -123,6 +146,17 @@ export class State {
     if (!log) {
       log = await window.office.getLog(agentId)
       this.logs.set(agentId, log)
+    }
+    return log
+  }
+
+  /** The log of one subagent; fetched once, then kept up to date by agent:sublog. */
+  async subLog(agentId: string, subId: string): Promise<LogEntry[]> {
+    const key = `${agentId}/${subId}`
+    let log = this.subLogs.get(key)
+    if (!log) {
+      log = await window.office.getSubagentLog(agentId, subId)
+      this.subLogs.set(key, log)
     }
     return log
   }
