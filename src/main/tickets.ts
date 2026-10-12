@@ -19,7 +19,7 @@ import type {
   TicketStatus,
   TicketType,
 } from '@shared/types'
-import { backupCopies } from './backups'
+import { backupCopies, shapeOf } from './backups'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 
 const KEY_PREFIX = 'AO'
@@ -73,7 +73,10 @@ export class TicketBoard extends EventEmitter {
   private get closed(): Ticket[] {
     if (!this.closedData) {
       // A broken archive is moved aside, never replaced by the next "Fechar" (AO-24).
-      const r = loadJson<{ tickets?: Ticket[] }>(this.closedFile, { fallbacks: backupCopies(this.dir, 'tickets-closed.json') })
+      const r = loadJson<{ tickets?: Ticket[] }>(this.closedFile, {
+        valid: shapeOf('tickets-closed.json'),
+        fallbacks: backupCopies(this.dir, 'tickets-closed.json'),
+      })
       reportLoad(this.closedFile, r)
       const raw = r.status === 'ok' || r.status === 'restored' ? r.data : {}
       this.closedData = Array.isArray(raw.tickets) ? raw.tickets : []
@@ -85,7 +88,7 @@ export class TicketBoard extends EventEmitter {
 
   private load(): Data {
     // A broken board is moved aside and the last good copy loads, so AO-N keys never repeat (AO-24).
-    const r = loadJson<Partial<Data>>(this.file, { fallbacks: backupCopies(this.dir, 'tickets.json') })
+    const r = loadJson<Partial<Data>>(this.file, { valid: shapeOf('tickets.json'), fallbacks: backupCopies(this.dir, 'tickets.json') })
     reportLoad(this.file, r)
     const raw: Partial<Data> = r.status === 'ok' || r.status === 'restored' ? r.data : {}
     const data = { seq: raw.seq ?? 0, tickets: raw.tickets ?? [] }

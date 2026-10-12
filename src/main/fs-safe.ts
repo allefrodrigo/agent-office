@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, openSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, statSync, writeSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DataNotice } from '@shared/types'
 import { log } from './log'
@@ -32,14 +32,20 @@ export function writeFileAtomic(file: string, text: string, mode?: number, tmpSu
   const tmp = file + tmpSuffix
   const fd = openSync(tmp, 'w', mode)
   try {
-    const buf = Buffer.from(text, 'utf8')
-    let off = 0
-    while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off)
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
+    try {
+      const buf = Buffer.from(text, 'utf8')
+      let off = 0
+      while (off < buf.length) off += writeSync(fd, buf, off, buf.length - off)
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    renameSync(tmp, file)
+  } catch (err) {
+    // A failed write (disk full, rename refused) leaves no half file behind (AO-26).
+    rmSync(tmp, { force: true })
+    throw err
   }
-  renameSync(tmp, file)
   fsyncDir(dirname(file))
 }
 
@@ -95,6 +101,9 @@ export interface LoadOptions<T> {
 
 const isObject = (v: unknown): v is never => !!v && typeof v === 'object' && !Array.isArray(v)
 
+/** JSON.parse that accepts a UTF-8 BOM, which some editors on Windows add when saving. */
+export const parseJson = (text: string): unknown => JSON.parse(text.charCodeAt(0) === 0xfeff ? text.slice(1) : text)
+
 type Parsed<T> = { ok: true; data: T; text: string } | { ok: false; missing: boolean }
 
 function tryRead<T>(file: string, valid: (v: unknown) => v is T): Parsed<T> {
@@ -106,7 +115,7 @@ function tryRead<T>(file: string, valid: (v: unknown) => v is T): Parsed<T> {
     throw err
   }
   try {
-    const data = JSON.parse(text) as unknown
+    const data = parseJson(text)
     if (valid(data)) return { ok: true, data, text }
   } catch {
     // falls through: not JSON

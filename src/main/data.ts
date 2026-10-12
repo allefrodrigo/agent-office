@@ -2,11 +2,23 @@ import { app, dialog, ipcMain, powerMonitor, shell, type BrowserWindow } from 'e
 import { mkdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BackupEntry, OfficeEvent } from '@shared/types'
-import { backupsDir, dailyBackup, dayKey, importSet, listBackups, parseExport, readBackup, replaceData, snapshot, writeExport, type DataSet } from './backups'
+import { backupsDir, dailyBackup, dayKey, importSet, keptBy, listBackups, parseExport, readBackup, replaceData, snapshot, writeExport, type DataFile, type DataSet } from './backups'
 import { onDataNotice } from './fs-safe'
 import { log } from './log'
 
 const HOUR = 3_600_000
+
+const WHAT: Record<DataFile, string> = {
+  'office.json': 'agentes, configurações e gastos',
+  'tickets.json': 'tickets',
+  'tickets-closed.json': 'arquivo de tickets fechados',
+}
+
+/** What a restore or import leaves as it is, for the confirmation (AO-25). */
+function keptNote(files: DataSet, subject: string): string {
+  const kept = keptBy(files)
+  return kept.length ? ` ${subject} não tem ${kept.map((n) => WHAT[n]).join(' nem ')}: o que existe hoje fica como está.` : ''
+}
 /** Exports are a few MB; anything far bigger is not one. */
 const MAX_IMPORT_BYTES = 256 * 1024 * 1024
 
@@ -99,10 +111,15 @@ export function setupData(d: DataDeps): void {
   ipcMain.handle('office:restoreBackup', async (_e, id: unknown) => {
     const files = readBackup(d.dataDir, id)
     const entry = listBackups(d.dataDir).find((b) => b.id === id)
-    const when = entry ? new Date(entry.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : String(id)
+    // A daily backup has a day, not a time (its date comes from the folder name).
+    const when = entry
+      ? new Date(entry.at).toLocaleString('pt-BR', entry.kind === 'daily' ? { dateStyle: 'short' } : { dateStyle: 'short', timeStyle: 'short' })
+      : String(id)
     const yes = await ask(
       `Restaurar o backup de ${when}?`,
-      'Agentes, configurações, gastos e tickets voltam a como estavam nesse backup. O estado atual fica salvo antes como um backup "antes de restaurar". Os agentes em andamento param e o app reinicia.',
+      'Agentes, configurações, gastos e tickets voltam a como estavam nesse backup.' +
+        keptNote(files, 'Esse backup') +
+        ' O estado atual fica salvo antes como um backup "antes de restaurar". Os agentes em andamento param e o app reinicia.',
       'Restaurar e reiniciar',
     )
     if (!yes) return false
@@ -135,14 +152,15 @@ export function setupData(d: DataDeps): void {
     if (statSync(file).size > MAX_IMPORT_BYTES) throw new Error('Esse arquivo é grande demais para ser uma exportação do Agent Office.')
     const exp = parseExport(readFileSync(file, 'utf8'))
     const when = exp.exportedAt ? new Date(exp.exportedAt).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : 'data desconhecida'
+    const set = importSet(exp)
     const yes = await ask(
       'Substituir os dados deste computador?',
-      `A exportação de ${when} toma o lugar dos agentes, configurações, gastos e tickets daqui. O estado atual fica salvo antes como um backup "antes de restaurar". ` +
+      `A exportação de ${when} toma o lugar dos agentes, configurações, gastos e tickets daqui.${keptNote(set, 'Essa exportação')} O estado atual fica salvo antes como um backup "antes de restaurar". ` +
         'Importe só arquivos seus: pastas de contas fora de ~/.claude-<nome> são descartadas e a permissão padrão "sem pedir nada" volta para "pedir permissão". O app reinicia.',
       'Importar e reiniciar',
     )
     if (!yes) return false
-    replaceAndRestart(importSet(exp))
+    replaceAndRestart(set)
     return true
   })
 }

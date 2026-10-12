@@ -1,8 +1,22 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyImport, backupCopies, backupsDir, buildExport, dailyBackup, KEEP_DAILY, listBackups, parseExport, restoreBackup, snapshot } from '../src/main/backups'
+import {
+  applyImport,
+  backupCopies,
+  backupsDir,
+  backupTime,
+  buildExport,
+  dailyBackup,
+  KEEP_DAILY,
+  keptBy,
+  listBackups,
+  parseExport,
+  readBackup,
+  restoreBackup,
+  snapshot,
+} from '../src/main/backups'
 
 let dir: string
 
@@ -35,11 +49,32 @@ describe('daily backups', () => {
     expect(readdirSync(join(backupsDir(dir), '2026-10-01'))).toEqual(['office.json'])
   })
 
+  it('the date comes from the folder name, not its mtime (AO-25)', () => {
+    put('office.json', { v: 1 })
+    dailyBackup(dir, new Date(2026, 9, 1))
+    dailyBackup(dir, new Date(2026, 9, 2))
+    // the older folder was touched later (copied, synced)
+    utimesSync(join(backupsDir(dir), '2026-10-01'), new Date(2030, 0, 1), new Date(2030, 0, 1))
+    snapshot(dir, new Date('2026-10-01T15:00:00.000Z'))
+    const list = listBackups(dir)
+    expect(list.map((b) => b.id)).toEqual(['2026-10-02', 'antes-2026-10-01T15-00-00-000', '2026-10-01'])
+    expect(list[0].at).toBe(new Date(2026, 9, 2).getTime())
+    expect(backupTime('antes-2026-10-01T15-00-00-000')).toBe(Date.parse('2026-10-01T15:00:00.000Z'))
+    expect(backupTime('antes-2026-10-01T15-00-00')).toBe(Date.parse('2026-10-01T15:00:00Z'))
+  })
+
+  it('a file with the wrong shape is not copied', () => {
+    put('office.json', { settings: {} })
+    put('tickets.json', { seq: 1, tickets: { a: 1 } })
+    dailyBackup(dir, new Date(2026, 9, 1))
+    expect(readdirSync(join(backupsDir(dir), '2026-10-01'))).toEqual(['office.json'])
+  })
+
   it('backupCopies lists the newest first', () => {
     put('office.json', { v: 1 })
     dailyBackup(dir, new Date(2026, 9, 1))
     dailyBackup(dir, new Date(2026, 9, 2))
-    expect(backupCopies(dir, 'office.json').map((p) => p.split('/').at(-2))).toEqual(['2026-10-02', '2026-10-01'])
+    expect(backupCopies(dir, 'office.json').map((p) => basename(dirname(p)))).toEqual(['2026-10-02', '2026-10-01'])
   })
 })
 
@@ -62,6 +97,37 @@ describe('restore', () => {
     const snap = listBackups(dir).find((b) => b.kind === 'snapshot')!
     expect(snap.files).toContain('tickets-closed.json')
     expect(JSON.parse(readFileSync(join(backupsDir(dir), snap.id, 'office.json'), 'utf8'))).toEqual({ v: 'new' })
+  })
+
+  it('a backup without office.json leaves the current one in place (AO-25)', () => {
+    put('tickets.json', { seq: 1, tickets: [] })
+    dailyBackup(dir, new Date(2026, 9, 1))
+    put('office.json', { v: 'now' })
+    put('office.json.bak', { v: 'bak' })
+    restoreBackup(dir, '2026-10-01')
+    expect(read('office.json')).toEqual({ v: 'now' })
+    // the .bak of a file left alone stays too
+    expect(read('office.json.bak')).toEqual({ v: 'bak' })
+    expect(read('tickets.json')).toEqual({ seq: 1, tickets: [] })
+  })
+
+  it('a backup without tickets.json keeps the board and its archive', () => {
+    put('office.json', { v: 'old' })
+    dailyBackup(dir, new Date(2026, 9, 1))
+    put('tickets.json', { seq: 9, tickets: [] })
+    put('tickets-closed.json', { tickets: [{ key: 'AO-8' }] })
+    expect(keptBy(readBackup(dir, '2026-10-01'))).toEqual(['tickets.json', 'tickets-closed.json'])
+    restoreBackup(dir, '2026-10-01')
+    expect(read('office.json')).toEqual({ v: 'old' })
+    expect(read('tickets.json')).toEqual({ seq: 9, tickets: [] })
+    expect(read('tickets-closed.json')).toEqual({ tickets: [{ key: 'AO-8' }] })
+  })
+
+  it('refuses a backup whose file has the wrong shape', () => {
+    const day = join(backupsDir(dir), '2026-10-03')
+    mkdirSync(day, { recursive: true })
+    writeFileSync(join(day, 'tickets.json'), JSON.stringify({ seq: 3, tickets: { a: 1 } }))
+    expect(() => readBackup(dir, '2026-10-03')).toThrow(/formato/)
   })
 
   it('refuses ids that are not backups', () => {
@@ -99,10 +165,29 @@ describe('export / import', () => {
       applyImport(other, parseExport(JSON.stringify(buildExport(dir))), '/Users/outra')
       const s = JSON.parse(readFileSync(join(other, 'office.json'), 'utf8')).settings
       expect(s.defaultPermissionMode).toBe('default')
-      expect(s.accounts).toEqual([{ id: 'main' }, { id: 'b', configDir: '/Users/outra/.claude-trabalho' }])
+      // join, not a fixed string: on Windows the folder is \Users\outra\.claude-trabalho (AO-42).
+      expect(s.accounts).toEqual([{ id: 'main' }, { id: 'b', configDir: join('/Users/outra', '.claude-trabalho') }])
     } finally {
       rmSync(other, { recursive: true, force: true })
     }
+  })
+
+  it('takes account folders written on the other OS', () => {
+    put('office.json', { settings: { accounts: [{ id: 'b', configDir: 'C:\\Users\\x\\.claude-trabalho' }] } })
+    const other = mkdtempSync(join(tmpdir(), 'ao-import-'))
+    try {
+      applyImport(other, parseExport(JSON.stringify(buildExport(dir))), '/Users/outra')
+      expect(JSON.parse(readFileSync(join(other, 'office.json'), 'utf8')).settings.accounts).toEqual([{ id: 'b', configDir: join('/Users/outra', '.claude-trabalho') }])
+    } finally {
+      rmSync(other, { recursive: true, force: true })
+    }
+  })
+
+  it('reads an export saved with a BOM; rejects one of the wrong shape', () => {
+    const exp = JSON.stringify({ format: 'agent-office-dados', version: 1, files: { 'office.json': { settings: {} } } })
+    expect(parseExport('\uFEFF' + exp).files['office.json']).toEqual({ settings: {} })
+    const bad = { format: 'agent-office-dados', version: 1, files: { 'office.json': { agents: {} } } }
+    expect(() => parseExport(JSON.stringify(bad))).toThrow(/formato/)
   })
 
   it('rejects files that are not exports', () => {

@@ -13,8 +13,9 @@ function formatSize(bytes: number): string {
 }
 
 function backupLabel(b: BackupEntry): string {
-  const when = new Date(b.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
-  return b.kind === 'daily' ? `Diário · ${when}` : `Antes de restaurar · ${when}`
+  // A daily backup is a day (from its folder name), not a moment.
+  if (b.kind === 'daily') return `Diário · ${new Date(b.at).toLocaleDateString('pt-BR')}`
+  return `Antes de restaurar · ${new Date(b.at).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}`
 }
 
 /** Configurações → Dados: daily backups with restore, the folder, export and import. */
