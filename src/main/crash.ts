@@ -26,15 +26,21 @@ export function installFatalHandlers(): void {
 
 function fatal(what: string, err: unknown, recoverable: boolean): void {
   log.error(`${what}:`, err)
+  let saved = true
   try {
     flushData()
   } catch (e) {
+    saved = false
     log.error('Falha ao salvar os dados depois do erro:', e)
   }
   // One dialog at a time: an error loop must not stack windows.
   if (showing) return
   const message = 'O Agent Office encontrou um erro'
-  const detail = `${err instanceof Error ? err.message : String(err)}\n\nOs dados foram salvos. O log tem os detalhes para investigar.`
+  // Only say the data is safe when the flush worked (AO-27).
+  const after = saved
+    ? 'Os dados foram salvos. O log tem os detalhes para investigar.'
+    : 'Não consegui salvar os dados: o que mudou desde o último salvamento pode se perder. Reinicie o app e confira o log.'
+  const detail = `${err instanceof Error ? err.message : String(err)}\n\n${after}`
   if (!app.isReady()) {
     dialog.showErrorBox(message, detail)
     app.exit(1)
@@ -54,7 +60,7 @@ async function ask(message: string, detail: string, recoverable: boolean): Promi
     const { response } = await (parent ? dialog.showMessageBox(parent, opts) : dialog.showMessageBox(opts))
     const choice = buttons[response]
     if (choice === 'Abrir log') {
-      void shell.openPath(logFile())
+      openLog()
       continue
     }
     if (choice === 'Reiniciar') {
@@ -66,6 +72,12 @@ async function ask(message: string, detail: string, recoverable: boolean): Promi
     }
     return
   }
+}
+
+/** Opens the log file; without a log folder (it could not be made) there is nothing to open. */
+function openLog(): void {
+  const f = logFile()
+  if (f) void shell.openPath(f)
 }
 
 const CRASH_WINDOW_MS = 60_000
@@ -102,7 +114,7 @@ export function guardWindow(w: BrowserWindow, load: (w: BrowserWindow) => void):
           noLink: true,
         })
         .then(({ response }) => {
-          if (response === 1) void shell.openPath(logFile())
+          if (response === 1) openLog()
           crashes.length = 0
           if (!w.isDestroyed()) load(w)
         })

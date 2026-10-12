@@ -248,7 +248,8 @@ app.whenReady().then(async () => {
   const defaultBrain = (): AgentBrain => ({ model: store.settings.defaultModel || undefined, effort: store.settings.defaultEffort || undefined })
 
   const broadcast = (e: OfficeEvent) => {
-    if (win && !win.isDestroyed()) win.webContents.send('office:event', e)
+    // A crashed page reloads by itself and gets the state again; sending now only makes noise (AO-27).
+    if (win && !win.isDestroyed() && !win.webContents.isCrashed()) win.webContents.send('office:event', e)
   }
 
   const updateBadge = () => {
@@ -372,7 +373,10 @@ app.whenReady().then(async () => {
     if (e.sender === win?.webContents) rendererError(payload)
   })
   ipcMain.handle('office:openLogs', async () => {
-    const err = await shell.openPath(logDir())
+    const dir = logDir()
+    // openPath('') would open nothing useful (AO-27).
+    if (!dir) throw new Error('A pasta de logs não pôde ser criada, então não há log para abrir. Confira a permissão da pasta de dados do app.')
+    const err = await shell.openPath(dir)
     if (err) throw new Error(`Não consegui abrir a pasta de logs: ${err}`)
   })
   // Copied here, not in the page: the page's clipboard needs focus, and the text never passes through it.

@@ -76,13 +76,25 @@ export const log = {
   error: (...args: unknown[]) => write('error', args),
 }
 
+/**
+ * Console noise that is not an error of ours: Electron reports a send to a page that is
+ * gone (crashed or reloading) with console.error, and the page reloads by itself (AO-27).
+ */
+const NOISE = [/Render frame was disposed/i]
+
+/** The level a console line goes to the log with. */
+export function consoleLevel(level: 'warn' | 'error', args: unknown[]): LogLevel {
+  const text = args.map((a) => (a instanceof Error ? a.message : String(a))).join(' ')
+  return NOISE.some((re) => re.test(text)) ? 'debug' : level
+}
+
 /** Mirrors console.warn/error into the log too (libraries and old code use them). */
 export function captureConsole(): void {
   for (const level of ['warn', 'error'] as const) {
     const original = console[level].bind(console)
     console[level] = (...args: unknown[]) => {
       original(...args)
-      write(level, args)
+      write(consoleLevel(level, args), args)
     }
   }
 }
