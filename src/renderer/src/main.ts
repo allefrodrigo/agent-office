@@ -8,6 +8,7 @@ import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
 import type { DataNotice, ProjectFloor } from '@shared/types'
+import { DEFAULT_VIDEO, effectiveVideo, frameInterval } from '@shared/video'
 import { openAccounts } from './ui/accounts'
 import { openSkull } from './ui/skull'
 import { openReports } from './ui/reports'
@@ -243,8 +244,27 @@ async function boot(): Promise<void> {
   hud.setFloors(game.floors, game.currentFloor)
   mountUpdateNotice(ui)
 
+  // Configurações → Vídeo (AO-32): shadows and effects apply live; on battery, Economia if asked.
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
+  let video = effectiveVideo(state.settings.video ?? DEFAULT_VIDEO, state.onBattery)
+  let videoKey = ''
+  const applyVideo = () => {
+    const was = video.saving
+    video = effectiveVideo(state.settings.video ?? DEFAULT_VIDEO, state.onBattery)
+    const reduced = video.effects === 'reduced' || reduceMotion.matches
+    const key = JSON.stringify([video, reduced])
+    if (key === videoKey) return
+    if (videoKey && video.saving !== was) toast(video.saving ? 'Na bateria: o escritório entrou no modo Economia.' : 'Na tomada: a qualidade gráfica voltou ao normal.')
+    videoKey = key
+    game.engine.setShadows(video.shadows, video.shadowMapSize)
+    game.setReducedEffects(reduced)
+  }
+  applyVideo()
+  reduceMotion.addEventListener('change', applyVideo)
+
   let pixelSize = state.settings.pixelSize
   state.onChange(() => {
+    applyVideo()
     game.setProjects(state.settings.projects, state.squads)
     hud.render()
     panel.render()
@@ -297,35 +317,62 @@ async function boot(): Promise<void> {
     }
   })
 
+  // F3 (or ?perf) shows fps, draw calls and GPU memory; the bench reads the same numbers.
+  bindPerfKeys()
+  perf.source('overlays', () => game.overlays.count)
+  perf.source('agentes', () => state.agents.size)
+
+  // AO-29: draw only when it shows. Something moving: up to the fps limit; a still office: a slow
+  // tick (IDLE_FPS); another app in front: BLUR_FPS; window hidden or minimized: no drawing at all,
+  // while a timer keeps the agents walking so they are where they should be on return.
+  // Screenshot and bench runs never show their window, so they count as visible and focused.
+  const headless = new URLSearchParams(location.search).has('shots')
+  // `hidden` lets a headless run act as minimized (AGENT_OFFICE_EVAL="__loop.hidden = true")
+  const loop = { hidden: false, draws: 0 }
+  const hidden = () => loop.hidden || (!headless && document.visibilityState === 'hidden')
+  let stepped = performance.now()
+  let drawnAt = 0
+  /** Moves the world to `now` in steps of at most 50 ms; long gaps (hidden for minutes) are cut at `capS`. */
+  const advance = (now: number, capS: number): number => {
+    const dt = Math.min(capS, Math.max(0, (now - stepped) / 1000))
+    stepped = now
+    for (let left = dt; left > 1e-6; left -= 0.05) game.update(Math.min(0.05, left))
+    return dt
+  }
+  const frame = (now: number) => {
+    requestAnimationFrame(frame)
+    if (hidden()) return
+    const wait = frameInterval({ fpsLimit: video.fpsLimit, busy: game.busy, focused: headless || document.hasFocus(), fullSpeed: perf.recording })
+    // 2 ms of slack: animation frames land a little early or late
+    if (now - drawnAt < wait - 2) return
+    drawnAt = now
+    perf.begin()
+    // the slow tick moves the world by its whole gap; a frame stalled longer moves it by 100 ms at most
+    const dt = advance(now, 0.1)
+    radio.update()
+    game.draw(dt)
+    loop.draws++
+    perf.frame(game.engine.renderer, dt)
+  }
+  requestAnimationFrame(frame)
+  setInterval(() => {
+    if (hidden()) advance(performance.now(), 30)
+  }, 250)
+  document.addEventListener('visibilitychange', () => {
+    if (!hidden()) game.wake()
+  })
+
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, {
       __game: game,
       __state: state,
       __perf: perf,
+      __loop: loop,
       __panel: panel,
       __dialog: dialog,
       __board: board,
       // AO-28: floors, agents and the skull in a loop, reading GPU memory (dev and headless runs only)
       __leakTest: async () => (await import('./dev/leak-test')).leakTest(game, state),
     })
-
-  // F3 (or ?perf) shows fps, draw calls and GPU memory; the bench reads the same numbers.
-  bindPerfKeys()
-  perf.source('overlays', () => game.overlays.count)
-  perf.source('agentes', () => state.agents.size)
-
-  // Full frame rate while the window has focus; ~20 fps in the background to save battery (not while the bench records).
-  let last = performance.now()
-  const frame = (now: number) => {
-    requestAnimationFrame(frame)
-    if (!document.hasFocus() && !perf.recording && now - last < 50) return
-    const dt = Math.min(0.05, (now - last) / 1000)
-    last = now
-    perf.begin()
-    game.update(dt)
-    radio.update()
-    perf.frame(game.engine.renderer, dt)
-  }
-  requestAnimationFrame(frame)
 }
 
 boot().catch((err) => {

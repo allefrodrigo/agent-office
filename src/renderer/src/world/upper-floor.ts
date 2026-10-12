@@ -5,7 +5,7 @@ import { beacon, costBoard } from './props'
 import { workstation } from './workstation'
 import { box, panel } from './kit'
 import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
-import { buildPartitions, buildShell, type Office } from './office'
+import { buildPartitions, buildShell, CALM_BEACON, type Office } from './office'
 import { Grid } from './pathfinding'
 import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
 import { rugTexture } from './textures'
@@ -123,9 +123,10 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     board,
     money,
     alarm,
+    reducedMotion: false,
     update(dt: number) {
       money.update(dt)
-      alarm.update(dt)
+      alarm.update(this.reducedMotion ? dt * CALM_BEACON : dt)
       for (const s of deskScreens) s?.update(dt)
       for (const l of loops) l.update(dt)
       doorTimer = Math.max(0, doorTimer - dt)

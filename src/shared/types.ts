@@ -1,5 +1,7 @@
 // Types shared by the main process, the preload bridge and the renderer.
 
+import type { VideoSettings } from './video'
+
 export type AgentStatus =
   | 'starting' // process spawning
   | 'working' // running tools / thinking
@@ -377,6 +379,8 @@ export interface Settings {
   templates: AgentTemplate[]
   /** Which releases the auto-update follows. Missing = 'stable'. */
   updateChannel?: UpdateChannel
+  /** Configurações → Vídeo: shadows, fps limit, effects, battery saver. */
+  video: VideoSettings
 }
 
 // ---------- auto-update ----------
@@ -560,6 +564,8 @@ export interface OfficeState {
   ledgerToday: LedgerToday
   /** Data files found corrupt at startup (restored from a backup, or started over). */
   dataNotices: DataNotice[]
+  /** The Mac (or PC) runs on battery now; the scene may switch to Economia. */
+  onBattery: boolean
 }
 
 /** A data file that did not parse: what happened, for the warning in the renderer. */
@@ -617,6 +623,8 @@ export type OfficeEvent =
   /** A data file was found corrupt after startup (the closed tickets load on first use). */
   | { type: 'data:notice'; notice: DataNotice }
   | { type: 'update'; update: UpdateStatus }
+  /** The charger was plugged in or pulled out. */
+  | { type: 'power'; onBattery: boolean }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {

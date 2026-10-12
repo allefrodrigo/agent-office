@@ -26,6 +26,9 @@ export class Engine {
   /** Where the camera wants to look; `focus` eases towards it. */
   readonly target = new THREE.Vector3(W / 2, 0, H / 2)
   private focus = new THREE.Vector3(W / 2, 0, H / 2)
+  private sun: THREE.DirectionalLight
+  /** Something changed that the last drawn frame does not show (resize, zoom, shadows). */
+  dirty = true
 
   constructor(
     private container: HTMLElement,
@@ -56,6 +59,7 @@ export class Engine {
     sun.shadow.bias = -0.0008
     sun.shadow.normalBias = 0.02
     this.scene.add(sun, sun.target)
+    this.sun = sun
 
     this.composer = new EffectComposer(this.renderer)
     this.pixelPass = new RenderPixelatedPass(pixelSize, this.scene, this.camera, { normalEdgeStrength: 0.35, depthEdgeStrength: 0.55 })
@@ -70,6 +74,23 @@ export class Engine {
     this.pixelSize = n
     this.pixelPass.setPixelSize(n)
     this.resize()
+  }
+
+  /**
+   * Shadows on or off and their resolution, applied live. Turning the light's castShadow
+   * changes the lights' hash, so three.js rebuilds the shaders that read the shadow map.
+   */
+  setShadows(on: boolean, size: number): void {
+    const sun = this.sun
+    if (sun.shadow.mapSize.x !== size) {
+      sun.shadow.mapSize.set(size, size)
+      sun.shadow.map?.dispose()
+      sun.shadow.map = null
+    }
+    this.renderer.shadowMap.enabled = on
+    sun.castShadow = on
+    this.renderer.shadowMap.needsUpdate = true
+    this.dirty = true
   }
 
   resize(): void {
@@ -89,6 +110,7 @@ export class Engine {
     this.camera.left = (-view * aspect) / 2
     this.camera.right = (view * aspect) / 2
     this.camera.updateProjectionMatrix()
+    this.dirty = true
   }
 
   zoomStep(delta: number): void {
@@ -107,8 +129,15 @@ export class Engine {
     this.focus.copy(this.target)
   }
 
-  render(dt: number): void {
+  /** True while the camera still eases towards its target. */
+  get moving(): boolean {
+    return this.focus.distanceToSquared(this.target) > 1e-6
+  }
+
+  /** Eases the camera towards its target; no drawing. */
+  step(dt: number): void {
     this.focus.lerp(this.target, 1 - Math.exp(-dt * 6))
+    if (!this.moving) this.focus.copy(this.target)
     const pos = this.focus.clone().addScaledVector(this.dir, 60)
     this.camera.position.copy(pos)
     this.camera.lookAt(this.focus)
@@ -120,7 +149,12 @@ export class Engine {
     local.y = Math.round(local.y / t) * t
     this.camera.position.copy(local.applyQuaternion(q))
     this.camera.updateMatrixWorld()
+  }
+
+  /** Draws one frame (the pixel pass and the output pass). */
+  render(dt: number): void {
     this.composer.render(dt)
+    this.dirty = false
   }
 
   /** CSS pixel position of a world point inside the container. */

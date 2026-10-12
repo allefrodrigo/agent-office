@@ -19,6 +19,8 @@ export class State {
   squads: SquadInfo[]
   /** Today's spend from the cost book: it survives dismissals and zeroes at local midnight. */
   ledgerToday: LedgerToday
+  /** Running on battery (the scene may be in Economia). */
+  onBattery: boolean
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
 
@@ -35,6 +37,7 @@ export class State {
     this.system = initial.system
     this.squads = initial.squads
     this.ledgerToday = initial.ledgerToday ?? { day: '', costByCwd: {}, agents: {} }
+    this.onBattery = initial.onBattery ?? false
   }
 
   onChange(cb: Listener): () => void {
@@ -72,6 +75,9 @@ export class State {
       }
       case 'usage':
         this.usage = e.usage
+        break
+      case 'power':
+        this.onBattery = e.onBattery
         break
       case 'accounts':
         this.accounts = e.accounts

@@ -3,6 +3,7 @@ import { floorNameFor, MAX_PROJECT_FLOORS, projectFor } from '@shared/projects'
 import { DEFAULT_BRAND } from '../world/brand'
 import type { AgentBrain, AgentSummary, EffortLevel, Look, OfficePermissionMode, ProjectFloor, SessionEntry } from '@shared/types'
 import type { State } from '../state'
+import { DEFAULT_VIDEO, QUALITY_LABELS, QUALITY_PRESETS, qualityOf, type FpsLimit, type Quality, type ShadowMapSize, type VideoSettings } from '@shared/video'
 import { accountField, openAccounts } from './accounts'
 import { dataSection } from './data'
 import { h, icon, timeAgo } from './dom'
@@ -489,6 +490,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const maxSubs = h('input', { class: 'input', type: 'number', min: 0, max: 100, step: 1, value: s.maxSubagents ?? 10 }) as HTMLInputElement
   const budget = h('input', { class: 'input', type: 'number', min: 0, step: 0.5, value: s.agentBudgetUsd ?? 0 }) as HTMLInputElement
   const updates = updateSettingsBox(root, s.updateChannel)
+  const video = videoFields(state)
 
   const b = state.bridge
   const bridgeStatus = h(
@@ -556,6 +558,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       maxSubagents: Math.max(0, Math.round(Number(maxSubs.value) || 0)),
       agentBudgetUsd: Math.max(0, Number(budget.value) || 0),
       updateChannel: updates.value(),
+      video: video.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
     close()
@@ -582,6 +585,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', brain.model), field('Permissão padrão', mode)),
       meterField('Esforço padrão', brain.meter),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
+      video.el,
       h(
         'div',
         { class: 'bridge-box' },
@@ -1077,4 +1081,59 @@ export function openNewFloor(root: HTMLElement, state: State, toast: (t: string,
     root.append(el)
     pick.focus()
   })
+}
+
+/**
+ * Configurações → Vídeo (AO-29, AO-32). Picking a quality fills the other fields; changing one
+ * by hand shows "Personalizada". Everything applies on Salvar, without restarting.
+ */
+function videoFields(state: State): { el: HTMLElement; value: () => VideoSettings } {
+  const v: VideoSettings = { ...DEFAULT_VIDEO, ...state.settings.video }
+  const quality = h(
+    'select',
+    { class: 'input' },
+    ...(Object.keys(QUALITY_LABELS) as Quality[]).map((q) => h('option', { value: q }, QUALITY_LABELS[q])),
+    h('option', { value: 'custom', disabled: true }, 'Personalizada'),
+  )
+  const fps = h('select', { class: 'input' }, h('option', { value: 30 }, '30 fps'), h('option', { value: 60 }, '60 fps'), h('option', { value: 0 }, 'Sem limite'))
+  const shadows = h('select', { class: 'input' }, h('option', { value: 'off' }, 'Desligadas'), h('option', { value: 1024 }, 'Ligadas · 1024'), h('option', { value: 2048 }, 'Ligadas · 2048'))
+  const effects = h('select', { class: 'input' }, h('option', { value: 'full' }, 'Completos'), h('option', { value: 'reduced' }, 'Reduzidos'))
+  const battery = h('input', { type: 'checkbox' }) as HTMLInputElement
+  battery.checked = v.batterySaver
+
+  const value = (): VideoSettings => ({
+    shadows: shadows.value !== 'off',
+    shadowMapSize: (shadows.value === 'off' ? v.shadowMapSize : Number(shadows.value)) as ShadowMapSize,
+    fpsLimit: Number(fps.value) as FpsLimit,
+    effects: effects.value === 'reduced' ? 'reduced' : 'full',
+    batterySaver: battery.checked,
+  })
+  const fill = (x: Omit<VideoSettings, 'batterySaver'>) => {
+    fps.value = String(x.fpsLimit)
+    shadows.value = x.shadows ? String(x.shadowMapSize) : 'off'
+    effects.value = x.effects
+  }
+  const syncQuality = () => (quality.value = qualityOf(value()) ?? 'custom')
+  fill(v)
+  syncQuality()
+  quality.addEventListener('change', () => {
+    const preset = QUALITY_PRESETS[quality.value as Quality]
+    if (preset) fill(preset)
+  })
+  for (const sel of [fps, shadows, effects]) sel.addEventListener('change', syncQuality)
+
+  const now: string[] = []
+  if (state.onBattery && v.batterySaver) now.push('Na bateria agora: o modo Economia está valendo até ligar na tomada.')
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) now.push('O sistema pede menos movimento: os efeitos ficam reduzidos.')
+  const el = h(
+    'div',
+    { class: 'bridge-box' },
+    h('div', { class: 'bridge-title' }, icon('gauge', 16), 'Vídeo'),
+    h('div', { class: 'field-hint' }, 'Economia desliga as sombras, limita a 30 fps e reduz fumaça, faíscas e giroflex. Com o escritório parado ou a janela minimizada, o app já desenha menos sozinho.'),
+    h('div', { class: 'field-row' }, field('Qualidade', quality), field('Limite de fps', fps)),
+    h('div', { class: 'field-row' }, field('Sombras', shadows), field('Efeitos', effects)),
+    h('label', { class: 'check' }, battery, 'Economia automática na bateria'),
+    ...(now.length ? [h('div', { class: 'field-hint' }, now.join(' '))] : []),
+  )
+  return { el, value }
 }
