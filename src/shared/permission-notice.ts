@@ -1,3 +1,5 @@
+import { lstatSync, realpathSync } from 'node:fs'
+import { basename, dirname } from 'node:path'
 import type { PermissionRequest } from './types'
 
 // Notificação do sistema para pedidos de permissão (AO-35). Tudo aqui é puro (sem
@@ -96,10 +98,9 @@ export function toolRisk(tool: string, input: Record<string, unknown> = {}, scop
   if (tool === 'Bash') return commandRisk(typeof input.command === 'string' ? input.command : '', scope)
   const key = FILE_TOOLS[tool]
   if (key) {
-    const why = pathRisk(input[key], scope)
-    if (why) return why
-    if (WRITE_TOOLS.has(tool) && executesCode(input[key] as string, scope)) return 'arquivo que roda código'
-    return ''
+    const r = resolveInScope(input[key], scope)
+    if (r.why) return r.why
+    return WRITE_TOOLS.has(tool) ? writeRisk(r.rels) : ''
   }
   if (tool === 'Glob' || tool === 'Grep') {
     // Sem path = a pasta do agente. O padrão do Glob não pode subir de pasta.
@@ -123,27 +124,57 @@ export function toolRisk(tool: string, input: Record<string, unknown> = {}, scop
 
 /** O caminho, resolvido, fica dentro da pasta do agente e não é sensível? */
 export function pathRisk(raw: unknown, scope: NoticeScope): string {
-  if (typeof raw !== 'string' || !raw) return 'sem arquivo'
-  if (!scope.cwd) return 'sem a pasta do agente'
-  // Só caminhos absolutos POSIX e texto comum: nada de ~, \, caracteres de controle.
-  if (!raw.startsWith('/') || /[\\\0-\x1f\x7f]/.test(raw)) return 'caminho estranho' // eslint-disable-line no-control-regex
+  return resolveInScope(raw, scope).why
+}
+
+interface Resolved {
+  why: string
+  /** Caminho dentro da pasta, pelo pedido e pelo real: ['src/a.ts', 'src/a.ts']. */
+  rels: string[]
+}
+
+/**
+ * Confere e resolve um caminho de ferramenta de arquivo. Recusa: relativo, ~, \, caractere
+ * de controle, segmento vazio, "." ou ".." (nada de normalizar: o que chega é o que vale);
+ * fora da pasta pelo caminho pedido ou pelo real (symlinks, também no meio do caminho de um
+ * arquivo novo); arquivo sensível. A pasta compara com "/" no fim (/proj ≠ /proj-evil).
+ * Qualquer passo que falha deixa sem botão.
+ */
+function resolveInScope(raw: unknown, scope: NoticeScope): Resolved {
+  const no = (why: string): Resolved => ({ why, rels: [] })
+  if (typeof raw !== 'string' || !raw) return no('sem arquivo')
+  if (!scope.cwd) return no('sem a pasta do agente')
+  if (!strictAbsolute(raw)) return no('caminho estranho')
   const cwd = normalizePath(scope.cwd)
-  const file = normalizePath(raw)
-  if (!cwd || !file) return 'caminho estranho'
+  if (!cwd || cwd === '/') return no('caminho estranho')
   let realCwd = cwd
-  let realFile = file
+  let realFile = raw
   if (scope.realpath) {
     try {
       realCwd = scope.realpath(cwd)
-      realFile = scope.realpath(file)
+      realFile = scope.realpath(raw)
     } catch {
-      return 'caminho que não deu para resolver'
+      return no('caminho que não deu para resolver')
     }
+    if (!strictAbsolute(realCwd) || !strictAbsolute(realFile)) return no('caminho que não deu para resolver')
   }
-  if (!inside(file, cwd) || !inside(realFile, realCwd)) return 'fora da pasta do agente'
-  if (sensitivePath(file) || sensitivePath(realFile)) return 'arquivo sensível'
-  return ''
+  if (!strictlyInside(raw, cwd) || !strictlyInside(realFile, realCwd)) return no('fora da pasta do agente')
+  if (sensitivePath(raw) || sensitivePath(realFile)) return no('arquivo sensível')
+  return { why: '', rels: [raw.slice(cwd.length + 1), realFile.slice(realCwd.length + 1)] }
 }
+
+/** "/a/b": absoluto POSIX, sem segmento vazio, ".", ".." nem caracteres estranhos. */
+function strictAbsolute(p: string): boolean {
+  if (!p.startsWith('/') || p.length > 4096 || /[\\\0-\x1f\x7f]/.test(p)) return false // eslint-disable-line no-control-regex
+  if (p === '/') return true
+  return p
+    .slice(1)
+    .split('/')
+    .every((s) => s && s !== '.' && s !== '..')
+}
+
+/** `file` fica abaixo de `dir` (não é a própria pasta). */
+const strictlyInside = (file: string, dir: string) => file.length > dir.length + 1 && file.startsWith(dir.endsWith('/') ? dir : dir + '/')
 
 /** "/a/./b/../c" → "/a/c"; '' quando sobe acima da raiz. */
 export function normalizePath(p: string): string {
@@ -160,32 +191,58 @@ export function normalizePath(p: string): string {
 }
 
 /**
- * Arquivos que o npm, o make, o git, o editor, a CI ou uma ferramenta de build executam (ou
- * que dizem o que executar). Escrever num deles é rodar código depois: sem botão. Na dúvida,
- * entra na lista. Vale para o caminho pedido e para o real (symlinks).
+ * Caminho real com symlinks resolvidos, para o main passar em NoticeScope.realpath. Arquivo
+ * que ainda não existe: realpath da pasta existente mais próxima + o resto. Um componente que
+ * existe como link (inclusive link quebrado) passa pelo realpath, que falha se o alvo não
+ * existir: assim um link quebrado para fora nunca vira "arquivo novo dentro da pasta".
  */
-export function executesCode(raw: string, scope: NoticeScope = {}): boolean {
-  const file = normalizePath(raw)
-  if (!file) return true
-  const cwd = scope.cwd ? normalizePath(scope.cwd) : ''
-  const pairs: [string, string][] = [[file, cwd]]
-  if (scope.realpath) {
+export function realPathOf(p: string): string {
+  if (!strictAbsolute(p)) throw new Error('caminho estranho')
+  let head = p
+  const tail: string[] = []
+  for (;;) {
+    let exists = true
     try {
-      pairs.push([scope.realpath(file), cwd ? scope.realpath(cwd) : ''])
+      lstatSync(head)
     } catch {
-      return true
+      exists = false
     }
+    if (exists || head === '/') break
+    tail.unshift(basename(head))
+    head = dirname(head)
   }
-  return pairs.some(([p, dir]) => {
-    // Só a parte dentro da pasta do agente: a pasta em si pode morar em ~/bin/… sem problema.
-    const rel = dir && p.startsWith(dir + '/') ? p.slice(dir.length) : p
-    const name = rel.slice(rel.lastIndexOf('/') + 1)
-    return EXEC_DIRS.test(rel) || EXEC_FILES.some((re) => re.test(name))
-  })
+  const real = realpathSync(head)
+  return tail.length ? `${real === '/' ? '' : real}/${tail.join('/')}` : real
 }
 
-/** Pastas de configuração de ferramenta e de scripts (tarefas do editor, CI, hooks, devcontainer…). */
-const EXEC_DIRS = /\/(\.vscode|\.idea|\.fleet|\.zed|\.github|\.gitlab|\.husky|\.githooks|\.git|\.circleci|\.buildkite|\.devcontainer|\.claude|\.cursor|\.config|\.direnv|\.yarn|\.cargo|\.mvn|node_modules|bin|scripts?)\//i
+/**
+ * Escrita só ganha botão numa LISTA PERMITIDA: nenhum segmento começando com "." (.git,
+ * .github, .vscode, .husky, .envrc, .npmrc…), extensão de código ou texto da lista, e nome
+ * fora da lista de arquivos que algo roda sozinho ou que mudam o que comandos executam
+ * (package.json, *.config.*, Makefile, *.sh…). Sem extensão, sem botão. Vale para o caminho
+ * pedido e para o real.
+ */
+export function writeRisk(rels: string[]): string {
+  if (!rels.length) return 'caminho estranho'
+  for (const rel of rels) {
+    const parts = rel.split('/')
+    if (parts.some((s) => !s || s.startsWith('.'))) return 'arquivo ou pasta oculta'
+    if (parts.slice(0, -1).some((d) => EXEC_DIRS.test(d))) return 'pasta de scripts'
+    const name = parts[parts.length - 1]
+    const dot = name.lastIndexOf('.')
+    if (dot <= 0 || !WRITE_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())) return 'tipo de arquivo fora da lista'
+    if (EXEC_FILES.some((re) => re.test(name))) return 'arquivo que roda código'
+  }
+  return ''
+}
+
+/** Extensões de código e texto que dá para escrever pela notificação. */
+const WRITE_EXTENSIONS = new Set(
+  'ts tsx js jsx mjs cjs css scss sass less html htm md mdx txt json yml yaml svg py go rs java kt swift c h cc cpp hpp rb php sql vue svelte ipynb csv'.split(' '),
+)
+
+/** Pastas de scripts e dependências (pasta oculta já fica de fora pela regra do ponto). */
+const EXEC_DIRS = /^(node_modules|bin|scripts?|hooks?|vendor)$/i
 
 /** Nomes de arquivo (sem a pasta), sem diferenciar maiúsculas. */
 const EXEC_FILES: readonly RegExp[] = [
@@ -213,15 +270,20 @@ const EXEC_FILES: readonly RegExp[] = [
   /^\.?lefthook/i,
   // configs de ferramentas JS/TS: rodam como código ao chamar a ferramenta
   /^[tj]sconfig.*\.json$/i,
-  /\.config\.[cm]?[jt]sx?$/i,
+  /\.config\./i,
+  /\.conf\.json$/i,
   /rc\.[cm]?[jt]s$/i,
+  // configs que guardam comandos (build, deploy, CI, tarefas)
+  /^(nx|project|workspace|turbo|lerna|angular|firebase|vercel|now|app|electron-builder|tauri\.conf)\.jsonc?$/i,
+  /^(electron-builder|mkdocs|serverless|skaffold|devfile|codemagic|bitbucket-pipelines|azure-pipelines|cloudbuild|appveyor|buildspec|netlify|render|fly|railway|app|lefthook|taskfile|melos|pubspec)\.ya?ml$/i,
+  /^(sitecustomize|usercustomize)\.py$/i,
+  /\.(plist|lock)$/i,
   /^\.[a-z0-9-]+rc(\.json|\.ya?ml|\.toml)?$/i,
   /^(babel\.config|gulpfile|gruntfile|jakefile)/i,
   // scripts
   /\.(sh|bash|zsh|fish|ksh|csh|command|ps1|psm1|bat|cmd|vbs|applescript|scpt)$/i,
 ]
 
-const inside = (file: string, dir: string) => file === dir || file.startsWith(dir === '/' ? '/' : dir + '/')
 
 // ---------- comandos ----------
 

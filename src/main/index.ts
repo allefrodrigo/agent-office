@@ -1,8 +1,8 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, powerMonitor, session, shell } from 'electron'
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join } from 'node:path'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { permissionNotice } from '@shared/permission-notice'
+import { permissionNotice, realPathOf } from '@shared/permission-notice'
 import { projectFor } from '@shared/projects'
 import type { Actor, AgentBrain, HireRequest, OfficeEvent, OfficeState, PermissionRequest } from '@shared/types'
 import { MAIN_ACCOUNT } from '@shared/accounts'
@@ -156,19 +156,6 @@ function openFromNotice(target: NoticeTarget): void {
   win.show()
   win.focus()
   win.webContents.send('office:event', { type: 'notice:open', ...target } satisfies OfficeEvent)
-}
-
-/** Caminho real, symlinks resolvidos; para um arquivo que ainda não existe, vale a pasta existente mais próxima. */
-function realPathOf(p: string): string {
-  let head = p
-  const tail: string[] = []
-  while (!existsSync(head)) {
-    const parent = dirname(head)
-    if (parent === head) break
-    tail.unshift(basename(head))
-    head = parent
-  }
-  return [realpathSync(head), ...tail].join('/').replace(/^\/\//, '/')
 }
 
 function canNotify(store: Store): boolean {
