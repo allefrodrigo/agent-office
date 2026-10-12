@@ -147,7 +147,9 @@ src/
       overlays.ts       crachás com nome e balões de fala (HTML sobre o canvas)
       skull.ts          caveira em voxel (a do armário e a que cai sobre o agente)
       effects.ts        golpe da caveira, fumaça, faíscas, fantasma e efeitos sonoros
-    game.ts             comportamento: status do agente -> onde ele vai e o que faz
+    game/               comportamento: status do agente -> onde ele vai e o que faz
+                        (cada parte estende a anterior: base, floors, boards, actors, lounge,
+                        deliveries, subagents, squads, skull, movement, input; index.ts monta o Game)
     ui/                 HUD, painel do agente, cartões de permissão/resultado, modais
 ```
 
