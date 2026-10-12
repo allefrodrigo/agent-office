@@ -226,7 +226,7 @@ export class AgentPanel {
   }
 
   /** Portrait inside a ring that fills as the conversation fills; click it to compact or clear. */
-  private photo(a: AgentSummary, size: number, busy: boolean): HTMLElement {
+  private photo(a: AgentSummary, size: number, _busy: boolean): HTMLElement {
     const c = a.source === 'office' ? a.context : undefined
     if (!c) return h('div', { class: 'ab-photo' }, portrait(a.look, size - 8))
     const stroke = size > 50 ? 4 : 3

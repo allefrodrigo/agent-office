@@ -1,0 +1,88 @@
+# Tag v* (e.g. v0.3.4, or v0.4.0-beta.1 for the beta channel) builds the installers
+# and publishes them in a GitHub release, with the latest*.yml files the auto-update reads.
+#
+# Order: a draft release first, then the Mac and Windows builds upload into it, then the
+# draft goes public. The app only ever sees a release with every file in it.
+#
+# Secrets (Settings → Secrets and variables → Actions). All optional: without them the
+# Mac build falls back to ad-hoc signing and Windows ships unsigned.
+#   MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD   Developer ID Application (.p12 in base64) and its password
+#   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   notarization
+#   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD   Windows code signing certificate
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+env:
+  TAG: ${{ github.ref_name }}
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match package.json
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::A tag $TAG não bate com a versão do package.json ($version)."
+            exit 1
+          fi
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --generate-notes --verify-tag
+
+  build:
+    needs: draft
+    name: build (${{ matrix.os }})
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            dist: dist:mac
+          - os: windows-latest
+            dist: dist:win
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and upload to the draft
+        run: npm run ${{ matrix.dist }} -- --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Mac: Developer ID + notarization (scripts/dist-mac.mjs signs ad-hoc when empty).
+          CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows: Authenticode, read by electron-builder only on the Windows build.
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # A tag with a suffix (v0.4.0-beta.1) is a pre-release: only the beta channel takes it.
+          if [[ "$TAG" == *-* ]]; then pre=--prerelease; else pre=--latest; fi
+          gh release edit "$TAG" --draft=false $pre

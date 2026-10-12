@@ -51,18 +51,61 @@ Se aparecer `Error: Electron uninstall`, o binário do Electron não baixou no i
 node node_modules/electron/install.js
 ```
 
-Checar tipos: `npm run typecheck`.
+Checar tipos: `npm run typecheck`. Lint: `npm run lint` (ESLint com typescript-eslint, `eslint.config.js`).
+
+Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem ponto e vírgula, aspas simples), mas o projeto ainda não foi todo formatado. Rode só nos arquivos que você mexeu: `npm run format -- src/main/updater.ts`. Reformatar tudo, se um dia for feito, vai num commit separado.
 
 ## Gerar o app
 
 ```bash
-npm run dist:mac   # dist/Agent Office-<versão>-arm64.dmg e .zip
-npm run dist:win   # rodar no Windows: instalador NSIS
+npm run dist:mac   # dist/Agent-Office-<versão>-arm64.dmg e -x64.dmg (+ .zip para o auto-update)
+npm run dist:win   # rodar no Windows: dist/Agent-Office-Setup-<versão>.exe (NSIS)
 ```
 
 O pacote não embute o Claude Code (são ~220 MB). Ele usa o `claude` instalado na máquina, procurado nesta ordem: variável `AGENT_OFFICE_CLAUDE`, binário do SDK em `node_modules` (só em dev), `PATH` e pastas comuns (`~/.local/bin`, `/opt/homebrew/bin`, ...). Veja `src/main/claude-path.ts`.
 
-O build de Mac usa assinatura ad-hoc: roda na sua máquina, mas para distribuir para outras pessoas é preciso um Developer ID e notarização (`electron-builder.yml`).
+O Mac sai em dois builds, Apple Silicon (`arm64`) e Intel (`x64`), não um universal. Nada nativo vai no pacote (o binário do SDK, que é por CPU, fica de fora), então os dois saem de qualquer Mac e cada download tem metade do tamanho de um universal.
+
+### Assinatura e notarização (Mac)
+
+Sem credenciais, `npm run dist:mac` assina ad-hoc (`scripts/dist-mac.mjs`): o app roda na sua máquina, mas o Gatekeeper bloqueia em outras e o auto-update não instala. Para distribuir:
+
+1. Entre no Apple Developer Program e crie um certificado **Developer ID Application**. Exporte como `.p12` com senha.
+2. Crie uma senha de app em appleid.apple.com (Login e segurança → Senhas de app) e anote o Team ID (developer.apple.com → Membership).
+3. Gere com as credenciais só no ambiente, nunca no repositório:
+
+   ```bash
+   export CSC_LINK=~/certs/developer-id.p12      # ou base64 do .p12; ou CSC_NAME="Developer ID Application: Nome (TEAMID)" se já estiver no Keychain
+   export CSC_KEY_PASSWORD='senha do .p12'
+   export APPLE_ID='voce@exemplo.com'
+   export APPLE_APP_SPECIFIC_PASSWORD='abcd-efgh-ijkl-mnop'
+   export APPLE_TEAM_ID='ABCDE12345'
+   npm run dist:mac
+   ```
+
+   Com `CSC_LINK` ou `CSC_NAME`, o build liga o hardened runtime com `resources/entitlements.mac.plist` (só o JIT do V8) e notariza quando as três `APPLE_*` existem.
+4. Confira: `spctl --assess --type execute -vv "dist/mac-arm64/Agent Office.app"` deve responder `accepted, source=Notarized Developer ID`.
+
+No CI, as mesmas variáveis vêm dos secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` e `APPLE_TEAM_ID` (veja `.github/workflows/release.yml`).
+
+**Windows:** sem certificado, o SmartScreen avisa "editor desconhecido" nas primeiras instalações. Com um certificado de assinatura de código (OV/EV, ou Azure Trusted Signing), defina `WIN_CSC_LINK` e `WIN_CSC_KEY_PASSWORD` (secrets de mesmo nome no CI).
+
+### Atualização automática
+
+O app instalado procura versão nova nas Releases do GitHub (`publish` no `electron-builder.yml`) ao abrir e a cada 6 horas, baixa em segundo plano e mostra no alto da tela "Versão X pronta. Reiniciar agora?". Se houver agente trabalhando ou permissão esperando, pergunta antes. Antes de reiniciar grava `office.json` e `tickets.json`. "Depois" instala quando você fechar o app. Em Configurações → Atualizações: canal Estável ou Beta (beta recebe também tags como `v0.4.0-beta.1`) e "Verificar agora". Código em `src/main/updater.ts`.
+
+Requisitos: as Releases precisam ser públicas (repositório público ou um repositório só de releases), e no Mac o app precisa estar assinado com Developer ID. Em dev nada é verificado; `AGENT_OFFICE_FAKE_UPDATE=0.9.0 npm run dev` simula uma versão baixada para testar o aviso e a confirmação (o "Reiniciar" só grava e fecha).
+
+### CI e releases
+
+- `.github/workflows/ci.yml`: em todo PR e push na `main`, roda `npm ci`, `typecheck`, `lint`, `test` e `build` no macOS e no Windows.
+- `.github/workflows/release.yml`: ao subir uma tag `v*` igual à versão do `package.json`, cria a release como rascunho, gera Mac e Windows com `--publish always` e publica quando os dois terminam. Tag com sufixo (`v0.4.0-beta.1`) vira pre-release.
+
+  ```bash
+  npm version 0.3.4 -m "Versão %s" && git push --follow-tags
+  ```
+
+- **Proteção da `main`** (o dono faz no GitHub): Settings → Branches → Add branch ruleset (ou "Add rule") para `main` → marque "Require a pull request before merging" e "Require status checks to pass", adicione `check (macos-latest)` e `check (windows-latest)` (aparecem depois do primeiro CI) e, se quiser, "Require branches to be up to date before merging".
 
 ## Arquitetura
 
@@ -82,6 +125,7 @@ src/
     accounts.ts         contas do Claude (CLAUDE_CONFIG_DIR + links para ~/.claude), conta de cada execução,
                         revezamento quando uma bate o limite, login pelo Terminal
     claude-path.ts      encontra o executável do Claude Code
+    updater.ts          atualização automática pelas Releases do GitHub (electron-updater)
     session-process.ts  descobre o PID do claude de cada sessão do terminal (pela conexão do hook) e o encerra
     squads.ts           squads do Opensquad: lê squad.yaml e o pipeline, monta o orquestrador e fecha a equipe
     store.ts            persistência (userData/office.json)

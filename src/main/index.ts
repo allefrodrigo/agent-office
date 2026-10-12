@@ -52,6 +52,7 @@ import {
   ticketPatchSchema,
   ticketStatusSchema,
 } from './validate'
+import { Updater } from './updater'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
@@ -217,6 +218,20 @@ app.whenReady().then(async () => {
   stats.on('stats', (s) => broadcast({ type: 'stats', stats: s }))
   stats.start()
   void accounts.check()
+  // Auto-update (packaged app only): restarting asks first while agents work or permissions wait.
+  const updater = new Updater({
+    channel: () => (store.settings.updateChannel === 'beta' ? 'beta' : 'stable'),
+    busy: () => ({
+      working: manager.list().filter((a) => a.source === 'office' && (a.status === 'working' || a.status === 'starting')).length,
+      pending: manager.pendingRequests().length,
+    }),
+    flush: () => {
+      store.flush()
+      board.flush()
+    },
+    broadcast,
+  })
+  updater.start()
 
   // Durable saves on kill, crash and sleep (AO-26); backups, restore, export and import (AO-25).
   const flushAll = () => {
@@ -498,6 +513,7 @@ app.whenReady().then(async () => {
   })
   const stopAll = () => {
     log.info('Saindo')
+    updater.stop()
     bridge.stop()
     usage.stop()
     stats.stop()

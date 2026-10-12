@@ -56,6 +56,9 @@ const api: OfficeAPI = {
   reportError: (err) => ipcRenderer.send('office:rendererError', err),
   openLogs: () => ipcRenderer.invoke('office:openLogs'),
   copyDiagnostics: () => ipcRenderer.invoke('office:copyDiagnostics'),
+  updateStatus: () => ipcRenderer.invoke('office:updateStatus'),
+  checkForUpdates: () => ipcRenderer.invoke('office:checkForUpdates'),
+  installUpdate: (force) => ipcRenderer.invoke('office:installUpdate', force === true),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

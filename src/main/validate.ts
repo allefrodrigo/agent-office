@@ -261,6 +261,7 @@ const settingsFields = {
     .min(0)
     .max(100_000)
     .transform((n) => Math.round(n * 100) / 100),
+  updateChannel: z.enum(['stable', 'beta']),
 } satisfies { [K in keyof Settings]?: z.ZodType<unknown> }
 
 /**

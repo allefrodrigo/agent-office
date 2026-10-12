@@ -272,6 +272,10 @@ describe('cleanSettings', () => {
     )
     expect(out).toEqual(before)
   })
+  it('updateChannel: só estável ou beta', () => {
+    expect(cleanSettings({ updateChannel: 'beta' }, settings()).updateChannel).toBe('beta')
+    expect(cleanSettings({ updateChannel: 'nightly' }, settings()).updateChannel).toBe(settings().updateChannel)
+  })
   it('playerLook: valida cores e corte, descarta chaves extras', () => {
     const look = { skin: '#000000', hair: '#111111', hairStyle: 5, shirt: '#222222', pants: '#333333', shoes: '#444444', extra: 'x' }
     const { extra: _extra, ...clean } = look

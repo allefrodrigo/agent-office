@@ -12,21 +12,34 @@ files:
   - '!node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 asarUnpack:
   - node_modules/@anthropic-ai/claude-agent-sdk-*/**
+# Auto-update (src/main/updater.ts) reads releases from here; `--publish always`
+# (release.yml) uploads the installers and latest*.yml. The token comes from GH_TOKEN.
+publish:
+  provider: github
+  owner: allefrodrigo
+  repo: agent-office
+# No spaces: GitHub renames them in release assets and the update files would point nowhere.
+artifactName: Agent-Office-${version}-${arch}.${ext}
 mac:
   category: public.app-category.developer-tools
-  # Only the SDK binary for the build machine's CPU is installed, so build each
-  # arch on (or with npm --cpu for) that arch. See README.
+  # One build per CPU, not universal: nothing native ships in the package (the SDK's
+  # per-CPU Claude binary is left out above), so x64 builds fine on an arm64 Mac, and
+  # each download stays half the size of a universal one. The zip feeds the auto-update.
   target:
     - target: dmg
-      arch: [arm64]
+      arch: [arm64, x64]
     - target: zip
-      arch: [arm64]
+      arch: [arm64, x64]
   darkModeSupport: true
-  # Ad-hoc signature: runs locally without depending on whatever certificate is
-  # in the keychain. For distribution, set your Developer ID here and notarize.
-  identity: '-'
-  # Hardened runtime is only needed for notarization (and then requires entitlements).
-  hardenedRuntime: false
+  # Developer ID: the certificate comes only from the environment, never from this file:
+  # CSC_LINK (.p12 path or base64) + CSC_KEY_PASSWORD, or CSC_NAME for one in the keychain.
+  # Without them, scripts/dist-mac.mjs falls back to an ad-hoc signature (identity '-',
+  # no hardened runtime), which runs on this Mac only. See README "Assinatura e notarização".
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  # Notarizes when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and APPLE_TEAM_ID are set; skipped otherwise.
+  notarize: true
 dmg:
   title: Agent Office
   # Retina-ready backdrop with a screenshot of the app; regenerate with `npm run dmg-bg`.
@@ -50,6 +63,8 @@ win:
   target:
     - target: nsis
       arch: [x64]
+  # Code signing (SmartScreen) also comes from the environment: WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD.
 nsis:
+  artifactName: Agent-Office-Setup-${version}.${ext}
   oneClick: false
   allowToChangeInstallationDirectory: true

@@ -11,6 +11,7 @@ import { openAccounts } from './ui/accounts'
 import { openSkull } from './ui/skull'
 import { openReports } from './ui/reports'
 import { showDataNotice } from './ui/data'
+import { mountUpdateNotice } from './ui/updates'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
 // Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
@@ -233,6 +234,7 @@ async function boot(): Promise<void> {
   }
 
   hud.setFloors(game.floors, game.currentFloor)
+  mountUpdateNotice(ui)
 
   let pixelSize = state.settings.pixelSize
   state.onChange(() => {

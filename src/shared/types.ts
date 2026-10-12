@@ -315,6 +315,35 @@ export interface Settings {
   agentBudgetUsd: number
   /** Saved hiring templates, global and per floor. Changed only through saveTemplate/deleteTemplate. */
   templates: AgentTemplate[]
+  /** Which releases the auto-update follows. Missing = 'stable'. */
+  updateChannel?: UpdateChannel
+}
+
+// ---------- auto-update ----------
+
+/** 'beta' also takes pre-releases (tags like v0.4.0-beta.1). */
+export type UpdateChannel = 'stable' | 'beta'
+
+export interface UpdateStatus {
+  /** disabled = dev build (only the packaged app updates itself). */
+  state: 'disabled' | 'idle' | 'checking' | 'downloading' | 'ready' | 'latest' | 'error'
+  /** The new version, while downloading or once ready. */
+  version?: string
+  /** Download progress, 0-100. */
+  percent?: number
+  /** What went wrong, for state 'error'. */
+  message?: string
+  /** Last finished check (ms). */
+  checkedAt?: number
+}
+
+/** installUpdate's answer: what keeps the app from restarting right now. */
+export interface UpdateInstallResult {
+  ok: boolean
+  /** Office agents working right now. */
+  working?: number
+  /** Permission requests still waiting for you. */
+  pending?: number
 }
 
 /**
@@ -523,6 +552,7 @@ export type OfficeEvent =
   | { type: 'stats'; stats: ClaudeStats }
   /** A data file was found corrupt after startup (the closed tickets load on first use). */
   | { type: 'data:notice'; notice: DataNotice }
+  | { type: 'update'; update: UpdateStatus }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -621,6 +651,15 @@ export interface OfficeAPI {
   openLogs(): Promise<void>
   /** Puts version, OS, Claude Code version and the last 200 log lines on the clipboard. */
   copyDiagnostics(): Promise<void>
+  /** Where the auto-update stands. */
+  updateStatus(): Promise<UpdateStatus>
+  /** Looks for a new release now (Settings → "Verificar agora"). */
+  checkForUpdates(): Promise<UpdateStatus>
+  /**
+   * Saves the data and restarts into the downloaded version. Without `force` it
+   * refuses while agents work or permissions wait, and says how many.
+   */
+  installUpdate(force?: boolean): Promise<UpdateInstallResult>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 
