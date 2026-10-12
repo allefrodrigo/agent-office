@@ -180,4 +180,6 @@ O código é o mesmo; o que falta validar:
 - `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis.
 - Log do app em `userData/logs/main-<data>.log` (gira em 5 MB, guarda 5 arquivos; sem prompts nem tokens). `AGENT_OFFICE_DEBUG=1` inclui o nível debug.
 - Só em dev: `AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error` quebra algo 6 s depois de abrir, para testar o tratamento de erros. `AGENT_OFFICE_LOG_MAX_KB=20` gira o log mais cedo.
+- `npm run bench` com `AGENT_OFFICE_DEMO=` (vazio) mede o escritório vazio e parado; `AGENT_OFFICE_BENCH_LIVE=1` mantém o ritmo do loop (passo lento com a cena parada, limite de fps), e o `fps` do relatório vira frames desenhados por segundo. Num headless, `__loop.hidden = true` simula a janela minimizada e `__loop.draws` conta os frames desenhados.
+- Só em dev: `AGENT_OFFICE_BATTERY=1` começa como se estivesse na bateria; `=flip` alterna bateria e tomada a cada 5 s, para testar a economia automática sem tirar o cabo.
 - `npm run icon` regenera `resources/icon.png` a partir do desenho em `scripts/make-icon.mjs`.

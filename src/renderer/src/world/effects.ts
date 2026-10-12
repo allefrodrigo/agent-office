@@ -36,11 +36,18 @@ const HOVER_Y = 1.35
 export class Effects {
   private particles: Particle[] = []
   private strikes: Strike[] = []
+  /** Fewer sparks and puffs, the skull holds still (Configurações → Vídeo or prefers-reduced-motion). */
+  reduced = false
 
   constructor(private scene: THREE.Scene) {}
 
+  /** Anything still playing: the loop keeps drawing at full rate meanwhile. */
+  get active(): boolean {
+    return this.particles.length > 0 || this.strikes.length > 0
+  }
+
   sparks(at: THREE.Vector3, colors = ['#ffd166', '#ff7a1a', '#ffffff']): void {
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < (this.reduced ? 3 : 7); i++) {
       const m = new THREE.Mesh(sparkGeo, mat(colors[i % colors.length]))
       m.position.copy(at)
       this.scene.add(m)
@@ -52,10 +59,11 @@ export class Effects {
 
   /** A burst of dark purple puffs that swell and drift up. */
   smoke(at: THREE.Vector3): void {
-    for (let i = 0; i < 9; i++) {
+    const n = this.reduced ? 3 : 9
+    for (let i = 0; i < n; i++) {
       const m = new THREE.MeshBasicMaterial({ color: i % 3 ? '#4b3a66' : '#7a5cc4', transparent: true, opacity: 0.85, depthWrite: false })
       const mesh = new THREE.Mesh(puffGeo, m)
-      const a = (i / 9) * Math.PI * 2
+      const a = (i / n) * Math.PI * 2
       mesh.position.copy(at).add(new THREE.Vector3(Math.cos(a) * 0.15, 0.2 + Math.random() * 0.4, Math.sin(a) * 0.15))
       mesh.rotation.set(Math.random(), Math.random(), Math.random())
       this.scene.add(mesh)
@@ -110,9 +118,10 @@ export class Effects {
         y = HOVER_Y + 1.6 * (1 - e)
         o.rotation.y = FACE_CAMERA + (1 - e) * Math.PI * 4
       } else if (s.t < DROP_S + CACKLE_S) {
-        // rattles in the air
-        y = HOVER_Y + Math.sin(s.t * 34) * 0.025
-        o.rotation.z = Math.sin(s.t * 46) * 0.14
+        // rattles in the air (holds still with reduced effects)
+        const k = this.reduced ? 0 : 1
+        y = HOVER_Y + Math.sin(s.t * 34) * 0.025 * k
+        o.rotation.z = Math.sin(s.t * 46) * 0.14 * k
       } else {
         const k = Math.min(1, (s.t - DROP_S - CACKLE_S) / DIVE_S)
         y = HOVER_Y - 0.8 * k

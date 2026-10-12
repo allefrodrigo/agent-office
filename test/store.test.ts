@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
+import { DEFAULT_VIDEO } from '../src/shared/video'
 
 // Store reads userData/office.json; each test gets its own folder through the electron mock.
 let dir: string
@@ -66,6 +67,12 @@ describe('Store: carga e migração das configurações', () => {
     expect(s.ticketAutoCloseDays).toBe(7)
     expect(s.maxSubagents).toBe(10)
     expect(s.agentBudgetUsd).toBe(0)
+    expect(s.video).toEqual(DEFAULT_VIDEO)
+  })
+
+  it('vídeo: campo ruim volta ao padrão, os bons ficam', () => {
+    write({ settings: { video: { shadows: false, fpsLimit: 45, effects: 'reduced', extra: 1 } } })
+    expect(new Store().settings.video).toEqual({ ...DEFAULT_VIDEO, shadows: false, effects: 'reduced' })
   })
 
   it('JSON truncado não derruba o app: volta aos padrões', () => {

@@ -23,7 +23,12 @@ export interface Office {
   money: CostBoard
   /** Spins when an account this floor runs on hit its plan limit. */
   alarm: Beacon
+  /** Effects toned down (AO-32): the beacon turns slowly and stops strobing. */
+  reducedMotion: boolean
 }
+
+/** How fast the beacon runs with reduced effects: a slow turn, no strobe. */
+export const CALM_BEACON = 0.15
 
 export interface GroundFloor extends Office {
   /** Lounge monitor where Claude FM plays. */
@@ -249,9 +254,10 @@ export function buildOffice(): GroundFloor {
     tv,
     money,
     alarm,
+    reducedMotion: false,
     update(dt: number) {
       money.update(dt)
-      alarm.update(dt)
+      alarm.update(this.reducedMotion ? dt * CALM_BEACON : dt)
       for (const s of deskScreens) s.update(dt)
       for (const l of loops) l.update(dt)
       for (const s of skies) s.update()

@@ -6,6 +6,7 @@ import { HAIR_STYLES } from '@shared/describe'
 import { floorNameFor, MAX_PROJECT_FLOORS } from '@shared/projects'
 import { STATUSES } from '@shared/tickets'
 import { EFFORT_LEVELS } from '@shared/types'
+import type { VideoSettings } from '@shared/video'
 import type {
   Account,
   AgentBrain,
@@ -289,6 +290,28 @@ const settingsFields = {
   updateChannel: z.enum(['stable', 'beta']),
 } satisfies { [K in keyof Settings]?: z.ZodType<unknown> }
 
+/** Configurações → Vídeo, one schema per field: a bad one keeps its current value. */
+const videoFields = {
+  shadows: z.boolean(),
+  shadowMapSize: z.union([z.literal(1024), z.literal(2048)]),
+  fpsLimit: z.union([z.literal(0), z.literal(30), z.literal(60)]),
+  effects: z.enum(['full', 'reduced']),
+  batterySaver: z.boolean(),
+} satisfies { [K in keyof VideoSettings]: z.ZodType<VideoSettings[K]> }
+
+/** Video settings from the renderer (or an old office.json) laid over `current`; unknown keys are dropped. */
+export function cleanVideo(raw: unknown, current: VideoSettings): VideoSettings {
+  const patch = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const next: VideoSettings = { ...current }
+  const put = next as unknown as Record<string, unknown>
+  for (const [key, schema] of Object.entries(videoFields)) {
+    if (!Object.hasOwn(patch, key)) continue
+    const r = (schema as z.ZodType<unknown>).safeParse(patch[key])
+    if (r.success) put[key] = r.data
+  }
+  return next
+}
+
 /**
  * A settings patch from the renderer applied to the current settings. Unknown keys are
  * dropped; a field with the wrong type or out of range keeps its current value.
@@ -305,5 +328,6 @@ export function cleanSettings(raw: unknown, current: Settings): Settings {
   if (Object.hasOwn(patch, 'accounts')) next.accounts = cleanAccounts(patch.accounts, current.accounts)
   if (Object.hasOwn(patch, 'defaultAccounts')) next.defaultAccounts = cleanAccountIds(patch.defaultAccounts, next.accounts)
   if (Object.hasOwn(patch, 'projects')) next.projects = cleanProjects(patch.projects, current.projects)
+  if (Object.hasOwn(patch, 'video')) next.video = cleanVideo(patch.video, current.video)
   return next
 }

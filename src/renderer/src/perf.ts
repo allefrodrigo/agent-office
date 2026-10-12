@@ -50,6 +50,8 @@ let last: Sample = { frameMs: 0, workMs: 0, calls: 0, triangles: 0 }
 /** Frames of the last second, for the fps and averages on the panel. */
 let recent: Sample[] = []
 let recording: Sample[] | null = null
+/** The bench records the loop's own pacing (idle tick, fps limit) instead of every frame. */
+let live = false
 let el: HTMLDivElement | null = null
 let drawnAt = 0
 const sources = new Map<string, () => number>()
@@ -109,9 +111,9 @@ function draw(now: number): void {
 }
 
 export const perf = {
-  /** True while the bench records: the loop should not throttle itself. */
+  /** True while the bench records every frame: the loop should not throttle itself. */
   get recording(): boolean {
-    return recording !== null
+    return recording !== null && !live
   },
 
   get visible(): boolean {
@@ -180,13 +182,18 @@ export const perf = {
     drawnAt = 0
   },
 
-  /** Records `ms` of frames and sums them up; used by the bench. */
-  async record(ms: number): Promise<BenchReport> {
+  /**
+   * Records `ms` of frames and sums them up; used by the bench. `paced` keeps the loop's
+   * own pacing, so `fps` says how many frames a still office really draws per second.
+   */
+  async record(ms: number, paced = false): Promise<BenchReport> {
+    live = paced
     recording = []
     const t0 = performance.now()
     await new Promise((r) => setTimeout(r, ms))
     const frames = recording
     recording = null
+    live = false
     const seconds = (performance.now() - t0) / 1000
     const m = renderer?.info.memory
     const extra = counters()

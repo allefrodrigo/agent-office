@@ -282,6 +282,11 @@ export class Avatar {
     return this.walking
   }
 
+  /** Walking, turning, flinching or falling: the scene should draw at full rate (AO-29). */
+  get isMoving(): boolean {
+    return this.walking || this.steer > 0 || this.hurt > 0 || (this.downT >= 0 && this.downT < 0.4) || this.angle !== this.targetAngle
+  }
+
   get isDown(): boolean {
     return this.downT >= 0
   }

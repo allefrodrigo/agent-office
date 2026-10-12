@@ -181,6 +181,9 @@ export class Game {
   private skull: { root: THREE.Group; tag: Tag; eyes: THREE.MeshBasicMaterial }
   /** Agents picked at the skull, waiting for the camera (or the elevator) before the strike. */
   private doomed = new Map<string, { at: number; done: () => void }>()
+  /** performance.now() until which the scene draws at full rate even if nothing walks (input, events). */
+  private wakeUntil = 0
+  private reducedEffects = false
 
   constructor(
     container: HTMLElement,
@@ -248,7 +251,10 @@ export class Game {
     this.moneyTag = this.moneyTagFor(this.office.money)
     this.setProjects(state.settings.projects, state.squads, false)
     for (const a of state.agents.values()) this.addActor(a, false)
-    state.onChange(() => this.sync())
+    state.onChange(() => {
+      this.sync()
+      this.wake()
+    })
     this.bindInput(container)
   }
 
@@ -283,7 +289,7 @@ export class Game {
     if (animate) {
       avatar.placeAt(SPAWN_POINT.x, SPAWN_POINT.z)
       avatar.face(0)
-      this.floorOf(avatar.floor).ding()
+      this.ding(avatar.floor)
     }
     this.reconcile(actor, !animate)
   }
@@ -300,7 +306,7 @@ export class Game {
     actor.tag.setBubble('Tchau!', 'idle')
     if (actor.riding) return this.vanish(actor, 0)
     this.route(actor.avatar, L.SPAWN_TILE, SPAWN_POINT, () => {
-      this.floorOf(actor.avatar.floor).ding()
+      this.ding(actor.avatar.floor)
       this.vanish(actor, 500)
     })
   }
@@ -480,7 +486,7 @@ export class Game {
     tag.setDot('starting')
     const m: Member = { id, parentId: a.id, info, avatar, tag, inline, desk: null, tile: null, phase: 'arriving', bornAt: this.time, endAt: null, failed: null, sub: null, infoUntil: 0 }
     this.members.set(id, m)
-    this.floorOf(avatar.floor).ding()
+    this.ding(avatar.floor)
     const arrive = () => {
       if (m.phase !== 'arriving') return
       m.phase = 'working'
@@ -621,7 +627,7 @@ export class Game {
     m.tile = null
     if (!m.failed) this.memberBubble(m)
     this.route(m.avatar, L.SPAWN_TILE, SPAWN_POINT, () => {
-      this.floorOf(m.avatar.floor).ding()
+      this.ding(m.avatar.floor)
       setTimeout(() => this.memberGone(m), 500)
     })
   }
@@ -782,13 +788,13 @@ export class Game {
     const trip = actor.trip
     this.route(av, L.SPAWN_TILE, SPAWN_POINT, () => {
       if (actor.trip !== trip || actor.goal === 'leave') return
-      this.floorOf(av.floor).ding()
+      this.ding(av.floor)
       actor.riding = true
       setTimeout(() => {
         av.floor = floor
         av.placeAt(SPAWN_POINT.x, SPAWN_POINT.z)
         av.face(0)
-        this.floorOf(floor).ding()
+        this.ding(floor)
         actor.riding = false
         if (!this.actors.has(actor.id) || actor.goal === 'leave') return
         if (actor.trip === trip) then()
@@ -1214,6 +1220,10 @@ export class Game {
     window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()))
     window.addEventListener('blur', () => this.keys.clear())
 
+    // any touch on the scene draws at full rate for a moment (hover outline, drag, zoom)
+    for (const type of ['pointermove', 'pointerdown', 'pointerup', 'pointerleave', 'wheel'] as const) el.addEventListener(type, () => this.wake(), { passive: true })
+    window.addEventListener('keydown', () => this.wake())
+
     el.addEventListener('contextmenu', (e) => e.preventDefault())
     el.addEventListener('pointerdown', (e) => {
       this.dragging = { x: e.clientX, y: e.clientY, moved: false, button: e.button }
@@ -1339,6 +1349,43 @@ export class Game {
 
   // ---------- loop ----------
 
+  /** Draw at full rate for the next `ms` (AO-29): input, a state change, a ding. */
+  wake(ms = 400): void {
+    this.wakeUntil = Math.max(this.wakeUntil, performance.now() + ms)
+  }
+
+  /**
+   * True while something on screen moves: an avatar on this floor walks or turns, the
+   * camera eases, an effect plays, the player steers or just touched the mouse. Otherwise
+   * the loop drops to a slow tick (typing hands and monitors still move, only less often).
+   */
+  get busy(): boolean {
+    if (performance.now() < this.wakeUntil || this.keys.size || this.dragging || this.doomed.size) return true
+    if (this.engine.moving || this.engine.dirty || this.effects.active) return true
+    const view = this.player.floor
+    const moving = (av: Avatar) => av.floor === view && av.isMoving
+    if (moving(this.player)) return true
+    for (const a of this.actors.values()) if (moving(a.avatar)) return true
+    for (const h of this.helpers.values()) if (moving(h.avatar)) return true
+    for (const m of this.members.values()) if (moving(m.avatar)) return true
+    return false
+  }
+
+  /** Sparks, smoke and the alarm toned down (Configurações → Vídeo, or prefers-reduced-motion). */
+  setReducedEffects(on: boolean): void {
+    this.effects.reduced = on
+    this.office.reducedMotion = on
+    for (const u of this.uppers) u.scene.reducedMotion = on
+    this.reducedEffects = on
+  }
+
+  /** The elevator rings on a floor; its doors animate, so the scene wakes up. */
+  private ding(floor: number): void {
+    this.floorOf(floor).ding()
+    if (floor === this.player.floor) this.wake(1500)
+  }
+
+  /** Moves everything by dt seconds; draws nothing (see draw). */
   update(dt: number): void {
     this.time += dt
     this.moveWithKeys(dt)
@@ -1377,6 +1424,11 @@ export class Game {
 
     this.updateWatch()
     if (this.follow) this.engine.target.set(this.player.position.x, 0, this.player.position.z)
+    this.engine.step(dt)
+  }
+
+  /** Draws the scene and moves the HTML tags along. Skipped while the window is hidden. */
+  draw(dt: number): void {
     this.engine.render(dt)
     this.overlays.update()
   }
@@ -1555,6 +1607,7 @@ export class Game {
       const n = i + 1
       const plan = plans[i]
       const scene = buildUpperFloor(plan, brandOf(project))
+      scene.reducedMotion = this.reducedEffects
       this.engine.scene.add(scene.group)
       this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
       for (const r of [...plan.team, ...plan.sectors]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
@@ -1694,11 +1747,11 @@ export class Game {
     p.stop()
     p.pose = 'stand'
     p.seatY = 0
-    this.floorOf(p.floor).ding()
+    this.ding(p.floor)
     p.floor = n
     p.placeAt(SPAWN_POINT.x, SPAWN_POINT.z)
     p.face(0)
-    this.floorOf(n).ding()
+    this.ding(n)
     this.engine.jumpTo(p.position.x, p.position.z)
     this.follow = true
     this.route(p, [L.SPAWN_TILE[0], L.SPAWN_TILE[1] + 1], null, () => undefined)

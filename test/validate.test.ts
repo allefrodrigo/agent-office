@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Account, ProjectFloor, Settings } from '@shared/types'
+import { DEFAULT_VIDEO, QUALITY_PRESETS } from '@shared/video'
 import {
   assigneeSchema,
   attachmentsSchema,
@@ -14,6 +15,7 @@ import {
   cleanLedgerQuery,
   cleanProjects,
   cleanSettings,
+  cleanVideo,
   delegateMode,
   externalUrlSchema,
   idSchema,
@@ -52,6 +54,7 @@ const settings = (): Settings => ({
   maxSubagents: 10,
   agentBudgetUsd: 0,
   templates: [],
+  video: { ...DEFAULT_VIDEO },
 })
 
 describe('parse', () => {
@@ -271,6 +274,18 @@ describe('cleanSettings', () => {
       before,
     )
     expect(out).toEqual(before)
+  })
+  it('video: aplica os campos válidos e mantém os inválidos', () => {
+    const out = cleanSettings({ video: { ...QUALITY_PRESETS.saver, batterySaver: false } }, settings())
+    expect(out.video).toEqual({ ...QUALITY_PRESETS.saver, batterySaver: false })
+    const bad = cleanSettings({ video: { shadows: 'sim', shadowMapSize: 4096, fpsLimit: 144, effects: 'none', batterySaver: 1, evil: '<x>' } }, settings())
+    expect(bad.video).toEqual(DEFAULT_VIDEO)
+    expect(cleanSettings({ video: 'alta' }, settings()).video).toEqual(DEFAULT_VIDEO)
+  })
+  it('cleanVideo: cada campo vale sozinho; sem limite = 0', () => {
+    expect(cleanVideo({ fpsLimit: 0, shadowMapSize: 1024 }, DEFAULT_VIDEO)).toEqual({ ...DEFAULT_VIDEO, fpsLimit: 0, shadowMapSize: 1024 })
+    expect(cleanVideo({ fpsLimit: '30' }, DEFAULT_VIDEO).fpsLimit).toBe(DEFAULT_VIDEO.fpsLimit)
+    expect(cleanVideo(null, DEFAULT_VIDEO)).toEqual(DEFAULT_VIDEO)
   })
   it('updateChannel: só estável ou beta', () => {
     expect(cleanSettings({ updateChannel: 'beta' }, settings()).updateChannel).toBe('beta')

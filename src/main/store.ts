@@ -5,11 +5,13 @@ import type { AgentResult, AgentSummary, Ledger, LogEntry, Settings } from '@sha
 import { lookFromSeed } from '@shared/describe'
 import { floorNameFor } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
+import { DEFAULT_VIDEO } from '@shared/video'
 import { mainAccount } from './accounts'
 import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
 import { backupCopies } from './backups'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
+import { cleanVideo } from './validate'
 
 export interface PersistedAgent {
   summary: AgentSummary
@@ -44,6 +46,7 @@ const DEFAULT_SETTINGS: Settings = {
   maxSubagents: 10,
   agentBudgetUsd: 0,
   templates: [],
+  video: DEFAULT_VIDEO,
 }
 
 /** Up to v0.2 one squad folder made a single squad floor; it becomes the first project floor. */
@@ -55,6 +58,8 @@ function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
   // The main login (~/.claude) is always there, first.
   if (!settings.accounts.some((a) => a.id === MAIN_ACCOUNT)) settings.accounts = [mainAccount(), ...settings.accounts]
   if (!Array.isArray(settings.defaultAccounts)) settings.defaultAccounts = []
+  // Older files have no Vídeo section; a bad value falls back to the default.
+  settings.video = cleanVideo(settings.video, DEFAULT_VIDEO)
   if (!('projects' in rest) && typeof squadFolder === 'string' && squadFolder) {
     const name = typeof squadFloorName === 'string' && squadFloorName.trim() ? squadFloorName.trim() : floorNameFor(squadFolder)
     settings.projects = [{ id: 'p1', name, cwd: squadFolder }]

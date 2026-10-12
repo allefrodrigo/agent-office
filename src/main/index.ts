@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, powerMonitor, session, shell } from 'electron'
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -282,6 +282,20 @@ app.whenReady().then(async () => {
   const system = new SystemMonitor()
   system.on('system', (s) => broadcast({ type: 'system', system: s }))
 
+  // Battery or charger (AO-32): the scene drops to Economia on battery when the player asked for it.
+  // Dev only: AGENT_OFFICE_BATTERY=1 starts on battery, =flip switches every 5 s (to test without pulling the cable).
+  const fakePower = !app.isPackaged ? process.env.AGENT_OFFICE_BATTERY : undefined
+  let onBattery = fakePower ? true : powerMonitor.isOnBatteryPower()
+  const setPower = (v: boolean) => {
+    if (v === onBattery) return
+    onBattery = v
+    log.info(v ? 'Na bateria' : 'Na tomada')
+    broadcast({ type: 'power', onBattery: v })
+  }
+  powerMonitor.on('on-battery', () => setPower(true))
+  powerMonitor.on('on-ac', () => setPower(false))
+  if (fakePower === 'flip') setInterval(() => setPower(!onBattery), 5000).unref()
+
   const usage = new UsageMonitor(() => store.settings.accounts)
   usage.on('usage', (u) => broadcast({ type: 'usage', usage: u }))
   const accounts = new Accounts(() => store.settings, () => usage.current())
@@ -379,6 +393,7 @@ app.whenReady().then(async () => {
     squads,
     ledgerToday: book.today(),
     dataNotices: dataNotices(),
+    onBattery,
   }))
   ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
@@ -835,12 +850,14 @@ function runBench(w: BrowserWindow, file: string): void {
   w.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
       try {
-        const report = await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000})`)
+        const paced = process.env.AGENT_OFFICE_BENCH_LIVE === '1'
+        const report = await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000}, ${paced})`)
         const gpu = app.getGPUFeatureStatus()
         const out = {
           version: app.getVersion(),
           date: new Date().toISOString(),
           demo: process.env.AGENT_OFFICE_DEMO ?? '',
+          paced,
           platform: `${process.platform}-${process.arch}`,
           electron: process.versions.electron,
           gpu,
