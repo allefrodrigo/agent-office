@@ -1,11 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, copyFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, copyFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { describeTool } from '@shared/describe'
 import type { BridgeStatus, PermissionDecision } from '@shared/types'
 import { permissionFromTool, type AgentManager } from './agents'
+import { writeFileAtomic, writeJsonAtomic } from './fs-safe'
 import { isClaudeProcess, pidForClientPort, terminate } from './session-process'
 
 /**
@@ -277,9 +278,7 @@ export class Bridge {
 
     mkdirSync(dirname(this.settingsPath), { recursive: true })
     if (existsSync(this.settingsPath)) copyFileSync(this.settingsPath, this.settingsPath + '.agent-office.bak')
-    const tmp = this.settingsPath + '.agent-office.tmp'
-    writeFileSync(tmp, JSON.stringify(settings, null, 2) + '\n', { mode: 0o600 })
-    renameSync(tmp, this.settingsPath)
+    writeJsonAtomic(this.settingsPath, settings, { mode: 0o600, space: 2, newline: true, tmpSuffix: '.agent-office.tmp' })
   }
 }
 
@@ -304,7 +303,7 @@ function loadToken(file: string): string {
   }
   const t = randomBytes(24).toString('hex')
   mkdirSync(dirname(file), { recursive: true })
-  writeFileSync(file, t, { mode: 0o600 })
+  writeFileAtomic(file, t, 0o600)
   return t
 }
 

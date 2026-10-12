@@ -4,6 +4,7 @@ import { DEFAULT_BRAND } from '../world/brand'
 import type { AgentBrain, AgentSummary, EffortLevel, Look, OfficePermissionMode, ProjectFloor, SessionEntry } from '@shared/types'
 import type { State } from '../state'
 import { accountField, openAccounts } from './accounts'
+import { dataSection } from './data'
 import { h, icon, timeAgo } from './dom'
 import { portrait } from './portrait'
 import { templatesTab } from './templates'
@@ -581,6 +582,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
         ),
         h('div', { class: 'bridge-row' }, bridgeStatus, bridgeBtn),
       ),
+      dataSection(toast),
       h(
         'div',
         { class: 'bridge-box bridge-help' },

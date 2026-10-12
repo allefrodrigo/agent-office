@@ -2519,6 +2519,39 @@ button.ab-stamp:hover {
   font-size: 12px;
 }
 
+/* Configurações → Dados */
+.backup-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.backup-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.backup-when {
+  flex: 1;
+  min-width: 0;
+}
+
+.backup-size {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.data-notice span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.backup-list > .btn {
+  align-self: flex-start;
+}
+
 /* ---------- toasts ---------- */
 
 .toasts {

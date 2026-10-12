@@ -1,5 +1,5 @@
 import { app } from 'electron'
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentResult, AgentSummary, Ledger, LogEntry, Settings } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
@@ -8,6 +8,8 @@ import { MAIN_ACCOUNT } from '@shared/accounts'
 import { mainAccount } from './accounts'
 import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
+import { backupCopies } from './backups'
+import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 
 export interface PersistedAgent {
   summary: AgentSummary
@@ -67,26 +69,28 @@ export class Store {
   private file: string
   private data: Data
   private timer: NodeJS.Timeout | null = null
+  private dir: string
+  /** Set while a restore or import replaces the files: nothing in memory may land on them. */
+  private locked = false
 
   constructor() {
-    const dir = app.getPath('userData')
-    mkdirSync(dir, { recursive: true })
-    this.file = join(dir, 'office.json')
+    this.dir = app.getPath('userData')
+    mkdirSync(this.dir, { recursive: true })
+    this.file = join(this.dir, 'office.json')
     this.data = this.load()
   }
 
   private load(): Data {
-    try {
-      const raw = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Data>
-      return {
-        settings: migrateSettings(raw.settings as Record<string, unknown> | undefined),
-        agents: raw.agents ?? [],
-        results: raw.results ?? [],
-        ledger: { ...emptyLedger(), ...raw.ledger },
-        ledgerSessions: raw.ledgerSessions ?? {},
-      }
-    } catch {
-      return { settings: { ...DEFAULT_SETTINGS }, agents: [], results: [], ledger: emptyLedger(), ledgerSessions: {} }
+    // A broken office.json is moved aside and the last good copy loads instead (AO-24).
+    const r = loadJson<Partial<Data>>(this.file, { fallbacks: backupCopies(this.dir, 'office.json') })
+    reportLoad(this.file, r)
+    const raw: Partial<Data> = r.status === 'ok' || r.status === 'restored' ? r.data : {}
+    return {
+      settings: migrateSettings(raw.settings as Record<string, unknown> | undefined),
+      agents: raw.agents ?? [],
+      results: raw.results ?? [],
+      ledger: { ...emptyLedger(), ...raw.ledger },
+      ledgerSessions: raw.ledgerSessions ?? {},
     }
   }
 
@@ -134,8 +138,13 @@ export class Store {
   flush(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
-    const tmp = this.file + '.tmp'
-    writeFileSync(tmp, JSON.stringify(this.data))
-    renameSync(tmp, this.file)
+    if (this.locked) return
+    writeJsonAtomic(this.file, this.data)
+  }
+
+  /** Writes what is pending, then stops writing for good (the app restarts next). */
+  lock(): void {
+    this.flush()
+    this.locked = true
   }
 }
