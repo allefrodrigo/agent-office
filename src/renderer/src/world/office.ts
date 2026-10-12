@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import * as F from './furniture'
 import { box, mat } from './kit'
+import { mergeStatic } from './merge'
 import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition, type Zone } from './layout'
 import { Grid } from './pathfinding'
 import { beacon, costBoard, type Beacon, type CostBoard } from './props'
@@ -232,6 +233,9 @@ export function buildOffice(): GroundFloor {
     place(F.plant(kind), x + 0.5, 23.5)
     grid.block(x, 23)
   }
+
+  // every box that never moves becomes one mesh per material (AO-30)
+  mergeStatic(group)
 
   // ---------- elevator animation ----------
   let doorOpen = 0
