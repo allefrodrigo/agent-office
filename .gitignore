@@ -11,3 +11,4 @@ dist/
 /quem-sou-eu.txt
 .agent-office/
 .claude/worktrees/
+coverage/
