@@ -4,6 +4,7 @@ import { DEFAULT_BRAND } from '../world/brand'
 import type { AgentBrain, AgentSummary, EffortLevel, Look, OfficePermissionMode, ProjectFloor, SessionEntry } from '@shared/types'
 import type { State } from '../state'
 import { DEFAULT_VIDEO, QUALITY_LABELS, QUALITY_PRESETS, qualityOf, type FpsLimit, type Quality, type ShadowMapSize, type VideoSettings } from '@shared/video'
+import { modalA11y } from './a11y'
 import { accountField, openAccounts } from './accounts'
 import { dataSection } from './data'
 import { h, icon, timeAgo } from './dom'
@@ -129,15 +130,18 @@ function meterField(label: string, meter: HTMLElement): HTMLElement {
   return h('div', { class: 'field' }, h('span', { class: 'field-label' }, label), meter)
 }
 
+/** Every window of the app. It is a labelled dialog that holds the focus and gives it back on close (see ./a11y.ts). */
 export function modal(title: string, body: HTMLElement[], footer: HTMLElement[], onClose: () => void): HTMLDivElement {
+  const heading = h('div', { class: 'modal-title' }, title)
   const box = h(
     'div',
     { class: 'modal card' },
-    h('div', { class: 'modal-head' }, h('div', { class: 'modal-title' }, title), h('button', { class: 'icon-btn', onclick: onClose }, icon('x', 18))),
+    h('div', { class: 'modal-head' }, heading, h('button', { class: 'icon-btn', title: 'Fechar (Esc)', 'aria-label': 'Fechar', onclick: onClose }, icon('x', 18))),
     h('div', { class: 'modal-body' }, ...body),
     h('div', { class: 'modal-foot' }, ...footer),
   )
   const backdrop = h('div', { class: 'backdrop' }, box)
+  modalA11y(backdrop, box, heading)
   backdrop.addEventListener('pointerdown', (e) => {
     if (e.target === backdrop) onClose()
   })

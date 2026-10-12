@@ -2,6 +2,7 @@ import { MAX_PROJECT_FLOORS } from '@shared/projects'
 import type { AgentStatus, AgentSummary, PlanUsage, UsageWindow } from '@shared/types'
 import type { State } from '../state'
 import { DEFAULT_BRAND } from '../world/brand'
+import { arrowList, asDialog, keepFocus, rove } from './a11y'
 import { accountChip } from './accounts'
 import { formatCost, h, icon, timeAgo } from './dom'
 import { contextLevel, helpersChip } from './panel'
@@ -113,6 +114,8 @@ export class Hud {
   private floorsEl: HTMLDivElement
   private floorNames: string[] = ['Térreo']
   private floor = 0
+  /** Roster row that Tab lands on (roving tabindex); kept across redraws. */
+  private rosterActive: string | null = null
 
   constructor(
     root: HTMLElement,
@@ -130,7 +133,12 @@ export class Hud {
     )
 
     this.rosterCount = h('span', { class: 'roster-count' })
-    this.rosterList = h('div', { class: 'roster-list' })
+    this.rosterList = h('div', { class: 'roster-list', role: 'list', 'aria-label': 'Agentes: setas para escolher, Enter abre o painel' })
+    arrowList(this.rosterList, '.roster-row')
+    this.rosterList.addEventListener('focusin', (e) => {
+      const row = (e.target as HTMLElement).closest<HTMLElement>('.roster-row')
+      if (row) this.rosterActive = row.dataset.focusKey ?? null
+    })
     this.roster = h(
       'div',
       { class: 'roster card' },
@@ -139,7 +147,7 @@ export class Hud {
     )
 
     this.inboxBadge = h('span', { class: 'badge hidden' })
-    this.inboxBtn = h('button', { class: 'dock-btn', title: 'Caixa de entrada', onclick: () => this.toggleInbox() }, icon('inbox'), this.inboxBadge)
+    this.inboxBtn = h('button', { class: 'dock-btn', title: 'Caixa de entrada (I)', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => this.toggleInbox() }, icon('inbox'), this.inboxBadge)
     this.gearAlert = h('span', { class: 'dock-alert hidden' })
     this.gearBtn = h('button', { class: 'dock-btn', title: 'Configurações', onclick: () => actions.settings(this.bridgeFailing() ? 'bridge' : undefined) }, icon('gear'), this.gearAlert)
     this.boardBadge = h('span', { class: 'badge badge-review hidden' })
@@ -173,11 +181,21 @@ export class Hud {
     this.info = h('div', { class: 'info card hidden' })
     const side = h('div', { class: 'hud-side' + (mac ? ' hud-side-mac' : '') }, this.info)
     this.inbox = h('div', { class: 'inbox card hidden' })
-    this.toasts = h('div', { class: 'toasts' })
+    // A popover, not a modal: the office goes on behind it. ↑/↓ pick, Enter opens, Esc closes.
+    asDialog(this.inbox, { modal: false, label: 'Caixa de entrada' })
+    arrowList(this.inbox, '.inbox-row')
+    this.inbox.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      this.hideInbox()
+      this.inboxBtn.focus()
+    })
+    // Read by screen readers as they come, without interrupting.
+    this.toasts = h('div', { class: 'toasts', role: 'status', 'aria-live': 'polite' })
     root.append(brand, side, this.roster, dock, zoom, this.floorsEl, this.inbox, this.toasts)
     document.addEventListener('pointerdown', (e) => {
       if (!this.inbox.classList.contains('hidden') && !this.inbox.contains(e.target as Node) && !this.inboxBtn.contains(e.target as Node)) {
-        this.inbox.classList.add('hidden')
+        this.hideInbox()
       }
     })
     this.render()
@@ -199,7 +217,10 @@ export class Hud {
     this.rosterCount.textContent = String(agents.length)
     this.roster.classList.toggle('hidden', agents.length === 0)
 
-    this.rosterList.replaceChildren(...agents.map((a) => this.rosterRow(a)))
+    keepFocus(this.rosterList, () => this.rosterList.replaceChildren(...agents.map((a) => this.rosterRow(a))))
+    const rows = [...this.rosterList.querySelectorAll<HTMLElement>('.roster-row')]
+    const active = rows.findIndex((r) => r.dataset.focusKey === this.rosterActive)
+    rove(rows, Math.max(0, active))
 
     const n = this.state.inboxCount
     this.inboxBadge.textContent = String(n)
@@ -470,9 +491,17 @@ export class Hud {
   private rosterRow(a: AgentSummary): HTMLElement {
     const items = this.state.itemsFor(a.id)
     const pending = items.permissions.length + items.results.length
-    return h(
+    const activity = pending ? (items.permissions.length ? 'Esperando sua decisão' : 'Quer te entregar o resultado') : a.activity
+    const row = h(
       'div',
-      { class: `roster-row status-${a.status}${pending ? ' has-pending' : ''}`, onclick: () => this.actions.openAgent(a.id) },
+      {
+        class: `roster-row status-${a.status}${pending ? ' has-pending' : ''}`,
+        role: 'listitem',
+        tabindex: -1,
+        'data-focus-key': a.id,
+        'aria-label': `${a.name}, ${STATUS_LABEL[a.status].toLowerCase()}: ${activity}`,
+        onclick: () => this.actions.openAgent(a.id),
+      },
       portrait(a.look, 34),
       h(
         'div',
@@ -488,7 +517,7 @@ export class Hud {
           accountChip(this.state, a),
           this.ticketChip(a.id),
         ),
-        h('div', { class: 'roster-activity' }, pending ? (items.permissions.length ? 'Esperando sua decisão' : 'Quer te entregar o resultado') : a.activity),
+        h('div', { class: 'roster-activity' }, activity),
         a.context
           ? h('div', { class: `ctx-mini ctx-${contextLevel(a.context.percent)}`, title: `Contexto: ${a.context.percent}%` }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, a.context.percent)}%` }))
           : null,
@@ -507,11 +536,30 @@ export class Hud {
         }, icon('eye', 15)),
       ),
     )
+    row.addEventListener('keydown', (e) => {
+      if (e.target !== row || (e.key !== 'Enter' && e.key !== ' ')) return
+      e.preventDefault()
+      e.stopPropagation()
+      this.actions.openAgent(a.id)
+    })
+    return row
   }
 
-  private toggleInbox(): void {
-    this.inbox.classList.toggle('hidden')
-    if (!this.inbox.classList.contains('hidden')) this.renderInbox()
+  /** Opens or closes the inbox popover (dock button or I). */
+  toggleInbox(): void {
+    if (!this.inbox.classList.contains('hidden')) return this.hideInbox()
+    this.inbox.classList.remove('hidden')
+    this.inboxBtn.setAttribute('aria-expanded', 'true')
+    this.renderInbox()
+    // Focus on the first item, so ↓ and Enter work right away.
+    const first = this.inbox.querySelector<HTMLElement>('.inbox-row')
+    if (first) first.focus()
+    else this.inbox.focus()
+  }
+
+  private hideInbox(): void {
+    this.inbox.classList.add('hidden')
+    this.inboxBtn.setAttribute('aria-expanded', 'false')
   }
 
   private renderInbox(): void {
@@ -523,7 +571,7 @@ export class Hud {
       rows.push(
         h(
           'button',
-          { class: 'inbox-row', onclick: () => this.pick(p.agentId, p.id) },
+          { class: 'inbox-row', 'data-focus-key': p.id, onclick: () => this.pick(p.agentId, p.id) },
           portrait(a.look, 30),
           h('div', { class: 'inbox-main' }, h('div', { class: 'inbox-name' }, a.name, h('span', { class: 'chip chip-wait' }, p.kind === 'question' ? 'pergunta' : p.kind === 'plan' ? 'plano' : 'permissão')), h('div', { class: 'inbox-text' }, p.title)),
           h('span', { class: 'inbox-time' }, timeAgo(p.createdAt)),
@@ -536,21 +584,28 @@ export class Hud {
       rows.push(
         h(
           'button',
-          { class: 'inbox-row', onclick: () => this.pick(r.agentId, r.id) },
+          { class: 'inbox-row', 'data-focus-key': r.id, onclick: () => this.pick(r.agentId, r.id) },
           portrait(a.look, 30),
           h('div', { class: 'inbox-main' }, h('div', { class: 'inbox-name' }, a.name, h('span', { class: r.isError ? 'chip chip-err' : 'chip chip-done' }, r.isError ? 'erro' : 'resultado')), h('div', { class: 'inbox-text' }, r.text.slice(0, 90))),
           h('span', { class: 'inbox-time' }, timeAgo(r.createdAt)),
         ),
       )
     }
-    this.inbox.replaceChildren(
-      h('div', { class: 'inbox-head' }, 'Caixa de entrada'),
-      ...(rows.length ? rows : [h('div', { class: 'inbox-empty' }, 'Nada pendente. Seus agentes estão trabalhando.')]),
+    keepFocus(this.inbox, () =>
+      this.inbox.replaceChildren(
+        h('div', { class: 'inbox-head' }, 'Caixa de entrada'),
+        ...(rows.length ? rows : [h('div', { class: 'inbox-empty' }, 'Nada pendente. Seus agentes estão trabalhando.')]),
+      ),
     )
+    const all = [...this.inbox.querySelectorAll<HTMLElement>('.inbox-row')]
+    const at = all.indexOf(document.activeElement as HTMLElement)
+    rove(all, Math.max(0, at))
   }
 
   private pick(agentId: string, itemId: string): void {
-    this.inbox.classList.add('hidden')
+    // The card gives the focus back to the inbox button when it closes.
+    if (this.inbox.contains(document.activeElement)) this.inboxBtn.focus()
+    this.hideInbox()
     this.actions.openItem(agentId, itemId)
   }
 

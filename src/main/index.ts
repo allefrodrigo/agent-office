@@ -809,6 +809,9 @@ app.on('window-all-closed', () => {
  * Dev helper: AGENT_OFFICE_SHOTS="out/shot:3000,8000" saves screenshots at those
  * times (ms after load) as out/shot-1.png, out/shot-2.png, then quits.
  * AGENT_OFFICE_EVAL runs a snippet in the page before each shot (e.g. to move the camera).
+ * An entry `keys:N Enter Alt+Right =texto ;; js` first types real key presses (trusted,
+ * with default actions: Enter clicks the focused button, Tab moves the focus), then runs
+ * the js after `;;`. `=texto` types text (`_` is a space). Tests the app by keyboard (AO-38).
  */
 function captureShots(w: BrowserWindow, spec: string): void {
   const [prefix, times] = spec.split(':')
@@ -818,8 +821,14 @@ function captureShots(w: BrowserWindow, spec: string): void {
   w.webContents.once('did-finish-load', () => {
     delays.forEach((ms, i) => {
       setTimeout(async () => {
-        if (evals[i]) {
-          const out = await w.webContents.executeJavaScript(evals[i]).catch((e) => `eval failed: ${e}`)
+        let js = evals[i] ?? ''
+        if (js.trim().startsWith('keys:')) {
+          const [keys, rest] = js.trim().slice(5).split(';;')
+          await pressKeys(w, keys)
+          js = rest ?? ''
+        }
+        if (js.trim()) {
+          const out = await w.webContents.executeJavaScript(js).catch((e) => `eval failed: ${e}`)
           if (out !== undefined) console.log(`[shot ${i + 1}]`, typeof out === 'string' ? out : JSON.stringify(out))
         }
         await new Promise((r) => setTimeout(r, 400))
@@ -836,6 +845,34 @@ function captureShots(w: BrowserWindow, spec: string): void {
       }, ms)
     })
   })
+}
+
+type KeyModifier = 'shift' | 'alt' | 'meta' | 'control'
+const KEY_MODIFIERS: Record<string, KeyModifier> = { shift: 'shift', alt: 'alt', meta: 'meta', cmd: 'meta', ctrl: 'control' }
+
+/** Real key presses for AGENT_OFFICE_EVAL `keys:` entries, 120 ms apart. */
+async function pressKeys(w: BrowserWindow, spec: string): Promise<void> {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  const press = (keyCode: string, modifiers: KeyModifier[] = []) => {
+    w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+    // Chromium clicks a focused button on Enter's char event (keypress), not on keydown.
+    const char = keyCode === 'Enter' ? '\r' : keyCode.length === 1 ? keyCode : null
+    if (char && modifiers.every((m) => m === 'shift')) w.webContents.sendInputEvent({ type: 'char', keyCode: char, modifiers })
+    w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+  }
+  for (const token of spec.trim().split(/\s+/).filter(Boolean)) {
+    if (token.startsWith('=')) {
+      for (const ch of token.slice(1).replace(/_/g, ' ')) {
+        press(ch)
+        await wait(30)
+      }
+    } else {
+      const parts = token.split('+')
+      const key = parts.pop()!
+      press(key, parts.map((m) => KEY_MODIFIERS[m.toLowerCase()]).filter(Boolean))
+    }
+    await wait(120)
+  }
 }
 
 /**

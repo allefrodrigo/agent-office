@@ -114,6 +114,11 @@ export class AgentManager extends EventEmitter {
   accounts?: Accounts
   /** The cost book: every SDK result is booked there. */
   book?: CostBook
+  /**
+   * Demo mode: plays office agents' runs instead of starting Claude Code, so hiring and
+   * talking can be shown (and tested by keyboard, AO-38) without spending tokens.
+   */
+  simulate?: (agentId: string, prompt: string) => void
 
   constructor(private store: Store) {
     super()
@@ -451,6 +456,7 @@ export class AgentManager extends EventEmitter {
 
   private run(agent: Agent, prompt: Prompt): void {
     const s = agent.summary
+    if (this.simulate) return this.simulate(s.id, typeof prompt === 'string' ? prompt : '(mensagem com anexos)')
     const claude = findClaude()
     if (!claude) {
       this.deliver(agent, {

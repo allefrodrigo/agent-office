@@ -15,6 +15,8 @@ import { openReports } from './ui/reports'
 import { copyReport, exportConversation } from './ui/export'
 import { showDataNotice } from './ui/data'
 import { mountUpdateNotice } from './ui/updates'
+import { announce, isTyping, mountLiveRegions } from './ui/a11y'
+import { openShortcuts } from './ui/shortcuts'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
 // Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
@@ -37,6 +39,8 @@ async function boot(): Promise<void> {
   const state = new State(initial)
   const ui = document.getElementById('ui')!
   document.body.classList.add(`platform-${state.platform}`)
+  // Empty from the start, so screen readers read what goes in later (AO-38).
+  mountLiveRegions(document.body)
 
   // Cards the player closed with "later" stay closed until they walk away and back.
   const dismissed = new Set<string>()
@@ -203,6 +207,7 @@ async function boot(): Promise<void> {
     toast,
     exportConversation: (id) => void exportConversation(state, id, toast),
     copyReport: (id) => void copyReport(state, id, toast),
+    focusCard: () => dialog.focus(),
   })
 
   const dialog = new Dialog(ui, state, {
@@ -222,17 +227,30 @@ async function boot(): Promise<void> {
     toast,
   })
 
-  // T opens the board, like a shortcut in any kanban; N opens "Novo agente"; R the reports.
+  // T opens the board, like a shortcut in any kanban; N opens "Novo agente"; R the reports; I the inbox.
   window.addEventListener('keydown', (e) => {
     const a = document.activeElement
     if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
     if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
+    if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()
       void newAgent()
     }
   })
+
+  // ? lists every shortcut. Capture phase: it works over the board and windows too, which stop the keys they use.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping()) return
+      e.preventDefault()
+      e.stopPropagation()
+      openShortcuts(ui, state.platform)
+    },
+    true,
+  )
 
   // Remember which card the player closed without deciding.
   const closeDialog = dialog.close.bind(dialog)
@@ -311,6 +329,14 @@ async function boot(): Promise<void> {
     if (e.type === 'permission:new') {
       const a = state.agents.get(e.request.agentId)
       if (a) toast(`${a.name} está indo até a sua sala.`, 'info')
+      // Interrupts the screen reader: the agent is stopped until the player decides.
+      if (a) {
+        const r = e.request
+        const what = r.kind === 'question' ? 'tem uma pergunta' : r.kind === 'plan' ? 'trouxe um plano' : 'pede sua permissão'
+        const detail = r.kind === 'tool' && r.detail ? ` ${r.detail.split('\n')[0].slice(0, 100)}.` : ''
+        const how = r.kind === 'question' ? 'Abra o cartão para responder.' : `Enter no cartão permite, ${state.platform === 'darwin' ? 'Command' : 'Control'} Backspace nega. I abre a caixa de entrada.`
+        announce(`${a.name} ${what}: ${r.title.replace(/[.?!:]*$/, '')}.${detail} ${how}`, 'assertive')
+      }
     } else if (e.type === 'result:new') {
       const a = state.agents.get(e.result.agentId)
       if (a) toast(e.result.isError ? `${a.name} teve um problema.` : `${a.name} terminou e vai te entregar o resultado.`, e.result.isError ? 'err' : 'ok')

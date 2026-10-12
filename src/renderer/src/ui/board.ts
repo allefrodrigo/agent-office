@@ -1,7 +1,8 @@
 import { projectFor } from '@shared/projects'
-import { labelOf, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
+import { labelOf, neighborStatus, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
 import type { Actor, AgentSummary, OfficePermissionMode, ProjectFloor, Ticket, TicketPatch, TicketPriority, TicketStatus, TicketType } from '@shared/types'
 import type { State } from '../state'
+import { announce, asDialog, FocusReturn, keepFocus, rove } from './a11y'
 import { h, icon, timeAgo } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
@@ -60,6 +61,9 @@ export class Board {
   private commentBox: HTMLTextAreaElement
   private descDraft: string | null = null
   private briefOpen = false
+  /** Card that Tab lands on (roving tabindex); the arrows move it. */
+  private cardActive: string | null = null
+  private focusBack = new FocusReturn()
 
   constructor(
     private root: HTMLElement,
@@ -87,13 +91,15 @@ export class Board {
     )
     this.commentBox = h('textarea', { class: 'input', rows: 2, placeholder: 'Comente, peça ajustes, registre uma decisão…' })
 
+    const heading = h('span', {}, 'Quadro de tickets')
+    const title = h('div', { class: 'board-title' }, icon('kanban', 18), heading, this.count)
     this.el = h(
       'div',
       { class: 'board card hidden', tabindex: -1 },
       h(
         'div',
         { class: 'board-head' },
-        h('div', { class: 'board-title' }, icon('kanban', 18), 'Quadro de tickets', this.count),
+        title,
         this.floorFilter,
         this.search,
         this.typeFilter,
@@ -106,6 +112,7 @@ export class Board {
       ),
       h('div', { class: 'board-body' }, this.cols, this.detail),
     )
+    asDialog(this.el, { title: heading })
     this.el.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !(e.target instanceof HTMLTextAreaElement)) {
         if (this.selected) this.select(null)
@@ -131,6 +138,7 @@ export class Board {
       if (this.floorFilter.value) this.floorFilter.value = this.floorOf(linked)
     } else if (!wasOpen) this.floorFilter.value = this.actions.currentProject()?.id ?? GROUND
     if (ticketId) this.selected = ticketId
+    if (!wasOpen) this.focusBack.save(this.el)
     this.render()
     this.el.focus()
   }
@@ -138,6 +146,7 @@ export class Board {
   close(): void {
     this.el.classList.add('hidden')
     this.select(null)
+    this.focusBack.restore(this.el)
   }
 
   toggle(): void {
@@ -218,14 +227,49 @@ export class Board {
     const shown = this.visible()
     const total = this.onFloor().length
     this.count.textContent = shown.length === total ? String(total) : `${shown.length} de ${total}`
-    this.cols.replaceChildren(
-      ...STATUSES.map((s) => {
-        let list = shown.filter((t) => t.status === s.value).sort((a, b) => a.order - b.order)
-        const hidden = s.value === 'done' && list.length > DONE_SHOWN ? list.length - DONE_SHOWN : 0
-        if (hidden) list = list.slice(-DONE_SHOWN)
-        return this.column(s.value, s.label, list, hidden)
-      }),
+    // A card moved with ⌥←/→ keeps the focus in its new column.
+    keepFocus(this.cols, () =>
+      this.cols.replaceChildren(
+        ...STATUSES.map((s) => {
+          let list = shown.filter((t) => t.status === s.value).sort((a, b) => a.order - b.order)
+          const hidden = s.value === 'done' && list.length > DONE_SHOWN ? list.length - DONE_SHOWN : 0
+          if (hidden) list = list.slice(-DONE_SHOWN)
+          return this.column(s.value, s.label, list, hidden)
+        }),
+      ),
     )
+    const cards = [...this.cols.querySelectorAll<HTMLElement>('.tcard')]
+    const at = cards.findIndex((c) => c.dataset.id === this.cardActive)
+    rove(cards, at >= 0 ? at : Math.max(0, cards.findIndex((c) => c.dataset.id === this.selected)))
+  }
+
+  /** ⌥←/⌥→ on a card: the column next door, at the end, like a drop on its blank space. */
+  private moveByKey(t: Ticket, dir: -1 | 1): void {
+    const to = neighborStatus(t.status, dir)
+    if (!to) return
+    const label = labelOf(STATUSES, to)
+    window.office
+      .moveTicket(t.id, to)
+      .then(() => announce(`${t.key} foi para ${label}.`))
+      .catch((err) => this.actions.toast(cleanError(err), 'err'))
+  }
+
+  /** Arrows on a card: ↑/↓ in its column, ←/→ to the nearest card of the next column with any. */
+  private focusNeighbor(card: HTMLElement, key: string): void {
+    const columns = [...this.cols.querySelectorAll<HTMLElement>('.tcol')].map((c) => [...c.querySelectorAll<HTMLElement>('.tcard')])
+    const col = columns.findIndex((list) => list.includes(card))
+    if (col < 0) return
+    const row = columns[col].indexOf(card)
+    let target: HTMLElement | undefined
+    if (key === 'ArrowUp' || key === 'ArrowDown') target = columns[col][row + (key === 'ArrowDown' ? 1 : -1)]
+    else {
+      const dir = key === 'ArrowRight' ? 1 : -1
+      for (let c = col + dir; c >= 0 && c < columns.length && !target; c += dir) target = columns[c][Math.min(row, columns[c].length - 1)]
+    }
+    if (!target) return
+    this.cardActive = target.dataset.id ?? null
+    rove([...this.cols.querySelectorAll<HTMLElement>('.tcard')], [...this.cols.querySelectorAll('.tcard')].indexOf(target))
+    target.focus()
   }
 
   private column(status: TicketStatus, label: string, tickets: Ticket[], hidden: number): HTMLElement {
@@ -253,6 +297,8 @@ export class Board {
       clearDropMarks(this.cols)
       window.office.moveTicket(id, status, before).catch((err) => this.actions.toast(cleanError(err), 'err'))
     })
+    list.setAttribute('role', 'group')
+    list.setAttribute('aria-label', `Coluna ${label}`)
     return h(
       'div',
       { class: `tcol tcol-${status}` },
@@ -278,7 +324,17 @@ export class Board {
     const agent = t.assignee?.id ? this.state.agents.get(t.assignee.id) : undefined
     const el = h(
       'div',
-      { class: `tcard prio-${t.priority}${t.id === this.selected ? ' on' : ''}`, draggable: 'true', onclick: () => this.select(t.id) },
+      {
+        class: `tcard prio-${t.priority}${t.id === this.selected ? ' on' : ''}`,
+        draggable: 'true',
+        role: 'button',
+        tabindex: -1,
+        'data-focus-key': t.id,
+        'aria-label': `${t.key}: ${t.title}. ${labelOf(STATUSES, t.status)}, prioridade ${labelOf(PRIORITIES, t.priority).toLowerCase()}`,
+        'aria-keyshortcuts': 'Alt+ArrowLeft Alt+ArrowRight',
+        'aria-pressed': String(t.id === this.selected),
+        onclick: () => this.select(t.id),
+      },
       h(
         'div',
         { class: 'tcard-top' },
@@ -302,6 +358,21 @@ export class Board {
       ),
     )
     el.dataset.id = t.id
+    // Enter abre, setas andam entre cartões, ⌥←/⌥→ muda de coluna (o arrastar pelo teclado).
+    el.addEventListener('focus', () => (this.cardActive = t.id))
+    el.addEventListener('keydown', (e) => {
+      if (e.target !== el || e.metaKey || e.ctrlKey) return
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        this.select(t.id)
+      } else if (e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault()
+        this.moveByKey(t, e.key === 'ArrowLeft' ? -1 : 1)
+      } else if (!e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+        e.preventDefault()
+        this.focusNeighbor(el, e.key)
+      }
+    })
     el.addEventListener('dragstart', (e) => {
       this.dragging = t.id
       e.dataTransfer!.setData('text/plain', t.key)

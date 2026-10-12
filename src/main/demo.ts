@@ -12,6 +12,7 @@ export function startDemo(manager: AgentManager, squads: SquadDefinition[] = [])
   // With a squad folder set, the biggest squad plays a cycle on the squad floor too.
   const squad = [...squads].sort((a, b) => b.members.length - a.members.length)[0]
   if (squad) setTimeout(() => startSquadDemo(manager, squad), 1500)
+  manager.simulate = (id, prompt) => simulateRun(manager, id, prompt)
 
   const tools: [string, Record<string, unknown>][] = [
     ['Read', { file_path: 'src/app.tsx' }],
@@ -69,6 +70,29 @@ export function startDemo(manager: AgentManager, squads: SquadDefinition[] = [])
       'Corrigi o bug do login.\n\n- O token expirava antes da hora por causa do fuso.\n- Adicionei 3 testes em `auth.test.ts`.\n- Todos os testes passam.',
     )
   }, 6000)
+}
+
+/**
+ * A hired or summoned agent in demo mode: reads the request, asks to run the tests, and
+ * hands a result after the decision. Same path as a real run (permission card, result card).
+ */
+function simulateRun(manager: AgentManager, id: string, prompt: string): void {
+  manager.terminalUpdate(id, 'working', 'Lendo seu pedido')
+  setTimeout(() => {
+    manager.terminalUpdate(id, 'working', 'Lendo src/app.tsx', { kind: 'tool', text: 'Read {"file_path":"src/app.tsx"}', tool: 'Read' })
+  }, 1200)
+  setTimeout(() => {
+    manager.requestDecision(id, permissionFromTool('Bash', { command: 'npm test -- --watch=false', description: 'Roda os testes' }, undefined, true), (d) => {
+      if (d.behavior === 'deny') return manager.terminalResult(id, `Não rodei os testes, como você pediu.${d.message ? `
+
+Sua orientação: ${d.message}` : ''}`)
+      manager.terminalUpdate(id, 'working', 'Rodando os testes')
+      setTimeout(() => manager.terminalResult(id, `Feito (demonstração): ${prompt.slice(0, 120)}
+
+- Li o código.
+- Rodei os testes: 42 passaram.`), 2500)
+    })
+  }, 2500)
 }
 
 /** Stress mode: 50 agents spread over the ground floor and three project floors. */
