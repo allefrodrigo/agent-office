@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
@@ -19,6 +19,8 @@ import type {
   TicketStatus,
   TicketType,
 } from '@shared/types'
+import { backupCopies } from './backups'
+import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 
 const KEY_PREFIX = 'AO'
 const MAX_TITLE = 160
@@ -29,6 +31,8 @@ const MAX_COMMENTS = 300
 const MAX_ACTIVITY = 200
 const MAX_CLOSED_SHOWN = 200
 const DAY = 86_400_000
+
+const keyNumber = (key: string): number => Number(/-(\d+)$/.exec(key)?.[1] ?? 0)
 
 const STATUS_VALUES = STATUSES.map((s) => s.value) as [TicketStatus, ...TicketStatus[]]
 const TYPE_VALUES = TYPES.map((s) => s.value) as [TicketType, ...TicketType[]]
@@ -55,8 +59,10 @@ export class TicketBoard extends EventEmitter {
   private closedData: Ticket[] | null = null
   private timer: NodeJS.Timeout | null = null
   private closedDirty = false
+  /** Set while a restore or import replaces the files: nothing in memory may land on them. */
+  private locked = false
 
-  constructor(dir: string) {
+  constructor(private dir: string) {
     super()
     mkdirSync(dir, { recursive: true })
     this.file = join(dir, 'tickets.json')
@@ -66,23 +72,26 @@ export class TicketBoard extends EventEmitter {
 
   private get closed(): Ticket[] {
     if (!this.closedData) {
-      try {
-        const raw = JSON.parse(readFileSync(this.closedFile, 'utf8')) as { tickets?: Ticket[] }
-        this.closedData = Array.isArray(raw.tickets) ? raw.tickets : []
-      } catch {
-        this.closedData = []
-      }
+      // A broken archive is moved aside, never replaced by the next "Fechar" (AO-24).
+      const r = loadJson<{ tickets?: Ticket[] }>(this.closedFile, { fallbacks: backupCopies(this.dir, 'tickets-closed.json') })
+      reportLoad(this.closedFile, r)
+      const raw = r.status === 'ok' || r.status === 'restored' ? r.data : {}
+      this.closedData = Array.isArray(raw.tickets) ? raw.tickets : []
+      // What came from a backup goes back to disk under the real name.
+      if (r.status === 'restored') this.closedDirty = true
     }
     return this.closedData
   }
 
   private load(): Data {
-    try {
-      const raw = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Data>
-      return { seq: raw.seq ?? 0, tickets: raw.tickets ?? [] }
-    } catch {
-      return { seq: 0, tickets: [] }
-    }
+    // A broken board is moved aside and the last good copy loads, so AO-N keys never repeat (AO-24).
+    const r = loadJson<Partial<Data>>(this.file, { fallbacks: backupCopies(this.dir, 'tickets.json') })
+    reportLoad(this.file, r)
+    const raw: Partial<Data> = r.status === 'ok' || r.status === 'restored' ? r.data : {}
+    const data = { seq: raw.seq ?? 0, tickets: raw.tickets ?? [] }
+    // An older copy (or none) may be behind the keys already handed out: count past them.
+    if (r.status === 'restored' || r.status === 'lost') data.seq = Math.max(data.seq, ...[...data.tickets, ...this.closed].map((t) => keyNumber(t.key)))
+    return data
   }
 
   // ---------- reads ----------
@@ -329,15 +338,18 @@ export class TicketBoard extends EventEmitter {
   flush(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
-    const tmp = this.file + '.tmp'
-    writeFileSync(tmp, JSON.stringify(this.data))
-    renameSync(tmp, this.file)
+    if (this.locked) return
+    writeJsonAtomic(this.file, this.data)
     if (this.closedDirty && this.closedData) {
-      const ctmp = this.closedFile + '.tmp'
-      writeFileSync(ctmp, JSON.stringify({ tickets: this.closedData }))
-      renameSync(ctmp, this.closedFile)
+      writeJsonAtomic(this.closedFile, { tickets: this.closedData })
       this.closedDirty = false
     }
+  }
+
+  /** Writes what is pending, then stops writing for good (the app restarts next). */
+  lock(): void {
+    this.flush()
+    this.locked = true
   }
 
   // ---------- agent tools ----------

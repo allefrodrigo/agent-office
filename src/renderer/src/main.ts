@@ -7,14 +7,31 @@ import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
-import type { ProjectFloor } from '@shared/types'
+import type { DataNotice, ProjectFloor } from '@shared/types'
 import { openAccounts } from './ui/accounts'
 import { openSkull } from './ui/skull'
 import { openReports } from './ui/reports'
+import { showDataNotice } from './ui/data'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
+// Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
+window.addEventListener('error', (e) => {
+  window.office.reportError({
+    kind: 'error',
+    message: String(e.message || e.error?.message || 'erro sem mensagem'),
+    source: e.filename ? `${e.filename}:${e.lineno}:${e.colno}` : undefined,
+    stack: e.error instanceof Error ? e.error.stack : undefined,
+  })
+})
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason
+  window.office.reportError({ kind: 'rejection', message: r instanceof Error ? r.message : String(r), stack: r instanceof Error ? r.stack : undefined })
+})
+
 async function boot(): Promise<void> {
-  const state = new State(await window.office.getState())
+  const initial = await window.office.getState()
+  const initialNotices = initial.dataNotices ?? []
+  const state = new State(initial)
   const ui = document.getElementById('ui')!
   document.body.classList.add(`platform-${state.platform}`)
 
@@ -231,7 +248,17 @@ async function boot(): Promise<void> {
     }
   })
 
+  // Data files found corrupt (AO-24): one warning each, now and when the archive loads later.
+  const noticed = new Set<string>()
+  const notice = (n: DataNotice) => {
+    if (noticed.has(n.id)) return
+    noticed.add(n.id)
+    showDataNotice(ui, n)
+  }
+  for (const n of initialNotices) notice(n)
+
   window.office.onEvent((e) => {
+    if (e.type === 'data:notice') return notice(e.notice)
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
     // Every 3 s: redraw only the info card (it also ticks the reset countdowns), not the whole HUD.
@@ -287,5 +314,6 @@ async function boot(): Promise<void> {
 }
 
 boot().catch((err) => {
+  window.office.reportError({ kind: 'error', message: `Falha ao iniciar: ${err instanceof Error ? err.message : String(err)}`, stack: err instanceof Error ? err.stack : undefined })
   document.body.textContent = `Falha ao iniciar: ${err instanceof Error ? err.message : String(err)}`
 })
