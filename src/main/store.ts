@@ -64,7 +64,7 @@ function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
     const name = typeof squadFloorName === 'string' && squadFloorName.trim() ? squadFloorName.trim() : floorNameFor(squadFolder)
     settings.projects = [{ id: 'p1', name, cwd: squadFolder }]
   }
-  // Templates came in v0.3.3: older files have none, and a broken one is dropped, not fatal.
+  // Templates came in v0.3.4: older files have none, and a broken one is dropped, not fatal.
   settings.templates = loadTemplates(settings.templates, settings.projects)
   return settings
 }

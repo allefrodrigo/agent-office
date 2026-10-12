@@ -66,7 +66,7 @@ export function cleanTemplate(raw: unknown, projects: ProjectFloor[]): AgentTemp
 }
 
 /**
- * Templates read from office.json. Files from before v0.3.3 have none; a broken entry
+ * Templates read from office.json. Files from before v0.3.4 have none; a broken entry
  * is dropped instead of taking the settings down, and one whose floor is gone turns global.
  */
 export function loadTemplates(raw: unknown, projects: ProjectFloor[]): AgentTemplate[] {
