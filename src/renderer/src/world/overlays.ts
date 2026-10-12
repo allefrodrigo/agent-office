@@ -97,6 +97,11 @@ export class Overlays {
     private engine: Engine,
   ) {}
 
+  /** HTML elements following the world: name tags plus zone labels. */
+  get count(): number {
+    return this.tags.size + this.labels.length
+  }
+
   add(tag: Tag): Tag {
     this.tags.add(tag)
     this.root.appendChild(tag.el)

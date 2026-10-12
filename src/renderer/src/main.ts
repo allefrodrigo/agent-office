@@ -1,5 +1,6 @@
 import './styles.css'
 import { Game } from './game'
+import { bindPerfKeys, perf } from './perf'
 import { State } from './state'
 import { Board } from './ui/board'
 import { AgentPanel } from './ui/panel'
@@ -254,17 +255,24 @@ async function boot(): Promise<void> {
     }
   })
 
-  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, { __game: game, __state: state, __panel: panel, __dialog: dialog, __board: board })
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, { __game: game, __state: state, __perf: perf, __panel: panel, __dialog: dialog, __board: board })
 
-  // Full frame rate while the window has focus; ~20 fps in the background to save battery.
+  // F3 (or ?perf) shows fps, draw calls and GPU memory; the bench reads the same numbers.
+  bindPerfKeys()
+  perf.source('overlays', () => game.overlays.count)
+  perf.source('agentes', () => state.agents.size)
+
+  // Full frame rate while the window has focus; ~20 fps in the background to save battery (not while the bench records).
   let last = performance.now()
   const frame = (now: number) => {
     requestAnimationFrame(frame)
-    if (!document.hasFocus() && now - last < 50) return
+    if (!document.hasFocus() && !perf.recording && now - last < 50) return
     const dt = Math.min(0.05, (now - last) / 1000)
     last = now
+    perf.begin()
     game.update(dt)
     radio.update()
+    perf.frame(game.engine.renderer, dt)
   }
   requestAnimationFrame(frame)
 }

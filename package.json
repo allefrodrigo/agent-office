@@ -14,6 +14,7 @@
     "dist:mac": "electron-vite build && electron-builder --mac",
     "dist:win": "electron-vite build && electron-builder --win",
     "demo": "AGENT_OFFICE_DEMO=1 electron-vite dev",
+    "bench": "electron-vite build && node scripts/bench.mjs",
     "icon": "node scripts/make-icon.mjs",
     "dmg-bg": "electron scripts/make-dmg-background.mjs"
   },

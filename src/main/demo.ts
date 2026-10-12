@@ -2,6 +2,7 @@ import type { SquadProgress } from '@shared/types'
 import type { AgentManager } from './agents'
 import { permissionFromTool } from './agents'
 import type { SquadDefinition } from './squads'
+import type { Store } from './store'
 
 /**
  * Demo mode (AGENT_OFFICE_DEMO=1): fills the office with simulated agents so the
@@ -68,6 +69,71 @@ export function startDemo(manager: AgentManager, squads: SquadDefinition[] = [])
       'Corrigi o bug do login.\n\n- O token expirava antes da hora por causa do fuso.\n- Adicionei 3 testes em `auth.test.ts`.\n- Todos os testes passam.',
     )
   }, 6000)
+}
+
+/** Stress mode: 50 agents spread over the ground floor and three project floors. */
+const STRESS_AGENTS = 50
+const STRESS_FLOORS = 3
+const STRESS_ROOT = '/Users/demo/stress'
+
+/**
+ * AGENT_OFFICE_DEMO=stress, step 1 (before the window opens): three project floors,
+ * in memory only. Refuses to run without AGENT_OFFICE_DATA_DIR, so the stress floors
+ * never end up in the user's own office.json. Returns false when it refused.
+ */
+export function prepareStress(store: Store): boolean {
+  if (!process.env.AGENT_OFFICE_DATA_DIR) {
+    console.error('AGENT_OFFICE_DEMO=stress precisa de AGENT_OFFICE_DATA_DIR (ex.: AGENT_OFFICE_DATA_DIR=$(mktemp -d)) para não tocar nos seus dados.')
+    return false
+  }
+  const colors = ['#2f8f83', '#6c5ce7', '#e17055']
+  const s = store.settings
+  // Mutated in place: no save is scheduled for it (and the data dir is a throwaway anyway).
+  s.notifications = false
+  s.projects = Array.from({ length: STRESS_FLOORS }, (_, i) => ({ id: `stress-${i + 1}`, name: `Carga ${i + 1}`, cwd: `${STRESS_ROOT}/andar-${i + 1}`, brandColor: colors[i], uniform: i === 1 }))
+  return true
+}
+
+/**
+ * AGENT_OFFICE_DEMO=stress, step 2: 50 terminal agents, a quarter per floor. They keep
+ * switching between working and idle, and every few seconds one of them walks over to
+ * deliver a result (riding the elevator down from its floor), which is acked a bit later.
+ */
+export function startStress(manager: AgentManager): void {
+  const cwds = ['/Users/demo/terreo', ...Array.from({ length: STRESS_FLOORS }, (_, i) => `${STRESS_ROOT}/andar-${i + 1}`)]
+  const ids: string[] = []
+  for (let i = 0; i < STRESS_AGENTS; i++) {
+    const a = manager.terminalAgent(`stress-${i}`, `${cwds[i % cwds.length]}/repo-${i}`)
+    manager.terminalPrompt(a.id, 'Carga de teste')
+    ids.push(a.id)
+  }
+  const tools = ['Read src/app.tsx', 'Edit src/routes/api.ts', 'Bash npm test', 'Grep useEffect', 'Write docs/README.md']
+  for (const id of ids) {
+    const tick = () => {
+      const a = manager.list().find((x) => x.id === id)
+      if (!a) return
+      if (a.status === 'working' || a.status === 'idle') {
+        const busy = Math.random() < 0.75
+        manager.terminalUpdate(id, busy ? 'working' : 'idle', busy ? tools[Math.floor(Math.random() * tools.length)] : 'Esperando no terminal')
+      }
+      setTimeout(tick, 2000 + Math.random() * 4000)
+    }
+    setTimeout(tick, 500 + Math.random() * 3000)
+  }
+  // Someone walks to the boss office with a result every ~4 s; the player "reads" it 8 s later.
+  const deliver = () => {
+    const free = manager.list().filter((a) => ids.includes(a.id) && a.status === 'working')
+    const a = free[Math.floor(Math.random() * free.length)]
+    if (a) {
+      manager.terminalResult(a.id, 'Resultado de carga (simulado).')
+      setTimeout(() => {
+        for (const r of manager.pendingResults()) if (r.agentId === a.id) manager.ackResult(r.id)
+        manager.terminalUpdate(a.id, 'working', 'Voltando ao trabalho')
+      }, 8000)
+    }
+    setTimeout(deliver, 4000)
+  }
+  setTimeout(deliver, 3000)
 }
 
 function describe(tool: string, input: Record<string, unknown>): string {
