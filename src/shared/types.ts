@@ -472,6 +472,8 @@ export type OfficeEvent =
   | { type: 'ledger:today'; today: LedgerToday }
   /** Claude Code statistics were read again from disk. */
   | { type: 'stats'; stats: ClaudeStats }
+  /** The player clicked a system notification: open the card of that request or result now. */
+  | { type: 'notice:open'; agentId: string; itemId: string }
 
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
@@ -544,6 +546,8 @@ export interface OfficeAPI {
   getStats(): Promise<ClaudeStats>
   /** Reads the new bytes of the transcripts now (disk only, no API call). */
   refreshStats(): Promise<ClaudeStats>
+  /** Asks where to save (Save dialog) and writes the Markdown there. Resolves the path, or null if cancelled. */
+  saveMarkdown(fileName: string, content: string): Promise<string | null>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

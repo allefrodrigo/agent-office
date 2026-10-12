@@ -1,11 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
-import { isAbsolute, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { z } from 'zod'
+import { permissionNotice } from '@shared/permission-notice'
 import { floorNameFor, MAX_PROJECT_FLOORS, projectFor } from '@shared/projects'
 import { EFFORT_LEVELS } from '@shared/types'
-import type { Account, Actor, AgentBrain, DelegateTarget, HireRequest, LedgerQuery, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, ProjectFloor, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
+import type { Account, Actor, AgentBrain, DelegateTarget, HireRequest, LedgerQuery, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, PermissionRequest, ProjectFloor, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { Accounts } from './accounts'
 import { AgentManager } from './agents'
@@ -153,15 +155,94 @@ function cleanLedgerQuery(raw: unknown): LedgerQuery {
   return q
 }
 
-function notify(store: Store, title: string, body: string): void {
-  if (!store.settings.notifications || !Notification.isSupported()) return
-  if (win?.isFocused()) return
+/** A card the notification points at: a permission request or a result. */
+interface NoticeTarget {
+  agentId: string
+  itemId: string
+}
+
+/**
+ * Notifications on screen, by item. Holding them keeps the GC from dropping their click
+ * and action handlers while they sit in the Notification Center.
+ */
+const notices = new Map<string, Notification>()
+const MAX_NOTICES = 40
+
+function keepNotice(itemId: string, n: Notification): void {
+  dropNotice(itemId)
+  notices.set(itemId, n)
+  while (notices.size > MAX_NOTICES) notices.delete(notices.keys().next().value!)
+}
+
+/** The item was decided or acked (here, in the terminal or from the notification): take it off the screen. */
+function dropNotice(itemId: string): void {
+  notices.get(itemId)?.close()
+  notices.delete(itemId)
+}
+
+/** Window forward and the card of the item open right away, without waiting for the walk. */
+function openFromNotice(target: NoticeTarget): void {
+  if (!win || win.isDestroyed()) {
+    // Window closed (macOS): it opens again and the card comes when the agent arrives.
+    win = createWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+  win.webContents.send('office:event', { type: 'notice:open', ...target } satisfies OfficeEvent)
+}
+
+function canNotify(store: Store): boolean {
+  return store.settings.notifications && Notification.isSupported() && !win?.isFocused()
+}
+
+function notify(store: Store, title: string, body: string, target?: NoticeTarget): void {
+  if (!canNotify(store)) return
   const n = new Notification({ title, body, silent: false })
-  n.on('click', () => {
-    win?.show()
-    win?.focus()
-  })
+  n.on('click', () => (target ? openFromNotice(target) : (win?.show(), win?.focus())))
+  if (target) keepNotice(target.itemId, n)
   n.show()
+}
+
+/**
+ * Permission request. On macOS: "Permitir" (only for what permissionNotice deems safe to
+ * approve unseen) and an inline reply that denies with an instruction. Windows and Linux:
+ * the click opens the card (toast actions there need a registered COM activator).
+ */
+function notifyPermission(store: Store, manager: AgentManager, req: PermissionRequest, agentName: string): void {
+  if (!canNotify(store)) return
+  const notice = permissionNotice(req, agentName, process.platform)
+  const n = new Notification({
+    title: notice.title,
+    body: notice.body,
+    silent: false,
+    actions: notice.allow ? [{ type: 'button', text: 'Permitir' }] : [],
+    hasReply: notice.reply,
+    replyPlaceholder: req.kind === 'plan' ? 'O que mudar no plano?' : 'Negar e dizer o que fazer…',
+  })
+  const target = { agentId: req.agentId, itemId: req.id }
+  n.on('click', () => openFromNotice(target))
+  n.on('action', (details, index) => {
+    // Checked again here: the button exists only when allow is true.
+    if (!notice.allow || (details.actionIndex ?? index) !== 0) return
+    manager.respond({ requestId: req.id, behavior: 'allow' })
+  })
+  n.on('reply', (details, reply) => {
+    if (!notice.reply) return
+    const text = String(details.reply ?? reply ?? '').trim().slice(0, 2000)
+    manager.respond({ requestId: req.id, behavior: 'deny', message: text || (req.kind === 'plan' ? 'Revise o plano.' : 'Negado pela notificação.') })
+  })
+  keepNotice(req.id, n)
+  n.show()
+}
+
+/** Save dialog for Markdown exports: a plain file name and text, no bigger than 20 MB. */
+const SaveMarkdownArgs = z.tuple([z.string().max(200), z.string().max(20_000_000)])
+
+function markdownFileName(raw: string): string {
+  const name = basename(raw).replace(/[^\p{L}\p{N}._ -]+/gu, '-').replace(/^[.\s-]+/, '').slice(0, 100) || 'agent-office'
+  return name.toLowerCase().endsWith('.md') ? name : `${name}.md`
 }
 
 dropInheritedClaudeEnv()
@@ -206,11 +287,12 @@ app.whenReady().then(async () => {
   manager.on('event', (e: OfficeEvent) => {
     broadcast(e)
     if (e.type === 'permission:new') {
-      notify(store, `${nameOf(e.request.agentId)} está indo até você`, e.request.context ? `${e.request.context}: ${e.request.title}` : e.request.title)
+      notifyPermission(store, manager, e.request, nameOf(e.request.agentId))
       if (process.platform === 'darwin' && !win?.isFocused()) app.dock?.bounce('informational')
     } else if (e.type === 'result:new') {
-      notify(store, `${nameOf(e.result.agentId)} terminou`, e.result.text.slice(0, 140))
-    }
+      notify(store, `${nameOf(e.result.agentId)} terminou`, e.result.text.slice(0, 140), { agentId: e.result.agentId, itemId: e.result.id })
+    } else if (e.type === 'permission:resolved') dropNotice(e.requestId)
+    else if (e.type === 'result:acked') dropNotice(e.resultId)
     if (e.type.startsWith('permission:') || e.type.startsWith('result:')) updateBadge()
   })
 
@@ -266,6 +348,20 @@ app.whenReady().then(async () => {
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
   ipcMain.handle('office:getStats', () => stats.current())
   ipcMain.handle('office:refreshStats', () => stats.refresh())
+  ipcMain.handle('office:saveMarkdown', async (_e, ...args: unknown[]) => {
+    const parsed = SaveMarkdownArgs.safeParse(args)
+    if (!parsed.success) throw new Error('Não consegui exportar: o conteúdo veio inválido.')
+    const [fileName, content] = parsed.data
+    const r = await dialog.showSaveDialog(win!, {
+      title: 'Exportar em Markdown',
+      defaultPath: join(app.getPath('documents'), markdownFileName(fileName)),
+      filters: [{ name: 'Markdown', extensions: ['md'] }],
+      properties: ['createDirectory', 'showOverwriteConfirmation'],
+    })
+    if (r.canceled || !r.filePath) return null
+    writeFileSync(r.filePath, content, 'utf8')
+    return r.filePath
+  })
   ipcMain.handle('office:checkAccounts', () => accounts.check())
   ipcMain.handle('office:addAccount', (_e, name: unknown) => {
     const account = accounts.create(typeof name === 'string' ? name : '')

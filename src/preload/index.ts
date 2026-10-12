@@ -46,6 +46,7 @@ const api: OfficeAPI = {
   getLedger: (query) => ipcRenderer.invoke('office:getLedger', query ?? {}),
   getStats: () => ipcRenderer.invoke('office:getStats'),
   refreshStats: () => ipcRenderer.invoke('office:refreshStats'),
+  saveMarkdown: (fileName, content) => ipcRenderer.invoke('office:saveMarkdown', fileName, content),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

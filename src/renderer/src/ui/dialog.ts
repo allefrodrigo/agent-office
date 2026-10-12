@@ -7,7 +7,10 @@ import { portrait } from './portrait'
 export interface DialogActions {
   reply(agentId: string): void
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
+  exportConversation(agentId: string): void
 }
+
+const MOD = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl+'
 
 /** The card an agent hands you: a permission request, a question, a plan or a final result. */
 export class Dialog {
@@ -18,6 +21,10 @@ export class Dialog {
   private context: string | undefined
   /** Set when a subagent of the agent made the request: what it is doing, or ''. */
   private subagent: string | undefined
+  /** Atalhos do cartão aberto: Enter permite, ⌘⌫ nega (Esc fecha). */
+  private keys: { allow?: () => void; deny?: () => void } = {}
+  /** Quando o cartão apareceu: um Enter logo em seguida pode ser de outra coisa. */
+  private shownAt = 0
 
   constructor(
     root: HTMLElement,
@@ -27,7 +34,19 @@ export class Dialog {
     this.el = h('div', { class: 'dialog card hidden' })
     root.append(this.el)
     window.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && this.itemId) this.close()
+      if (!this.itemId) return
+      if (e.key === 'Escape') return this.close()
+      // Digitando ou com um botão em foco, a tecla é de lá.
+      const a = document.activeElement
+      if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement || a instanceof HTMLButtonElement) return
+      if (e.repeat || e.isComposing || performance.now() - this.shownAt < 400) return
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey && this.keys.allow) {
+        e.preventDefault()
+        this.keys.allow()
+      } else if (e.key === 'Backspace' && (e.metaKey || e.ctrlKey) && this.keys.deny) {
+        e.preventDefault()
+        this.keys.deny()
+      }
     })
   }
 
@@ -42,6 +61,7 @@ export class Dialog {
     const items = this.state.itemsFor(agentId)
     const perm = itemId ? items.permissions.find((p) => p.id === itemId) : items.permissions[0]
     const result = itemId ? items.results.find((r) => r.id === itemId) : items.results[0]
+    this.keys = {}
     this.context = perm?.context
     this.subagent = perm?.subagent
     if (perm) this.showPermission(agent, perm)
@@ -51,6 +71,7 @@ export class Dialog {
   }
 
   close(): void {
+    this.keys = {}
     this.itemId = null
     this.agentId = null
     this.el.classList.add('hidden')
@@ -64,6 +85,7 @@ export class Dialog {
 
   private frame(agent: AgentSummary, subtitle: string, body: HTMLElement[], buttons: HTMLElement[], tone: string): void {
     this.el.className = `dialog card tone-${tone}`
+    this.shownAt = performance.now()
     this.el.replaceChildren(
       h(
         'div',
@@ -110,20 +132,23 @@ export class Dialog {
       if (e.key === 'Enter') this.decide({ requestId: p.id, behavior: 'deny', message: reason.value })
     })
     body.push(reason)
+    const deny = () => this.decide({ requestId: p.id, behavior: 'deny', message: reason.value })
+    this.keys = { allow: () => this.decide({ requestId: p.id, behavior: 'allow' }), deny }
 
     const buttons = [
       h('button', {
         class: 'btn btn-danger-soft',
+        title: `Negar (${MOD}⌫)`,
         onclick: () => {
           if (reason.classList.contains('hidden')) {
             reason.classList.remove('hidden')
             reason.focus()
-          } else this.decide({ requestId: p.id, behavior: 'deny', message: reason.value })
+          } else deny()
         },
       }, 'Negar'),
       h('div', { class: 'grow' }),
       p.canAlwaysAllow ? h('button', { class: 'btn', onclick: () => this.decide({ requestId: p.id, behavior: 'allow_always' }) }, 'Sempre permitir') : null,
-      h('button', { class: 'btn btn-primary', onclick: () => this.decide({ requestId: p.id, behavior: 'allow' }) }, icon('check', 16), 'Permitir'),
+      h('button', { class: 'btn btn-primary', title: 'Permitir (Enter)', onclick: () => this.decide({ requestId: p.id, behavior: 'allow' }) }, icon('check', 16), 'Permitir'),
     ].filter(Boolean) as HTMLElement[]
     this.frame(agent, 'veio pedir sua permissão', body, buttons, 'wait')
   }
@@ -201,17 +226,16 @@ export class Dialog {
   private showPlan(agent: AgentSummary, p: PermissionRequest): void {
     const feedback = h('textarea', { class: 'input', rows: 2, placeholder: 'O que mudar no plano? (para pedir mudanças)' })
     feedback.addEventListener('keydown', (e) => e.stopPropagation())
+    const changes = () => this.decide({ requestId: p.id, behavior: 'deny', message: feedback.value.trim() || 'Revise o plano.' })
+    this.keys = { allow: () => this.decide({ requestId: p.id, behavior: 'allow' }), deny: changes }
     this.frame(
       agent,
       'trouxe um plano',
       [h('div', { class: 'dialog-scroll' }, renderMarkdown(p.plan || '(plano vazio)')), feedback],
       [
-        h('button', {
-          class: 'btn btn-danger-soft',
-          onclick: () => this.decide({ requestId: p.id, behavior: 'deny', message: feedback.value.trim() || 'Revise o plano.' }),
-        }, 'Pedir mudanças'),
+        h('button', { class: 'btn btn-danger-soft', title: `Pedir mudanças (${MOD}⌫)`, onclick: changes }, 'Pedir mudanças'),
         h('div', { class: 'grow' }),
-        h('button', { class: 'btn btn-primary', onclick: () => this.decide({ requestId: p.id, behavior: 'allow' }) }, icon('check', 16), 'Aprovar plano'),
+        h('button', { class: 'btn btn-primary', title: 'Aprovar plano (Enter)', onclick: () => this.decide({ requestId: p.id, behavior: 'allow' }) }, icon('check', 16), 'Aprovar plano'),
       ],
       'wait',
     )
@@ -239,6 +263,7 @@ export class Dialog {
               },
             }, 'Responder')
           : null,
+        h('button', { class: 'btn', title: 'Exportar a conversa em Markdown (.md)', onclick: () => this.actions.exportConversation(agent.id) }, icon('file', 15), 'Exportar'),
         h('div', { class: 'grow' }),
         h('button', { class: 'btn btn-primary', onclick: ack }, icon('check', 16), 'Recebido'),
       ].filter(Boolean) as HTMLElement[],

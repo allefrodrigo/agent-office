@@ -10,6 +10,7 @@ import type { ProjectFloor } from '@shared/types'
 import { openAccounts } from './ui/accounts'
 import { openSkull } from './ui/skull'
 import { openReports } from './ui/reports'
+import { copyReport, exportConversation } from './ui/export'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
 async function boot(): Promise<void> {
@@ -156,7 +157,7 @@ async function boot(): Promise<void> {
     goFloor: (n) => game.goFloor(n),
     newFloor: () => void newFloor(),
     accounts: () => openAccounts(ui, state, toast),
-    reports: () => openReports(ui, state, { project: game.currentProject }),
+    reports: () => openReports(ui, state, { project: game.currentProject, toast }),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -178,6 +179,8 @@ async function boot(): Promise<void> {
     closeTerminal: (id) => void closeTerminal(id),
     openItem: (agentId, itemId) => openItem(agentId, itemId),
     toast,
+    exportConversation: (id) => void exportConversation(state, id, toast),
+    copyReport: (id) => void copyReport(state, id, toast),
   })
 
   const dialog = new Dialog(ui, state, {
@@ -185,6 +188,7 @@ async function boot(): Promise<void> {
       panel.open(id).then(() => panel.focusInput())
     },
     toast,
+    exportConversation: (id) => void exportConversation(state, id, toast),
   })
 
   const board = new Board(ui, state, {
@@ -201,7 +205,7 @@ async function boot(): Promise<void> {
     const a = document.activeElement
     if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
-    if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject })
+    if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()
       void newAgent()
@@ -233,6 +237,12 @@ async function boot(): Promise<void> {
   window.office.onEvent((e) => {
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
+    // Clique na notificação do sistema: o cartão abre na hora, sem esperar a caminhada.
+    if (e.type === 'notice:open') {
+      dismissed.delete(e.itemId)
+      if (dialog.itemId !== e.itemId) openItem(e.agentId, e.itemId)
+      return game.focusAgent(e.agentId)
+    }
     // Every 3 s: redraw only the info card (it also ticks the reset countdowns), not the whole HUD.
     if (e.type === 'system') {
       state.system = e.system
