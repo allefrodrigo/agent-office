@@ -1,6 +1,7 @@
 import { app, ipcMain } from 'electron'
 import type { AppUpdater } from 'electron-updater'
 import type { OfficeEvent, UpdateChannel, UpdateInstallResult, UpdateStatus } from '@shared/types'
+import { log } from './log'
 
 /** First check a little after launch, so it does not compete with startup; then every 6 h. */
 const FIRST_CHECK_MS = 15_000
@@ -71,6 +72,7 @@ export class Updater {
     if (!force && (working || pending)) return { ok: false, working, pending }
     // before-quit flushes too; doing it here means nothing is lost if the installer takes over first.
     this.deps.flush()
+    log.info(`Reiniciando para instalar a versão ${this.status.version}${force ? ' (confirmado com agentes ocupados)' : ''}`)
     const u = this.updater
     setImmediate(() => (u ? u.quitAndInstall() : app.quit()))
     return { ok: true }
@@ -80,6 +82,14 @@ export class Updater {
     if (this.updater) return this.updater
     // CommonJS package: the default import carries the named exports.
     const { autoUpdater: u } = (await import('electron-updater')).default
+    // Its own lines are long (whole HTTP replies): the first line is enough for the log.
+    const short = (m: unknown) => String(m instanceof Error ? m.message : m).split('\n')[0]
+    u.logger = {
+      info: (m) => log.info('Atualização:', short(m)),
+      warn: (m) => log.warn('Atualização:', short(m)),
+      error: (m) => log.warn('Atualização falhou:', short(m)),
+      debug: () => {},
+    }
     u.autoDownload = true
     // "Depois" still installs it the next time the app quits.
     u.autoInstallOnAppQuit = true

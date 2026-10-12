@@ -178,4 +178,6 @@ O código é o mesmo; o que falta validar:
 ## Ferramentas de desenvolvimento
 
 - `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis.
+- Log do app em `userData/logs/main-<data>.log` (gira em 5 MB, guarda 5 arquivos; sem prompts nem tokens). `AGENT_OFFICE_DEBUG=1` inclui o nível debug.
+- Só em dev: `AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error` quebra algo 6 s depois de abrir, para testar o tratamento de erros. `AGENT_OFFICE_LOG_MAX_KB=20` gira o log mais cedo.
 - `npm run icon` regenera `resources/icon.png` a partir do desenho em `scripts/make-icon.mjs`.
