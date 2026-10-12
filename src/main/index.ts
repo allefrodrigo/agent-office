@@ -13,6 +13,8 @@ import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { startDemo } from './demo'
 import { CostBook } from './ledger'
+import { flushOnExit, setupData } from './data'
+import { dataNotices } from './fs-safe'
 import { dropInheritedClaudeEnv, loadShellPath } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
 import { findSquad, isDir, loadSquads, squadInfo } from './squads'
@@ -247,6 +249,24 @@ app.whenReady().then(async () => {
   stats.start()
   void accounts.check()
 
+  // Durable saves on kill, crash and sleep (AO-26); backups, restore, export and import (AO-25).
+  const flushAll = () => {
+    store.flush()
+    board.flush()
+  }
+  flushOnExit(flushAll)
+  setupData({
+    dataDir: app.getPath('userData'),
+    win: () => win,
+    broadcast,
+    flush: flushAll,
+    stopAll: () => stopAll(),
+    lock: () => {
+      store.lock()
+      board.lock()
+    },
+  })
+
   // ---------- IPC ----------
   ipcMain.handle('office:getState', (): OfficeState => ({
     agents: manager.list(),
@@ -261,6 +281,7 @@ app.whenReady().then(async () => {
     system: system.current(),
     squads,
     ledgerToday: book.today(),
+    dataNotices: dataNotices(),
   }))
   ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
@@ -500,7 +521,7 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) win = createWindow()
   })
-  app.on('before-quit', () => {
+  const stopAll = () => {
     bridge.stop()
     usage.stop()
     stats.stop()
@@ -509,7 +530,12 @@ app.whenReady().then(async () => {
     book.stop()
     store.flush()
     board.flush()
-  })
+  }
+  app.on('before-quit', stopAll)
+}).catch((err) => {
+  // E.g. a corrupt data file that could not be moved aside: stop rather than write over it.
+  dialog.showErrorBox('O Agent Office não conseguiu abrir', err instanceof Error ? err.message : String(err))
+  app.exit(1)
 })
 
 app.on('window-all-closed', () => {

@@ -6,14 +6,17 @@ import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
-import type { ProjectFloor } from '@shared/types'
+import type { DataNotice, ProjectFloor } from '@shared/types'
 import { openAccounts } from './ui/accounts'
 import { openSkull } from './ui/skull'
 import { openReports } from './ui/reports'
+import { showDataNotice } from './ui/data'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
 async function boot(): Promise<void> {
-  const state = new State(await window.office.getState())
+  const initial = await window.office.getState()
+  const initialNotices = initial.dataNotices ?? []
+  const state = new State(initial)
   const ui = document.getElementById('ui')!
   document.body.classList.add(`platform-${state.platform}`)
 
@@ -230,7 +233,17 @@ async function boot(): Promise<void> {
     }
   })
 
+  // Data files found corrupt (AO-24): one warning each, now and when the archive loads later.
+  const noticed = new Set<string>()
+  const notice = (n: DataNotice) => {
+    if (noticed.has(n.id)) return
+    noticed.add(n.id)
+    showDataNotice(ui, n)
+  }
+  for (const n of initialNotices) notice(n)
+
   window.office.onEvent((e) => {
+    if (e.type === 'data:notice') return notice(e.notice)
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
     // Every 3 s: redraw only the info card (it also ticks the reset countdowns), not the whole HUD.

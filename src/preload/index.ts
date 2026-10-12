@@ -46,6 +46,11 @@ const api: OfficeAPI = {
   getLedger: (query) => ipcRenderer.invoke('office:getLedger', query ?? {}),
   getStats: () => ipcRenderer.invoke('office:getStats'),
   refreshStats: () => ipcRenderer.invoke('office:refreshStats'),
+  listBackups: () => ipcRenderer.invoke('office:listBackups'),
+  restoreBackup: (id) => ipcRenderer.invoke('office:restoreBackup', id),
+  openBackupsFolder: () => ipcRenderer.invoke('office:openBackupsFolder'),
+  exportData: () => ipcRenderer.invoke('office:exportData'),
+  importData: () => ipcRenderer.invoke('office:importData'),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

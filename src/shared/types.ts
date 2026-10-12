@@ -446,6 +446,32 @@ export interface OfficeState {
   squads: SquadInfo[]
   /** Today's spend per folder, from the cost book. */
   ledgerToday: LedgerToday
+  /** Data files found corrupt at startup (restored from a backup, or started over). */
+  dataNotices: DataNotice[]
+}
+
+/** A data file that did not parse: what happened, for the warning in the renderer. */
+export interface DataNotice {
+  id: string
+  at: number
+  /** office.json, tickets.json or tickets-closed.json */
+  file: string
+  /** restored = a backup loaded; lost = no good copy, started over. */
+  kind: 'restored' | 'lost'
+  text: string
+  /** Where the corrupt file was kept. */
+  path: string
+}
+
+/** A copy of the data in userData/backups/. */
+export interface BackupEntry {
+  /** Folder name: AAAA-MM-DD (daily) or antes-<timestamp> (before a restore or import). */
+  id: string
+  kind: 'daily' | 'snapshot'
+  at: number
+  /** Bytes, all files together. */
+  size: number
+  files: string[]
 }
 
 export type OfficeEvent =
@@ -472,6 +498,8 @@ export type OfficeEvent =
   | { type: 'ledger:today'; today: LedgerToday }
   /** Claude Code statistics were read again from disk. */
   | { type: 'stats'; stats: ClaudeStats }
+  /** A data file was found corrupt after startup (the closed tickets load on first use). */
+  | { type: 'data:notice'; notice: DataNotice }
 
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
@@ -544,6 +572,15 @@ export interface OfficeAPI {
   getStats(): Promise<ClaudeStats>
   /** Reads the new bytes of the transcripts now (disk only, no API call). */
   refreshStats(): Promise<ClaudeStats>
+  /** Copies in userData/backups, newest first. */
+  listBackups(): Promise<BackupEntry[]>
+  /** Asks, saves the current state as a backup, puts the backup in place and restarts. Resolves false if the user said no. */
+  restoreBackup(id: string): Promise<boolean>
+  openBackupsFolder(): Promise<void>
+  /** Saves everything in one file the user picks. Resolves its path, or null if cancelled. */
+  exportData(): Promise<string | null>
+  /** Picks an export, asks, saves the current state as a backup, replaces the data and restarts. */
+  importData(): Promise<boolean>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 
