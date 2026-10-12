@@ -2588,6 +2588,10 @@ button.ab-stamp:hover {
   font-weight: 700;
 }
 
+.bridge-row.bridge-row-start {
+  justify-content: flex-start;
+}
+
 .bridge-row {
   display: flex;
   align-items: center;

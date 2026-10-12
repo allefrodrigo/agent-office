@@ -7,6 +7,7 @@ import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
 import { cleanError, EFFORTS } from './modals'
 import { portrait } from './portrait'
+import { saveAgentAsTemplate } from './templates'
 
 const BADGE_OPEN_KEY = 'panel-badge-open'
 
@@ -63,7 +64,7 @@ export class AgentPanel {
   private lastTool: HTMLElement | null = null
 
   constructor(
-    root: HTMLElement,
+    private root: HTMLElement,
     private state: State,
     private actions: PanelActions,
   ) {
@@ -491,6 +492,9 @@ export class AgentPanel {
         'div',
         { class: 'ab-foot' },
         h('button', { class: 'btn btn-small', onclick: () => this.actions.goTo(a.id) }, icon('walk', 14), 'Ir até'),
+        office
+          ? h('button', { class: 'btn btn-small', title: 'Guarda nome, aparência, modelo, permissões e a primeira tarefa para contratar de novo', onclick: () => void saveAgentAsTemplate(this.root, this.state, a, this.actions.toast) }, icon('copy', 14), 'Salvar como modelo')
+          : null,
         office
           ? h('button', { class: 'ab-fire', onclick: () => this.fire(a) }, 'Dispensar agente')
           : h('button', { class: 'ab-fire', onclick: () => this.actions.closeTerminal(a.id) }, 'Fechar sessão'),
