@@ -279,7 +279,8 @@ describe('ferramentas de arquivo', () => {
   })
 })
 
-describe('symlinks que saem da pasta', () => {
+// Symlinks need special rights on Windows, and the notification buttons exist only on the Mac.
+describe.skipIf(process.platform === 'win32')('symlinks que saem da pasta', () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'ao35-')))
   const proj = join(root, 'proj')
   const fora = join(root, 'fora')
