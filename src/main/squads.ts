@@ -1,5 +1,5 @@
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
+import { isAbsolute, join, sep } from 'node:path'
 import type { AgentDefinition, HookCallbackMatcher } from '@anthropic-ai/claude-agent-sdk'
 import { parse } from 'yaml'
 import type { SquadInfo, SquadMember, SquadProgress, SquadStep } from '@shared/types'
@@ -9,6 +9,11 @@ import type { SquadInfo, SquadMember, SquadProgress, SquadStep } from '@shared/t
 
 export const DEFAULT_SECTOR = 'Equipe'
 const RUNNER = '_opensquad/core/runner.pipeline.md'
+/**
+ * Squad folder names, codes and member ids: letters, digits, _ and -. No /, \, .., NUL or
+ * leading dot, so none of them can climb out when it becomes part of a path.
+ */
+const SAFE_NAME = /^[\w-]{1,64}$/
 /** Tools that start a subagent (Agent; Task in older Claude Code builds). */
 const SPAWN_TOOLS = new Set(['Agent', 'Task'])
 
@@ -22,7 +27,7 @@ export function loadSquads(cwd: string): SquadDefinition[] {
   const root = join(cwd, 'squads')
   let dirs: string[]
   try {
-    dirs = readdirSync(root).filter((d) => existsSync(join(root, d, 'squad.yaml')))
+    dirs = readdirSync(root).filter((d) => SAFE_NAME.test(d) && existsSync(join(root, d, 'squad.yaml')))
   } catch {
     return []
   }
@@ -38,7 +43,7 @@ export function loadSquads(cwd: string): SquadDefinition[] {
 }
 
 export function findSquad(cwd: string, code: string): SquadDefinition | undefined {
-  return loadSquads(cwd).find((s) => s.code === code)
+  return typeof code === 'string' && SAFE_NAME.test(code) ? loadSquads(cwd).find((s) => s.code === code) : undefined
 }
 
 /** What the renderer gets: no prompts. */
@@ -48,19 +53,24 @@ export function squadInfo(s: SquadDefinition): SquadInfo {
 }
 
 function loadSquad(cwd: string, dir: string): SquadDefinition {
-  const y = (parse(readFileSync(join(dir, 'squad.yaml'), 'utf8')) ?? {}) as Record<string, unknown>
+  // squads/ must live in the project and the squad folder in squads/ (no squads/x -> /somewhere/else).
+  const realRoot = realpathSync(join(cwd, 'squads'))
+  if (!within(realpathSync(cwd), realRoot) || !within(realRoot, realpathSync(dir))) throw new Error('squad folder points outside the project')
+  const yaml = inside(dir, 'squad.yaml')
+  if (!yaml) throw new Error('squad.yaml points outside the squad folder')
+  const y = (parse(readSmall(yaml)) ?? {}) as Record<string, unknown>
   // The code builds paths (state.json, the watcher) and goes into the orchestrator prompt: keep it plain.
   const folder = dir.split(/[\\/]/).pop()!
-  const code = /^[\w-]+$/.test(str(y.code)) ? str(y.code) : folder
+  const code = SAFE_NAME.test(str(y.code)) ? str(y.code) : folder
   const members: SquadMember[] = []
   const prompts: Record<string, string> = {}
   for (const raw of Array.isArray(y.agents) ? y.agents : []) {
     const a = (raw ?? {}) as Record<string, unknown>
     const id = str(a.id)
     // The id becomes a subagent type and a file name: keep it plain.
-    if (!/^[\w-]+$/.test(id) || members.some((m) => m.id === id)) continue
+    if (!SAFE_NAME.test(id) || members.some((m) => m.id === id)) continue
     const file = inside(dir, str(a.file) || `agents/${id}.agent.md`)
-    const { meta, body } = file && existsSync(file) ? frontmatter(readFileSync(file, 'utf8')) : { meta: {}, body: '' }
+    const { meta, body } = file && existsSync(file) ? frontmatter(readSmallOr(file)) : { meta: {}, body: '' }
     members.push({
       id,
       name: str(a.name) || str(meta.name) || id,
@@ -87,7 +97,7 @@ function loadSteps(dir: string, y: Record<string, unknown>): SquadStep[] {
   const pipe = (y.pipeline ?? {}) as Record<string, unknown>
   const file = inside(dir, str(pipe.entry) || 'pipeline/pipeline.yaml')
   if (!file || !existsSync(file)) return []
-  const p = (parse(readFileSync(file, 'utf8')) ?? {}) as Record<string, unknown>
+  const p = (parse(readSmall(file)) ?? {}) as Record<string, unknown>
   return (Array.isArray(p.steps) ? p.steps : []).map((raw, i) => {
     const s = (raw ?? {}) as Record<string, unknown>
     return {
@@ -170,7 +180,10 @@ export function orchestratorPrompt(s: SquadDefinition): string {
 export function readProgress(s: SquadInfo): SquadProgress | undefined {
   let raw: Record<string, unknown>
   try {
-    raw = JSON.parse(readFileSync(join(s.cwd, 'squads', s.code, 'state.json'), 'utf8'))
+    if (!SAFE_NAME.test(s.code)) return undefined
+    const file = inside(join(s.cwd, 'squads', s.code), 'state.json')
+    if (!file) return undefined
+    raw = JSON.parse(readSmall(file))
   } catch {
     return undefined
   }
@@ -215,11 +228,49 @@ function frontmatter(text: string): { meta: Record<string, unknown>; body: strin
   return { meta, body: text.slice(m[0].length) }
 }
 
-/** Resolves a path from squad.yaml, refusing anything that climbs out of the squad folder. */
+/** A squad file bigger than this is not read (a persona or a pipeline is a few KB). */
+const MAX_SQUAD_FILE = 512 * 1024
+
+/**
+ * Resolves a path from squad.yaml to a regular file inside the squad folder, or null.
+ * Refused: absolute paths, `\`, NUL, `..` or empty segments, a file that is a symlink
+ * (lstat), and anything whose real path (realpath, so a symlinked folder on the way counts)
+ * is not under the real squad folder + separator (squads/a ≠ squads/a-evil). A file that
+ * does not exist gives null too: there is nothing to read.
+ */
 function inside(dir: string, rel: string): string | null {
-  const p = resolve(dir, rel)
-  const r = relative(dir, p)
-  return r && r !== '..' && !r.startsWith(`..${sep}`) && !isAbsolute(r) ? p : null
+  if (!rel || rel.length > 1024 || /[\\\0]/.test(rel) || isAbsolute(rel)) return null
+  if (rel.split('/').some((s) => !s || s === '..')) return null
+  try {
+    const realDir = realpathSync(dir)
+    const p = join(dir, rel)
+    if (lstatSync(p).isSymbolicLink()) return null
+    const real = realpathSync(p)
+    return within(realDir, real) && statSync(real).isFile() ? real : null
+  } catch {
+    return null
+  }
+}
+
+/** `p` is strictly below `dir` (both already real paths), compared with the separator. */
+function within(dir: string, p: string): boolean {
+  const base = dir.endsWith(sep) ? dir : dir + sep
+  return p.length > base.length && p.startsWith(base)
+}
+
+/** Text of a squad file, refusing anything past MAX_SQUAD_FILE. */
+function readSmall(file: string): string {
+  if (statSync(file).size > MAX_SQUAD_FILE) throw new Error(`${file} is too big`)
+  return readFileSync(file, 'utf8')
+}
+
+/** readSmall, or '' when the file can't be read (a member keeps its default persona). */
+function readSmallOr(file: string): string {
+  try {
+    return readSmall(file)
+  } catch {
+    return ''
+  }
 }
 
 function str(v: unknown): string {

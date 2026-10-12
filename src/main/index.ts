@@ -1,8 +1,8 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, powerMonitor, session, shell } from 'electron'
-import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, isAbsolute, join } from 'node:path'
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { permissionNotice } from '@shared/permission-notice'
+import { permissionNotice, realPathOf } from '@shared/permission-notice'
 import { projectFor } from '@shared/projects'
 import type { Actor, AgentBrain, HireRequest, OfficeEvent, OfficeState, PermissionRequest } from '@shared/types'
 import { MAIN_ACCOUNT } from '@shared/accounts'
@@ -25,7 +25,7 @@ import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
 import { cleanLook, cleanTemplate, loadTemplates, upsertTemplate } from './templates'
-import { commitChanges, discardChanges, fileDiff, insideRoot, openInEditor, openPullRequest, pruneWorktrees, removeWorktree, repoRoot, worktreeFromPath, worktreeState } from './git'
+import { commitChanges, discardChanges, fileDiff, insideRoot, openInEditor, openPullRequest, pendingLoss, pruneWorktrees, removeWorktree, repoRoot, worktreeFromPath, worktreeState } from './git'
 import {
   accountNameSchema,
   changedPathSchema,
@@ -157,19 +157,6 @@ function openFromNotice(target: NoticeTarget): void {
   win.show()
   win.focus()
   win.webContents.send('office:event', { type: 'notice:open', ...target } satisfies OfficeEvent)
-}
-
-/** Caminho real, symlinks resolvidos; para um arquivo que ainda não existe, vale a pasta existente mais próxima. */
-function realPathOf(p: string): string {
-  let head = p
-  const tail: string[] = []
-  while (!existsSync(head)) {
-    const parent = dirname(head)
-    if (parent === head) break
-    tail.unshift(basename(head))
-    head = parent
-  }
-  return [realpathSync(head), ...tail].join('/').replace(/^\/\//, '/')
 }
 
 function canNotify(store: Store): boolean {
@@ -500,18 +487,23 @@ app.whenReady().then(async () => {
   // ---------- worktrees (AO-33) ----------
   // What the player chose in the native dialog of prepareFire. Only that dialog can
   // authorize removing a worktree: the renderer never sends "remove".
-  const fireChoices = new Map<string, { remove: boolean; dirty: number }>()
+  const fireChoices = new Map<string, { remove: boolean; dirty: number; ignored: number }>()
   const agentId = (raw: unknown) => parse(uuidSchema, raw, 'Esse agente não está mais no escritório.')
+  const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
   ipcMain.handle('office:prepareFire', async (_e, raw: unknown) => {
     const a = manager.agent(agentId(raw))
     const wt = a?.worktree
     if (!a || !wt) return 'plain'
     const st = await worktreeState(wt).catch(() => null)
     if (!st?.exists) {
-      fireChoices.set(a.id, { remove: false, dirty: 0 })
+      fireChoices.set(a.id, { remove: false, dirty: 0, ignored: 0 })
       return 'plain'
     }
     const kept = st.ahead ? ` O branch tem ${st.ahead} commit${st.ahead > 1 ? 's' : ''} e fica no repositório mesmo se você remover a cópia.` : ''
+    // git worktree remove also deletes ignored files (.env, node_modules): say so.
+    const ignoredLine = st.ignored
+      ? `\n\nTem também ${plural(st.ignored, 'arquivo ou pasta ignorado', 'arquivos ou pastas ignorados')} pelo git (como .env ou node_modules), que somem junto com a cópia.`
+      : ''
     const { response } = await dialog.showMessageBox(win!, {
       type: 'question',
       buttons: ['Manter a cópia', 'Remover a cópia', 'Cancelar'],
@@ -521,21 +513,28 @@ app.whenReady().then(async () => {
       detail:
         `A sessão para e o agente vai embora. Ele trabalhava numa cópia isolada (branch ${wt.branch}) em ${wt.root}.\n\n` +
         (st.dirty ? `A cópia tem ${st.dirty} arquivo${st.dirty > 1 ? 's' : ''} com mudanças não commitadas.` : 'A cópia não tem mudanças não commitadas.') +
-        kept,
+        kept +
+        ignoredLine,
     })
     if (response === 2) return 'cancelled'
-    if (response === 1 && st.dirty) {
+    if (response === 1 && pendingLoss(st)) {
+      const what = [
+        st.dirty ? plural(st.dirty, 'mudança não commitada', 'mudanças não commitadas') : '',
+        st.ignored ? plural(st.ignored, 'arquivo ignorado pelo git', 'arquivos ignorados pelo git') : '',
+      ].filter(Boolean)
       const sure = await dialog.showMessageBox(win!, {
         type: 'warning',
         buttons: ['Apagar e dispensar', 'Cancelar'],
         defaultId: 1,
         cancelId: 1,
-        message: `Apagar ${st.dirty} mudança${st.dirty > 1 ? 's' : ''} não commitada${st.dirty > 1 ? 's' : ''}?`,
-        detail: 'Não dá para desfazer. Para guardar o trabalho, cancele e use "Commitar" no cartão de resultado.',
+        message: `Apagar ${what.join(' e ')}?`,
+        detail:
+          'Não dá para desfazer. Para guardar o trabalho, cancele e use "Commitar" no cartão de resultado' +
+          (st.ignored ? '; copie antes os arquivos ignorados que quiser manter (.env, configs locais).' : '.'),
       })
       if (sure.response !== 0) return 'cancelled'
     }
-    fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty })
+    fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty, ignored: st.ignored })
     return 'confirmed'
   })
   ipcMain.handle('office:fire', async (_e, raw: unknown) => {
@@ -548,7 +547,7 @@ app.whenReady().then(async () => {
     if (!choice?.remove) return `A cópia isolada ficou em ${wt.root} (branch ${wt.branch}).`
     // Forced only when the player confirmed losing changes; anything newer than that keeps the copy.
     const now = await worktreeState(wt).catch(() => null)
-    const force = !!choice.dirty && !!now && now.dirty <= choice.dirty
+    const force = pendingLoss(choice) > 0 && !!now && now.dirty <= choice.dirty && now.ignored <= choice.ignored
     return removeWorktree(wt, force).catch((err) => `Não consegui remover a cópia: ${err instanceof Error ? err.message : String(err)}`)
   })
 

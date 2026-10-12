@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ChangedFile, ResultChanges, WorktreeInfo } from '@shared/types'
 
 /**
@@ -233,6 +233,31 @@ export function insideRoot(root: string, p: string): string | null {
   return abs
 }
 
+/** Real path of `p`; for a file that is gone, its folder's real path + its name; else `p`. */
+function realOrSelf(p: string): string {
+  try {
+    return realpathSync(p)
+  } catch {
+    try {
+      return join(realpathSync(dirname(p)), basename(p))
+    } catch {
+      return p
+    }
+  }
+}
+
+/**
+ * How the card shows a file written without git: relative to `root` when it is inside
+ * (also after resolving symlinks such as /tmp -> /private/tmp), absolute otherwise.
+ */
+export function displayPath(root: string, file: string): string {
+  const inside = (r: string, f: string) => {
+    const rel = relative(r, f)
+    return rel && rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel) ? rel : null
+  }
+  return inside(root, file) ?? inside(realOrSelf(root), realOrSelf(file)) ?? file
+}
+
 // ---------- worktrees (AO-33) ----------
 
 /** "Ada Lovelace" -> "ada-lovelace": safe as a folder name and as part of a branch. */
@@ -281,8 +306,10 @@ export async function createWorktree(cwd: string, name: string, id: string): Pro
   const root = join(repo, WORKTREES_DIR, slug)
   if (existsSync(root)) throw new Error(`a pasta ${root} já existe`)
   excludeOfficeDir(repo, (await git(repo, ['rev-parse', '--git-common-dir'])).trim())
+  // .agent-office could be a symlink out of the repo: the copy must land inside it. Checked
+  // before mkdir, so nothing is ever created at the far end of such a link.
+  if (!insideRoot(repo, relative(repo, root))) throw new Error('a pasta .agent-office aponta para fora do repositório')
   mkdirSync(dirname(root), { recursive: true })
-  // .agent-office could be a symlink out of the repo: the copy must land inside it.
   if (!insideRoot(repo, relative(repo, root))) throw new Error('a pasta .agent-office aponta para fora do repositório')
   await git(repo, ['worktree', 'add', '-b', branch, '--', root, base], { timeout: 120_000 })
   // Started in a subfolder of the repo: work in the same subfolder of the copy.
@@ -327,36 +354,73 @@ export interface WorktreeState {
   exists: boolean
   /** Files with uncommitted changes (tracked or not). */
   dirty: number
+  /**
+   * Ignored files and folders (.env, node_modules, local configs). `git worktree remove`
+   * deletes them too, so they count as something to confirm before removing the copy.
+   */
+  ignored: number
   /** Commits on the branch since it was made. */
   ahead: number
 }
 
 export async function worktreeState(wt: WorktreeInfo): Promise<WorktreeState> {
   checkWorktree(wt)
-  if (!existsSync(wt.root)) return { exists: false, dirty: 0, ahead: 0 }
-  const status = await git(wt.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
-  const dirty = zsplit(status).filter((e) => e.length > 3).length
+  if (!existsSync(wt.root)) return { exists: false, dirty: 0, ignored: 0, ahead: 0 }
+  // One status for both: `!! ` entries are ignored (a fully ignored folder is one entry).
+  const status = zsplit(await git(wt.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=traditional']))
+  const entries = status.filter((e) => e.length > 3)
+  const ignored = entries.filter((e) => e.startsWith('!! ')).length
+  const dirty = entries.length - ignored
   let ahead = 0
   if (SHA_RE.test(wt.base)) ahead = Number((await git(wt.root, ['rev-list', '--count', `${wt.base}..HEAD`])).trim()) || 0
-  return { exists: true, dirty, ahead }
+  return { exists: true, dirty, ignored, ahead }
+}
+
+/** What removing the copy would delete without git being able to bring it back. */
+export const pendingLoss = (st: Pick<WorktreeState, 'dirty' | 'ignored'>) => st.dirty + st.ignored
+
+/**
+ * True only when every commit of the branch is also reachable from another ref (another
+ * branch, a tag, a HEAD): then deleting the branch loses nothing. Any doubt gives false.
+ */
+async function branchIsRedundant(repo: string, branch: string): Promise<boolean> {
+  try {
+    const ref = `refs/heads/${branch}`
+    const own = (await git(repo, ['rev-list', '--count', ref, '--not', `--exclude=${ref}`, '--all'])).trim()
+    return own === '0'
+  } catch {
+    return false
+  }
 }
 
 /**
  * Removes the worktree. `force` only after the player confirmed losing the uncommitted
- * changes. The branch goes too when it has no commits of its own; otherwise it stays,
- * so no committed work is ever lost. Returns a line for the toast.
+ * changes and the ignored files (.env, node_modules…), which `git worktree remove` also
+ * deletes. The branch goes with `-D` only when it is proven to have no commits of its own;
+ * otherwise only `git branch -d` is tried (git refuses unmerged work), so no committed work
+ * is ever lost. Returns a line for the toast.
  */
 export async function removeWorktree(wt: WorktreeInfo, force: boolean): Promise<string> {
   checkWorktree(wt)
   const st = await worktreeState(wt)
   if (st.exists) {
-    if (st.dirty && !force) return `A cópia de ${wt.branch} tem mudanças novas e ficou em ${wt.root}.`
+    if (pendingLoss(st) && !force) {
+      const what = st.dirty ? 'mudanças novas' : 'arquivos ignorados pelo git (como .env ou node_modules)'
+      return `A cópia de ${wt.branch} tem ${what} e ficou em ${wt.root}.`
+    }
     await git(wt.repo, ['worktree', 'remove', ...(force ? ['--force'] : []), wt.root], { timeout: 60_000 })
   }
   await git(wt.repo, ['worktree', 'prune']).catch(() => '')
   if (st.ahead) return `Cópia removida. O branch ${wt.branch} ficou, com ${st.ahead} commit${st.ahead > 1 ? 's' : ''}.`
-  await git(wt.repo, ['branch', '-D', wt.branch]).catch(() => '')
-  return `Cópia e branch ${wt.branch} removidos.`
+  // A missing folder says nothing about the branch (ahead was never counted): no -D then.
+  if (st.exists && SHA_RE.test(wt.base) && (await branchIsRedundant(wt.repo, wt.branch))) {
+    await git(wt.repo, ['branch', '-D', wt.branch]).catch(() => '')
+  } else {
+    await git(wt.repo, ['branch', '-d', wt.branch]).catch(() => '')
+  }
+  const kept = await git(wt.repo, ['rev-parse', '--verify', '-q', `refs/heads/${wt.branch}`], { ok: [1] }).then((o) => !!o.trim(), () => true)
+  const copy = st.exists ? 'Cópia removida' : 'A cópia já não existia'
+  return kept ? `${copy}. O branch ${wt.branch} ficou no repositório, porque pode ter commits só dele.` : `${copy}. Branch ${wt.branch} removido.`
 }
 
 /** Forgets worktrees whose folder is gone (`git worktree prune`), in every repo given. */
@@ -382,6 +446,8 @@ export interface Snapshot {
   head: string | null
   /** path -> blob of its content at the start; null = it did not exist; 'unknown' = too big to copy. */
   dirty: Record<string, string | null>
+  /** path -> its index entry at the start ("<mode> <blob>"); null = not in the index; 'unknown' = conflict or unreadable. */
+  index?: Record<string, string | null>
   partial?: boolean
 }
 
@@ -399,7 +465,8 @@ export async function takeSnapshot(cwd: string): Promise<Snapshot | null> {
   for (const entry of status) {
     const path = entry.slice(3)
     if (!path) continue
-    if (Object.keys(dirty).length >= MAX_FILES) {
+    // Every file counts toward the cap, also the ones waiting to be hashed.
+    if (Object.keys(dirty).length + toHash.length >= MAX_FILES) {
       partial = true
       break
     }
@@ -418,7 +485,29 @@ export async function takeSnapshot(cwd: string): Promise<Snapshot | null> {
     const hashes = (await chunked(root, ['hash-object', '--no-filters', '-w'], toHash)).trim().split('\n')
     toHash.forEach((p, i) => (dirty[p] = SHA_RE.test(hashes[i] ?? '') ? hashes[i] : UNKNOWN))
   }
-  return { root, head, dirty, ...(partial ? { partial } : {}) }
+  const index = await indexEntries(root, Object.keys(dirty))
+  return { root, head, dirty, index, ...(partial ? { partial } : {}) }
+}
+
+/** Index entry ("<mode> <blob>") of each path; null = not in the index; 'unknown' = conflict or unreadable. */
+async function indexEntries(root: string, paths: string[]): Promise<Record<string, string | null>> {
+  const out: Record<string, string | null> = {}
+  for (const p of paths) out[p] = null
+  if (!paths.length) return out
+  let raw: string
+  try {
+    raw = await chunked(root, ['ls-files', '-s', '-z'], paths)
+  } catch {
+    for (const p of paths) out[p] = UNKNOWN
+    return out
+  }
+  for (const item of zsplit(raw)) {
+    const m = /^([0-7]{6}) ([0-9a-f]{40}(?:[0-9a-f]{24})?) (\d)\t([\s\S]+)$/.exec(item)
+    if (!m || !(m[4] in out)) continue
+    // A conflict has stages 1-3: the index can't be put back with one entry.
+    out[m[4]] = m[3] === '0' && out[m[4]] === null ? `${m[1]} ${m[2]}` : UNKNOWN
+  }
+  return out
 }
 
 /** Current blob of each path (written to the object store), or null when it is gone. */
@@ -494,7 +583,8 @@ export async function changesSince(snap: Snapshot, extra?: { branch?: string }):
       continue
     }
     const s = await blobStat(root, start ?? empty, cur ?? empty)
-    files.push({ path, status, ...s, start, preexisting: true, restorable: true })
+    const startIndex = snap.index ? (path in snap.index ? snap.index[path] : UNKNOWN) : undefined
+    files.push({ path, status, ...s, start, ...(startIndex !== undefined ? { startIndex } : {}), preexisting: true, restorable: true })
   }
   const seen = new Set(pre)
   for (const [path, s] of tracked) {
@@ -583,6 +673,24 @@ async function restoreBlob(root: string, abs: string, blob: string): Promise<voi
 }
 
 /**
+ * Puts the index entry of a preexisting file back as it was at the start (the agent may
+ * have run `git add`). Unknown start entry: back to HEAD's (or out of the index), which
+ * never touches the disk. Paths were checked by the caller.
+ */
+async function restoreIndex(root: string, f: ChangedFile, head: string | undefined): Promise<void> {
+  const m = typeof f.startIndex === 'string' ? /^([0-7]{6}) ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/.exec(f.startIndex) : null
+  if (m) {
+    await git(root, ['update-index', '--add', '--cacheinfo', `${m[1]},${m[2]},${f.path}`])
+  } else if (f.startIndex === null) {
+    await git(root, ['rm', '--cached', '-q', '--ignore-unmatch', '--', f.path])
+  } else if (head) {
+    await git(root, ['reset', '-q', head, '--', f.path])
+  } else {
+    await git(root, ['rm', '--cached', '-q', '--ignore-unmatch', '--', f.path])
+  }
+}
+
+/**
  * Puts every listed file back as it was at the start of the task: files from HEAD come
  * back with `git checkout`, files the task created go with `git rm --cached` + `git clean`,
  * and files the player had already changed get their saved copy. Every path is checked
@@ -606,6 +714,7 @@ export async function discardChanges(c: ResultChanges): Promise<{ restored: numb
     else if (SHA_RE.test(f.start)) {
       try {
         await restoreBlob(c.root, abs, f.start)
+        await restoreIndex(c.root, f, head)
         restored++
       } catch {
         skipped.push(f.path)

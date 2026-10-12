@@ -133,6 +133,11 @@ export interface ChangedFile {
   binary?: boolean
   /** Content at the start of the task: a blob id, null = did not exist. Missing = as in HEAD at the start. */
   start?: string | null
+  /**
+   * Index entry at the start ("<mode> <blob>"), null = not in the index, 'unknown' = could
+   * not be read. Only for preexisting files: "Descartar" puts the index back too.
+   */
+  startIndex?: string | null
   /** It already had changes before the task: the diff is against that version. */
   preexisting?: boolean
   /** "Descartar" can put it back. */

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { commandRisk, normalizePath, permissionNotice, redactSecrets, toolRisk, type NoticeInput } from '@shared/permission-notice'
+import { commandRisk, normalizePath, permissionNotice, realPathOf, redactSecrets, toolRisk, type NoticeInput } from '@shared/permission-notice'
 
 // AO-35: o botão "Permitir" da notificação é uma lista permitida. Estes testes cobrem o
 // que entra e, principalmente, os jeitos conhecidos de contornar uma lista de bloqueio.
@@ -141,6 +141,18 @@ describe('comandos fora da lista não ganham Permitir', () => {
     'ls ' + 'a/'.repeat(120),
   ])('%j', (c) => expect(commandRisk(c, scope)).not.toBe(''))
 
+  it.each([
+    'ls /',
+    'ls -R /',
+    'ls -la /Users',
+    'cat /tmp/foo',
+    'cat /Users/mac-allef/Documents/x.txt',
+    `cat ${CWD}/src/a.ts`,
+    'head -n 5 /etc/hosts',
+    'wc -l src/a.ts /tmp/x',
+    'cat //tmp/x',
+  ])('caminho absoluto: %s', (c) => expect(commandRisk(c, scope)).not.toBe(''))
+
   it('sem a pasta do agente, argumentos de caminho não valem', () => {
     expect(commandRisk('cat package.json')).not.toBe('')
     expect(commandRisk('ls')).toBe('')
@@ -179,6 +191,82 @@ describe('ferramentas de arquivo', () => {
     ['desconhecida', 'Desconhecida', {}],
   ])('%s', (_label, tool, input) => expect(toolRisk(tool as string, input as Record<string, unknown>, scope)).not.toBe(''))
 
+  it.each([
+    'package.json',
+    'package-lock.json',
+    'Makefile',
+    'GNUmakefile',
+    'build.sh',
+    'scripts/release.mjs',
+    'bin/run',
+    '.vscode/tasks.json',
+    '.vscode/settings.json',
+    '.github/workflows/ci.yml',
+    '.husky/pre-commit',
+    '.gitattributes',
+    '.gitmodules',
+    '.npmrc',
+    '.envrc',
+    '.mcp.json',
+    '.claude/agents/x.md',
+    'vite.config.ts',
+    'electron.vite.config.mjs',
+    'vitest.config.cjs',
+    '.eslintrc.js',
+    '.prettierrc',
+    'tsconfig.json',
+    'tsconfig.node.json',
+    'Dockerfile',
+    'docker-compose.yml',
+    'pyproject.toml',
+    'setup.py',
+    'Cargo.toml',
+    'pkg/sub/package.json',
+  ])('escrever em arquivo que roda código: %s', (f) => {
+    expect(toolRisk('Write', { file_path: `${CWD}/${f}` }, scope)).not.toBe('')
+    expect(toolRisk('Edit', { file_path: `${CWD}/${f}` }, scope)).not.toBe('')
+    // Ler continua podendo.
+    if (!f.includes('.claude') && !f.startsWith('.git') && f !== '.npmrc' && !f.startsWith('.github') && !f.startsWith('.husky')) {
+      expect(toolRisk('Read', { file_path: `${CWD}/${f}` }, scope)).toBe('')
+    }
+  })
+
+  it.each([
+    ['dot-dir', '.idea/workspace.xml'],
+    ['dot-dir no meio', 'src/.hidden/a.ts'],
+    ['dotfile', '.prettierrc.json'],
+    ['sem extensão', 'LICENSE'],
+    ['sem extensão em bin', 'tools/run'],
+    ['extensão fora da lista', 'src/a.exe'],
+    ['plist', 'Info.plist'],
+    ['lock', 'Gemfile.lock'],
+    ['config de qualquer tipo', 'next.config.json'],
+    ['comandos de deploy', 'vercel.json'],
+    ['requirements', 'requirements-dev.txt'],
+    ['node_modules', 'node_modules/x/index.js'],
+  ])('escrita fora da lista permitida: %s', (_l, f) => {
+    expect(toolRisk('Write', { file_path: `${CWD}/${f}` }, scope)).not.toBe('')
+  })
+
+  it.each([
+    ['prefixo irmão', '/Users/x/proj-evil/a.ts'],
+    ['..', `${CWD}/src/../a.ts`],
+    ['.', `${CWD}/./a.ts`],
+    ['barra dupla', `${CWD}//a.ts`],
+    ['barra no fim', `${CWD}/src/`],
+    ['a própria pasta', CWD],
+    ['controle', `${CWD}/a\n.ts`],
+  ])('caminho recusado: %s', (_l, f) => {
+    expect(toolRisk('Write', { file_path: f }, scope)).not.toBe('')
+    expect(toolRisk('Read', { file_path: f }, scope)).not.toBe('')
+  })
+
+  it('pasta do agente dentro de bin/ ou scripts/ não bloqueia tudo', () => {
+    const s = { cwd: '/Users/x/scripts/proj' }
+    expect(toolRisk('Edit', { file_path: '/Users/x/scripts/proj/src/a.ts' }, s)).toBe('')
+    expect(toolRisk('Edit', { file_path: '/Users/x/scripts/proj/scripts/a.ts' }, s)).not.toBe('')
+  })
+
   it('sem a pasta do agente, nada de arquivo ganha botão', () => {
     expect(toolRisk('Edit', { file_path: `${CWD}/a.ts` })).not.toBe('')
     expect(toolRisk('Grep', { pattern: 'x' })).not.toBe('')
@@ -214,6 +302,27 @@ describe('symlinks que saem da pasta', () => {
     expect(toolRisk('Edit', { file_path: join(proj, 'atalho', 'segredo.txt') }, real)).not.toBe('')
     expect(commandRisk('cat leia.txt', real)).not.toBe('')
     expect(commandRisk('ls atalho', real)).not.toBe('')
+  })
+
+  it('arquivo novo atrás de um symlink de pasta no meio do caminho não passa (realPathOf)', () => {
+    const s = { cwd: proj, realpath: realPathOf }
+    expect(toolRisk('Write', { file_path: join(proj, 'src', 'novo.ts') }, s)).toBe('')
+    expect(toolRisk('Write', { file_path: join(proj, 'atalho', 'novo.ts') }, s)).not.toBe('')
+    expect(toolRisk('Write', { file_path: join(proj, 'atalho', 'sub', 'novo.ts') }, s)).not.toBe('')
+  })
+
+  it('symlink quebrado para fora não vira "arquivo novo"', () => {
+    symlinkSync(join(fora, 'ainda-nao-existe.ts'), join(proj, 'quebrado.ts'))
+    const s = { cwd: proj, realpath: realPathOf }
+    expect(toolRisk('Write', { file_path: join(proj, 'quebrado.ts') }, s)).not.toBe('')
+  })
+
+  it('pasta irmã com prefixo igual, de verdade no disco', () => {
+    mkdirSync(`${proj}-evil`, { recursive: true })
+    writeFileSync(`${proj}-evil/a.ts`, '')
+    const s = { cwd: proj, realpath: realPathOf }
+    expect(toolRisk('Write', { file_path: `${proj}-evil/a.ts` }, s)).not.toBe('')
+    expect(toolRisk('Read', { file_path: `${proj}-evil/a.ts` }, s)).not.toBe('')
   })
 
   it('caminho que não resolve fica sem botão', () => {

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -103,6 +103,65 @@ describe('squad.yaml com path traversal falha de forma segura', () => {
 
   it('pipeline fora da pasta não é lido', () => {
     expect(loadSquads(cwd)[0].steps).toEqual([])
+  })
+
+  it('symlinks para fora da pasta do squad não são lidos (AO-41)', () => {
+    put('squads/s/squad.yaml', 'code: s\nagents:\n  - id: a\npipeline:\n  entry: pipeline/p.yaml')
+    mkdirSync(join(cwd, 'squads/s/agents'), { recursive: true })
+    mkdirSync(join(cwd, 'squads/s/pipeline'), { recursive: true })
+    symlinkSync(join(cwd, 'segredo.md'), join(cwd, 'squads/s/agents/a.agent.md'))
+    put('fora.yaml', 'steps:\n  - id: vazou')
+    symlinkSync(join(cwd, 'fora.yaml'), join(cwd, 'squads/s/pipeline/p.yaml'))
+    const s = findSquad(cwd, 's')!
+    expect(s.prompts.a).not.toContain('NÃO PODE VAZAR')
+    expect(s.steps).toEqual([])
+  })
+
+  it('pasta de squad ou squad.yaml que apontam para fora do projeto são ignorados (AO-41)', () => {
+    const fora = mkdtempSync(join(tmpdir(), 'ao-squads-fora-'))
+    writeFileSync(join(fora, 'squad.yaml'), 'code: fora\nagents:\n  - id: x')
+    symlinkSync(fora, join(cwd, 'squads', 'fora'))
+    mkdirSync(join(cwd, 'squads/y'), { recursive: true })
+    symlinkSync(join(fora, 'squad.yaml'), join(cwd, 'squads/y/squad.yaml'))
+    const codes = loadSquads(cwd).map((x) => x.code)
+    expect(codes).not.toContain('fora')
+    expect(codes).not.toContain('y')
+  })
+
+  it('symlink de diretório intermediário para fora não é seguido (AO-41)', () => {
+    put('squads/m/squad.yaml', 'code: m\nagents:\n  - id: a\n    file: dentro/a.agent.md')
+    const fora = mkdtempSync(join(tmpdir(), 'ao-squads-dir-'))
+    writeFileSync(join(fora, 'a.agent.md'), 'NÃO PODE VAZAR')
+    symlinkSync(fora, join(cwd, 'squads/m/dentro'))
+    expect(findSquad(cwd, 'm')!.prompts.a).not.toContain('NÃO PODE VAZAR')
+  })
+
+  it('symlink de arquivo, mesmo apontando para dentro, não é lido (AO-41)', () => {
+    put('squads/k/squad.yaml', 'code: k\nagents:\n  - id: a')
+    put('squads/k/real.md', 'DE OUTRO ARQUIVO')
+    mkdirSync(join(cwd, 'squads/k/agents'), { recursive: true })
+    symlinkSync(join(cwd, 'squads/k/real.md'), join(cwd, 'squads/k/agents/a.agent.md'))
+    expect(findSquad(cwd, 'k')!.prompts.a).not.toContain('DE OUTRO ARQUIVO')
+  })
+
+  it('prefixo irmão (squads/a vs squads/a-evil) não passa (AO-41)', () => {
+    put('squads/a-evil/agents/x.agent.md', 'NÃO PODE VAZAR')
+    put('squads/a/squad.yaml', 'code: a\nagents:\n  - id: x\n    file: ../a-evil/agents/x.agent.md')
+    expect(findSquad(cwd, 'a')!.prompts.x).not.toContain('NÃO PODE VAZAR')
+  })
+
+  it.each(['../hostil', 'a/../hostil', '..\\hostil', 'a\\b', '.oculto', 'a\0b'])('code e id inválidos: %j (AO-41)', (bad) => {
+    put('squads/v/squad.yaml', `code: ${JSON.stringify(bad)}\nagents:\n  - id: ${JSON.stringify(bad)}\n  - id: ok`)
+    const s = findSquad(cwd, 'v')!
+    expect(s.code).toBe('v')
+    expect(s.members.map((m) => m.id)).toEqual(['ok'])
+    expect(findSquad(cwd, bad)).toBeUndefined()
+  })
+
+  it('arquivo de membro grande demais não é lido (AO-41)', () => {
+    put('squads/g/squad.yaml', 'code: g\nagents:\n  - id: a')
+    put('squads/g/agents/a.agent.md', 'GRANDE' + 'x'.repeat(600 * 1024))
+    expect(findSquad(cwd, 'g')!.prompts.a).not.toContain('GRANDE')
   })
 
   it('findSquad não acha códigos com ..', () => {

@@ -8,6 +8,7 @@ import {
   commitChanges,
   createWorktree,
   discardChanges,
+  displayPath,
   fileDiff,
   insideRoot,
   openPullRequest,
@@ -42,7 +43,11 @@ function newRepo(prefix = 'ao-git-'): { dir: string; git: (...args: string[]) =>
 
 const read = (p: string) => readFileSync(p, 'utf8')
 
-describe('arquivos alterados (AO-34)', () => {
+// Each test spawns dozens of git processes (~0.2-2 s alone). Under a loaded `npm test` that
+// passes the 5 s default, so these get their own limit. Nothing here waits on purpose.
+const GIT_TIMEOUT = 30_000
+
+describe('arquivos alterados (AO-34)', { timeout: GIT_TIMEOUT }, () => {
   it('lista com +/−, mostra o diff da tarefa e descarta sem perder a mudança do usuário', async () => {
     const { dir, git } = newRepo()
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
@@ -82,6 +87,48 @@ describe('arquivos alterados (AO-34)', () => {
     expect((await changesSince(snap)).files).toHaveLength(0)
   })
 
+  it('descartar também devolve o índice (o agente tinha dado git add)', async () => {
+    const { dir, git } = newRepo()
+    writeFileSync(join(dir, 'b.txt'), 'bee\n')
+    writeFileSync(join(dir, 's.txt'), 'staged\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    writeFileSync(join(dir, 'b.txt'), 'bee\nuser edit\n') // sujo, fora do índice
+    writeFileSync(join(dir, 's.txt'), 'staged\nby user\n')
+    git('add', 's.txt') // o usuário já tinha isto no índice
+    const snap = (await takeSnapshot(dir))!
+    writeFileSync(join(dir, 'b.txt'), 'bee\nagent\n')
+    writeFileSync(join(dir, 's.txt'), 'staged\nagent\n')
+    git('add', 'b.txt', 's.txt')
+    expect(git('status', '--porcelain', 'b.txt')).toMatch(/^M /)
+    await discardChanges(await changesSince(snap))
+    expect(read(join(dir, 'b.txt'))).toBe('bee\nuser edit\n')
+    expect(git('status', '--porcelain', 'b.txt')).toBe(' M b.txt\n')
+    expect(read(join(dir, 's.txt'))).toBe('staged\nby user\n')
+    expect(git('status', '--porcelain', 's.txt')).toBe('M  s.txt\n')
+    expect(git('show', ':s.txt')).toBe('staged\nby user\n')
+  })
+
+  it('o limite de arquivos do snapshot vale para todos, inclusive os que iam para o hash', async () => {
+    const { dir, git } = newRepo()
+    writeFileSync(join(dir, 'x.txt'), 'x\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    for (let i = 0; i < 320; i++) writeFileSync(join(dir, `f${i}.txt`), `${i}\n`)
+    const snap = (await takeSnapshot(dir))!
+    expect(Object.keys(snap.dirty).length).toBe(300)
+    expect(snap.partial).toBe(true)
+  })
+
+  it('sem git: caminho relativo à pasta mesmo atrás de symlink (/tmp -> /private/tmp)', () => {
+    const real = tmp('ao-disp-')
+    const link = join(tmp('ao-disp-link-'), 'pasta')
+    symlinkSync(real, link)
+    expect(displayPath(link, join(real, 'src', 'a.ts'))).toBe(join('src', 'a.ts'))
+    expect(displayPath(real, join(link, 'b.ts'))).toBe('b.ts')
+    expect(displayPath(real, '/etc/hosts')).toBe('/etc/hosts')
+  })
+
   it('commita só os arquivos da lista, com a mensagem literal', async () => {
     const { dir, git } = newRepo()
     writeFileSync(join(dir, 'a.txt'), 'a\n')
@@ -116,7 +163,7 @@ describe('arquivos alterados (AO-34)', () => {
   })
 })
 
-describe('worktrees (AO-33)', () => {
+describe('worktrees (AO-33)', { timeout: GIT_TIMEOUT }, () => {
   it('cada agente tem pasta e branch próprios e não interfere no outro', async () => {
     const { dir, git } = newRepo('ao-wt-')
     writeFileSync(join(dir, 'a.txt'), 'a\n')
@@ -159,13 +206,65 @@ describe('worktrees (AO-33)', () => {
     expect(git('worktree', 'list')).not.toContain('cy-abcdef01')
   })
 
+  it('cópia "limpa" com arquivos ignorados (.env) não é apagada sem confirmar', async () => {
+    const { dir, git } = newRepo('ao-wt-ign-')
+    writeFileSync(join(dir, '.gitignore'), '.env\nnode_modules/\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Ig', 'aaaa0001'))!
+    writeFileSync(join(wt.root, '.env'), 'SEGREDO=1\n')
+    mkdirSync(join(wt.root, 'node_modules', 'x'), { recursive: true })
+    writeFileSync(join(wt.root, 'node_modules', 'x', 'i.js'), '')
+    expect(await worktreeState(wt)).toMatchObject({ exists: true, dirty: 0, ignored: 2 })
+    expect(await removeWorktree(wt, false)).toContain('ignorados')
+    expect(read(join(wt.root, '.env'))).toBe('SEGREDO=1\n')
+    // Confirmado: aí vai.
+    await removeWorktree(wt, true)
+    expect(existsSync(wt.root)).toBe(false)
+  })
+
+  it('.agent-office como symlink para fora: recusa sem criar nada lá', async () => {
+    const { dir, git } = newRepo('ao-wt-link-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const fora = tmp('ao-wt-fora-')
+    symlinkSync(fora, join(dir, '.agent-office'))
+    await expect(createWorktree(dir, 'Li', 'bbbb0002')).rejects.toThrow('fora do repositório')
+    expect(existsSync(join(fora, 'worktrees'))).toBe(false)
+  })
+
+  it('pasta da cópia apagada: o branch com commits fica', async () => {
+    const { dir, git } = newRepo('ao-wt-gone-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Go', 'cccc0003'))!
+    writeFileSync(join(wt.root, 'a.txt'), 'novo\n')
+    execFileSync('git', ['commit', '-qam', 'trabalho'], { cwd: wt.root })
+    rmSync(wt.root, { recursive: true, force: true })
+    expect(await removeWorktree(wt, false)).toContain('ficou')
+    expect(git('branch', '--list', wt.branch).trim()).not.toBe('')
+  })
+
+  it('pasta da cópia apagada e branch sem commits próprios: sai com -d', async () => {
+    const { dir, git } = newRepo('ao-wt-gone2-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Gd', 'dddd0004'))!
+    rmSync(wt.root, { recursive: true, force: true })
+    await removeWorktree(wt, false)
+    expect(git('branch', '--list', wt.branch).trim()).toBe('')
+  })
+
   it('repo sem commit não ganha worktree', async () => {
     const { dir } = newRepo('ao-empty-')
     await expect(createWorktree(dir, 'x', 'abc')).rejects.toThrow('nenhum commit')
   })
 })
 
-describe('segurança', () => {
+describe('segurança', { timeout: GIT_TIMEOUT }, () => {
   it('recusa nomes de branch maliciosos e limpa o nome do agente', async () => {
     for (const b of ['agent/x;rm -rf ~', '--upload-pack=evil', 'agent/../main', 'agent/-x', 'main', 'agent/a b', 'agent/x.lock', 'agent/$(id)']) {
       expect(validBranch(b)).toBe(false)
