@@ -136,7 +136,7 @@ src/
     ipc/                handlers IPC por área (estado, contas, agentes, worktrees, sessões,
                         configurações, tickets, squads); cada argumento passa por validate.ts
     dev-hooks.ts        capturas (AGENT_OFFICE_SHOTS), teclas, bench, seed e falhas forçadas
-  preload/index.ts      expõe window.office (API tipada em shared/types.ts)
+  preload/index.ts      expõe window.office (API tipada em shared/types/ipc.ts)
   shared/               tipos e textos compartilhados
   renderer/src/
     world/              three.js

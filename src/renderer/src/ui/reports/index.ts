@@ -1,13 +1,15 @@
 import { projectFor, floorNameFor } from '@shared/projects'
 import type { Ledger, LedgerAgent, Look, ProjectFloor } from '@shared/types'
-import type { State } from '../state'
-import { DEFAULT_BRAND } from '../world/brand'
-import { mountClaudeStats } from './claude-stats'
-import { formatCost, h, icon } from './dom'
-import { cleanError, modal } from './modals'
-import { saveMarkdown } from './export'
+import type { State } from '../../state'
+import { DEFAULT_BRAND } from '../../world/brand'
+import { mountClaudeStats } from '../claude-stats'
+import { h, icon } from '../dom'
+import { cleanError, modal } from '../modals'
+import { saveMarkdown } from '../export'
 import { slug } from '@shared/export-md'
-import { portrait } from './portrait'
+import { portrait } from '../portrait'
+import { dayKey, dateOf, dayLong, usd, int, workTime, modelName, type Group, zero, type Report, add, sum, variation, tokens } from './data'
+import { reportMarkdown } from './markdown'
 
 // Relatórios: what the office spent, read from the cost book (AO-16), shown like the
 // results screen at the end of a level, not a spreadsheet.
@@ -26,67 +28,6 @@ const PERIOD_KEY = 'reports-period'
 const ALL = '*'
 /** For agents the book saw before it kept looks. */
 const NO_LOOK: Look = { skin: '#e0b48c', hair: '#3a2a20', hairStyle: 0, shirt: '#6f6d8a', pants: '#2c2d40', shoes: '#1a1b2b' }
-
-/** 'YYYY-MM-DD' in local time, `offset` days from today. */
-function dayKey(offset = 0): string {
-  const d = new Date()
-  d.setDate(d.getDate() + offset)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-const dateOf = (day: string) => {
-  const [y, m, d] = day.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
-
-/** "qui, 9 out" */
-const dayLong = (day: string) => dateOf(day).toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short' }).replace(/\./g, '')
-
-const usd = (n: number) => formatCost(n) || '$0,00'
-const int = (n: number) => Math.round(n).toLocaleString('pt-BR')
-
-/** "5h12", "42min", "30s", "—". */
-function workTime(ms: number): string {
-  const s = Math.round(ms / 1000)
-  if (!s) return '—'
-  if (s < 60) return `${s}s`
-  const min = Math.round(s / 60)
-  if (min < 60) return `${min}min`
-  return `${Math.floor(min / 60)}h${String(min % 60).padStart(2, '0')}`
-}
-
-/** "claude-opus-4-1-20250805" -> "opus 4.1" */
-function modelName(id: string): string {
-  return id.replace(/^claude-/, '').replace(/-\d{8}$/, '').replace(/\[1m\]$/, ' 1M').replace(/-(\d+)-(\d+)\b/, ' $1.$2').replace(/-(\d+)\b/, ' $1')
-}
-
-/** A project of the report: a floor, or a folder outside the floors. */
-interface Group {
-  key: string
-  name: string
-  color: string
-  title: string
-}
-
-interface Totals {
-  cost: number
-  turns: number
-  durationMs: number
-  results: number
-}
-
-const zero = (): Totals => ({ cost: 0, turns: 0, durationMs: 0, results: 0 })
-
-interface Report {
-  days: string[]
-  total: Totals
-  prevCost: number
-  /** day -> group key -> USD */
-  byDay: Map<string, Map<string, number>>
-  groups: Map<string, Totals & { byDay: Map<string, number> }>
-  agents: Map<string, Totals & { groups: Set<string> }>
-  models: Map<string, { cost: number; output: number }>
-}
 
 export interface ReportsOptions {
   /** The floor the player is on: the report opens filtered to it. */
@@ -503,96 +444,6 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
   void load()
 }
 
-/** Resumo, por projeto, por agente, por modelo e por dia, em tabelas Markdown. */
-function reportMarkdown(
-  r: Report,
-  label: string,
-  scope: string,
-  prevLabel: string,
-  who: Record<string, LedgerAgent>,
-  groupName: (key: string) => string,
-  folderName: (cwd: string) => string,
-): string {
-  const cell = (s: string) => s.replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim()
-  const table = (head: string[], rows: string[][]) =>
-    rows.length ? [`| ${head.join(' | ')} |`, `|${head.map((_, i) => (i ? ' ---: ' : ' --- ')).join('|')}|`, ...rows.map((row) => `| ${row.map(cell).join(' | ')} |`)].join('\n') : '_Nada no período._'
-  const delta = variation(r.total.cost, r.prevCost)
-  const spenders = [...r.agents.values()].filter((a) => a.cost > 0).length
-  const out = [
-    `# Relatório de gastos · ${scope}`,
-    '',
-    `- **Período:** ${label} (${dayLong(r.days[0])} a ${dayLong(r.days[r.days.length - 1])})`,
-    `- **Exportado em:** ${new Date().toLocaleString('pt-BR')}`,
-    '',
-    '## Resumo',
-    '',
-    table(
-      ['Item', 'Valor'],
-      [
-        ['Gasto', usd(r.total.cost)],
-        [`Contra ${prevLabel}`, delta ? `${delta.text} (antes: ${usd(r.prevCost)})` : 'sem base'],
-        ['Turnos', int(r.total.turns)],
-        ['Tempo', workTime(r.total.durationMs)],
-        ['Respostas', int(r.total.results)],
-        ['Agentes', int(spenders)],
-      ],
-    ),
-    '',
-    '## Por projeto',
-    '',
-    table(
-      ['Projeto', 'Gasto', 'Turnos', 'Tempo'],
-      [...r.groups].filter(([, t]) => t.cost > 0 || t.results > 0).sort((a, b) => b[1].cost - a[1].cost).map(([key, t]) => [groupName(key), usd(t.cost), int(t.turns), workTime(t.durationMs)]),
-    ),
-    '',
-    '## Por agente',
-    '',
-    table(
-      ['Agente', 'Projeto', 'Gasto', 'Turnos'],
-      [...r.agents].filter(([, a]) => a.cost > 0).sort((a, b) => b[1].cost - a[1].cost).map(([id, a]) => {
-        const ag = who[id]
-        return [`${ag?.name ?? 'Agente'}${ag?.dismissedAt ? ' (dispensado)' : ''}`, ag ? folderName(ag.cwd) : '', usd(a.cost), int(a.turns)]
-      }),
-    ),
-    '',
-    '## Por modelo',
-    '',
-    table(
-      ['Modelo', 'Gasto', 'Tokens de saída'],
-      [...r.models].filter(([, m]) => m.cost > 0).sort((a, b) => b[1].cost - a[1].cost).map(([name, m]) => [modelName(name), usd(m.cost), tokens(m.output)]),
-    ),
-  ]
-  if (r.days.length > 1) out.push('', '## Por dia', '', table(['Dia', 'Gasto'], r.days.map((d) => [dayLong(d), usd(sum(r.byDay.get(d)?.values() ?? []))])))
-  return out.join('\n') + '\n'
-}
-
-function add(t: Totals, d: { costUsd: number; turns: number; durationMs: number; results: number }): void {
-  t.cost += d.costUsd
-  t.turns += d.turns
-  t.durationMs += d.durationMs
-  t.results += d.results
-}
-
-function sum(xs: Iterable<number>): number {
-  let s = 0
-  for (const x of xs) s += x
-  return s
-}
-
-/** "▲ 12%" (spent more: red), "▼ 8%" (green); null without a base. */
-function variation(now: number, before: number): { text: string; tone: 'up' | 'down' | 'flat' } | null {
-  if (before < 0.005) return null
-  const pct = Math.round(((now - before) / before) * 100)
-  if (pct === 0) return { text: '= 0%', tone: 'flat' }
-  return pct > 0 ? { text: `▲ ${pct}%`, tone: 'up' } : { text: `▼ ${Math.abs(pct)}%`, tone: 'down' }
-}
-
-/** 1,2 mi · 340 mil · 512 */
-function tokens(n: number): string {
-  if (n >= 1e6) return `${(n / 1e6).toFixed(1).replace('.', ',')} mi`
-  if (n >= 1e3) return `${Math.round(n / 1e3)} mil`
-  return String(n)
-}
 
 function section(title: string, content: HTMLElement): HTMLElement {
   return h('div', { class: 'rep-section' }, h('div', { class: 'rep-section-head' }, title), content)
