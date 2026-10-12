@@ -163,7 +163,7 @@ export class AgentManager extends EventEmitter {
       status: 'starting',
       activity: 'Chegando ao escritório',
       ...this.seat(req.cwd),
-      look: lookFromSeed(req.name + id),
+      look: req.look ?? lookFromSeed(req.name + id),
       costUsd: 0,
       createdAt: Date.now(),
       sessionId: randomUUID(),

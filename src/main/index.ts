@@ -21,6 +21,7 @@ import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
+import { cleanLook, cleanTemplate, loadTemplates, upsertTemplate } from './templates'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const DELEGATE_MODES: OfficePermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan']
@@ -312,6 +313,7 @@ app.whenReady().then(async () => {
       task: req.task,
       ...cleanBrain(req, store.settings.accounts),
       permissionMode: req.permissionMode,
+      look: cleanLook(req.look),
     })
   })
   ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown) => {
@@ -391,6 +393,16 @@ app.whenReady().then(async () => {
       return bridge.status()
     }
   })
+  ipcMain.handle('office:saveTemplate', (_e, raw: unknown) => {
+    const t = cleanTemplate(raw, store.settings.projects)
+    store.settings = { ...store.settings, templates: upsertTemplate(store.settings.templates, t) }
+    broadcast({ type: 'settings', settings: store.settings })
+    return t
+  })
+  ipcMain.handle('office:deleteTemplate', (_e, id: unknown) => {
+    store.settings = { ...store.settings, templates: store.settings.templates.filter((t) => t.id !== id) }
+    broadcast({ type: 'settings', settings: store.settings })
+  })
   ipcMain.handle('office:saveSettings', (_e, patch: Partial<Settings>) => {
     const before = JSON.stringify(store.settings.projects)
     const accountList = patch && 'accounts' in patch ? cleanAccounts(patch.accounts, store.settings.accounts) : store.settings.accounts
@@ -412,6 +424,8 @@ app.whenReady().then(async () => {
       maxSubagents,
       agentBudgetUsd,
       bridgePort: store.settings.bridgePort,
+      // Templates change only through saveTemplate/deleteTemplate; a removed floor turns its templates global.
+      templates: loadTemplates(store.settings.templates, projects),
     }
     broadcast({ type: 'settings', settings: store.settings })
     if (patch && 'ticketAutoCloseDays' in patch) board.autoClose(ticketAutoCloseDays)
