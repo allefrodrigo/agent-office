@@ -35,6 +35,8 @@ const api: OfficeAPI = {
   installBridge: () => ipcRenderer.invoke('office:installBridge'),
   uninstallBridge: () => ipcRenderer.invoke('office:uninstallBridge'),
   saveSettings: (patch) => ipcRenderer.invoke('office:saveSettings', patch),
+  saveTemplate: (t) => ipcRenderer.invoke('office:saveTemplate', t),
+  deleteTemplate: (id) => ipcRenderer.invoke('office:deleteTemplate', id),
   createTicket: (draft) => ipcRenderer.invoke('office:createTicket', draft),
   updateTicket: (id, patch) => ipcRenderer.invoke('office:updateTicket', id, patch),
   moveTicket: (id, status, beforeId) => ipcRenderer.invoke('office:moveTicket', id, status, beforeId),
@@ -53,6 +55,9 @@ const api: OfficeAPI = {
   getLedger: (query) => ipcRenderer.invoke('office:getLedger', query ?? {}),
   getStats: () => ipcRenderer.invoke('office:getStats'),
   refreshStats: () => ipcRenderer.invoke('office:refreshStats'),
+  reportError: (err) => ipcRenderer.send('office:rendererError', err),
+  openLogs: () => ipcRenderer.invoke('office:openLogs'),
+  copyDiagnostics: () => ipcRenderer.invoke('office:copyDiagnostics'),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

@@ -1,11 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { randomUUID } from 'node:crypto'
 import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { floorNameFor, MAX_PROJECT_FLOORS, projectFor } from '@shared/projects'
-import { EFFORT_LEVELS } from '@shared/types'
-import type { Account, Actor, AgentBrain, DelegateTarget, HireRequest, LedgerQuery, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, ProjectFloor, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
+import { projectFor } from '@shared/projects'
+import type { Actor, AgentBrain, HireRequest, OfficeEvent, OfficeState } from '@shared/types'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { Accounts } from './accounts'
 import { AgentManager } from './agents'
@@ -13,6 +11,8 @@ import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { startDemo } from './demo'
 import { CostBook } from './ledger'
+import { diagnostics, guardWindow, installFatalHandlers, onFatalFlush, rendererError } from './crash'
+import { captureConsole, initLog, log, logDir, secret } from './log'
 import { dropInheritedClaudeEnv, loadShellPath } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
 import { findSquad, isDir, loadSquads, squadInfo } from './squads'
@@ -21,13 +21,43 @@ import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
+import { cleanLook, cleanTemplate, loadTemplates, upsertTemplate } from './templates'
 import { commitChanges, discardChanges, fileDiff, insideRoot, openInEditor, openPullRequest, pruneWorktrees, removeWorktree, repoRoot, worktreeFromPath, worktreeState } from './git'
-
-/** Agent and result ids are randomUUID()s. */
-const isUuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+import {
+  accountNameSchema,
+  changedPathSchema,
+  commitMessageSchema,
+  prTitleSchema,
+  uuidSchema,
+  worktreeFlagSchema,
+  assigneeSchema,
+  attachmentsSchema,
+  cleanAccountIds,
+  cleanBrain,
+  cleanDelegateTarget,
+  cleanHire,
+  cleanLedgerQuery,
+  cleanSettings,
+  commentSchema,
+  delegateMode,
+  externalUrlSchema,
+  floorIdSchema,
+  idSchema,
+  messageSchema,
+  parse,
+  pathSchema,
+  permissionDecisionSchema,
+  permissionModeSchema,
+  searchSchema,
+  squadCodeSchema,
+  squadNoteSchema,
+  ticketDraftSchema,
+  ticketIdsSchema,
+  ticketPatchSchema,
+  ticketStatusSchema,
+} from './validate'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
-const DELEGATE_MODES: OfficePermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan']
 let win: BrowserWindow | null = null
 
 function createWindow(): BrowserWindow {
@@ -57,11 +87,16 @@ function createWindow(): BrowserWindow {
   // The window only ever shows our own bundle.
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   w.webContents.on('will-navigate', (e) => e.preventDefault())
-
-  if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL)
-  // Screenshot runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera.
-  else w.loadFile(join(here, '../renderer/index.html'), headless ? { query: { shots: '1' } } : undefined)
+  // A crashed or frozen page loads again; the agents keep running in this process.
+  guardWindow(w, loadPage)
+  loadPage(w)
   return w
+}
+
+function loadPage(w: BrowserWindow): void {
+  if (process.env.ELECTRON_RENDERER_URL) void w.loadURL(process.env.ELECTRON_RENDERER_URL)
+  // Screenshot runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera.
+  else void w.loadFile(join(here, '../renderer/index.html'), process.env.AGENT_OFFICE_SHOTS ? { query: { shots: '1' } } : undefined)
 }
 
 // Claude FM's live restarts now and then under a new video ID; clau.de/radio always points at the current one.
@@ -75,86 +110,6 @@ async function radioVideo(): Promise<string> {
     // offline or the short link moved: keep the last known stream
   }
   return RADIO_FALLBACK
-}
-
-/** Model, effort and accounts from the renderer: a short model name or id, a known effort level, existing accounts. */
-function cleanBrain(raw: unknown, accounts: Account[]): AgentBrain {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const brain: AgentBrain = {}
-  // A key that is present but empty means "Claude Code's default", not the office default.
-  if ('model' in r) brain.model = typeof r.model === 'string' && /^[\w.\-[\]]{1,64}$/.test(r.model) ? r.model : undefined
-  if ('effort' in r) brain.effort = EFFORT_LEVELS.includes(r.effort as never) ? (r.effort as AgentBrain['effort']) : undefined
-  // Empty = the project's accounts.
-  if ('accounts' in r) brain.accounts = cleanAccountIds(r.accounts, accounts)
-  return brain
-}
-
-/** Account ids from the renderer that exist, without repeats. */
-function cleanAccountIds(raw: unknown, accounts: Account[]): string[] {
-  const ids = Array.isArray(raw) ? raw.filter((id): id is string => typeof id === 'string' && accounts.some((a) => a.id === id)) : []
-  return [...new Set(ids)]
-}
-
-/**
- * Accounts from the renderer: only names, colors and order change here. Ids and
- * config folders come from accounts made by addAccount, never from the page.
- */
-function cleanAccounts(raw: unknown, current: Account[]): Account[] {
-  const out: Account[] = []
-  for (const item of Array.isArray(raw) ? raw : []) {
-    const r = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
-    const known = current.find((a) => a.id === r.id)
-    if (!known || out.some((o) => o.id === known.id)) continue
-    const name = typeof r.name === 'string' && r.name.trim() ? r.name.trim().slice(0, 32) : known.name
-    const color = typeof r.color === 'string' && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : known.color
-    out.push({ ...known, name, color })
-  }
-  // Removing goes through removeAccount.
-  for (const a of current) if (!out.some((o) => o.id === a.id)) out.push(a)
-  return out
-}
-
-/**
- * Project floors from the renderer: existing folders only, one floor per folder,
- * a plain id (it becomes part of avatar seeds and lookups) and a short name.
- */
-/** Raster logos only (no SVG: it can carry scripts), small enough for office.json. */
-const LOGO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/
-const MAX_LOGO_CHARS = 400_000
-
-function cleanBrand(p: Record<string, unknown>): Pick<ProjectFloor, 'logo' | 'brandColor' | 'uniform'> {
-  const out: Pick<ProjectFloor, 'logo' | 'brandColor' | 'uniform'> = {}
-  if (typeof p.logo === 'string' && p.logo.length <= MAX_LOGO_CHARS && LOGO_RE.test(p.logo)) out.logo = p.logo
-  if (typeof p.brandColor === 'string' && /^#[0-9a-f]{6}$/i.test(p.brandColor)) out.brandColor = p.brandColor.toLowerCase()
-  if (p.uniform === true) out.uniform = true
-  return out
-}
-
-function cleanProjects(raw: unknown, previous: ProjectFloor[]): ProjectFloor[] {
-  const out: ProjectFloor[] = []
-  for (const item of Array.isArray(raw) ? raw : []) {
-    const p = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
-    const cwd = typeof p.cwd === 'string' ? p.cwd : ''
-    if (!isAbsolute(cwd) || !isDir(cwd) || out.some((o) => o.cwd === cwd)) continue
-    const id = typeof p.id === 'string' && /^[\w-]{1,40}$/.test(p.id) && !out.some((o) => o.id === p.id) ? p.id : `p-${randomUUID().slice(0, 8)}`
-    const name = (typeof p.name === 'string' ? p.name.trim().slice(0, 32) : '') || floorNameFor(cwd)
-    // A floor's accounts change only through setAccountPool: the settings form may hold an old copy.
-    const accounts = previous.find((o) => o.id === id)?.accounts
-    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p) })
-    if (out.length === MAX_PROJECT_FLOORS) break
-  }
-  return out
-}
-
-/** Days as 'YYYY-MM-DD' and an absolute folder; anything else is dropped. */
-function cleanLedgerQuery(raw: unknown): LedgerQuery {
-  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
-  const q: LedgerQuery = {}
-  if (day(r.from)) q.from = day(r.from)
-  if (day(r.to)) q.to = day(r.to)
-  if (typeof r.cwd === 'string' && isAbsolute(r.cwd)) q.cwd = r.cwd
-  return q
 }
 
 function notify(store: Store, title: string, body: string): void {
@@ -174,6 +129,11 @@ dropInheritedClaudeEnv()
 app.setAppUserModelId('dev.allef.agentoffice')
 // Dev helper: run a second, isolated instance (own data, own bridge port in its office.json).
 if (process.env.AGENT_OFFICE_DATA_DIR) app.setPath('userData', process.env.AGENT_OFFICE_DATA_DIR)
+// Dev helper: AGENT_OFFICE_LOG_MAX_KB rotates the log sooner, to test rotation.
+initLog(app.getPath('userData'), { maxBytes: !app.isPackaged ? Number(process.env.AGENT_OFFICE_LOG_MAX_KB) * 1024 || undefined : undefined })
+captureConsole()
+installFatalHandlers()
+log.info(`Agent Office ${app.getVersion()} iniciando (${process.platform} ${process.arch}, Electron ${process.versions.electron})`)
 
 app.whenReady().then(async () => {
   await loadShellPath()
@@ -182,6 +142,11 @@ app.whenReady().then(async () => {
   const book = new CostBook(store)
   manager.book = book
   const board = new TicketBoard(app.getPath('userData'))
+  // A fatal error saves what is in memory before asking what to do.
+  onFatalFlush(() => {
+    store.flush()
+    board.flush()
+  })
   manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects)
   const desk = new TicketDesk(board, manager, () => store.settings)
   // Old tickets in "Feito" close by themselves: now, then every hour.
@@ -238,6 +203,12 @@ app.whenReady().then(async () => {
   const bridge = new Bridge(manager, store.settings.bridgePort, join(app.getPath('userData'), 'bridge-token'), (status) =>
     broadcast({ type: 'bridge:status', status }),
   )
+  // The bridge token must never reach the log: the Bridge just wrote it, read it back.
+  try {
+    secret(readFileSync(join(app.getPath('userData'), 'bridge-token'), 'utf8'))
+  } catch (err) {
+    log.warn('Não consegui ler o bridge-token para escondê-lo do log:', err)
+  }
   bridge.start()
   usage.start()
   system.start()
@@ -254,6 +225,20 @@ app.whenReady().then(async () => {
   void pruneWorktrees([...store.settings.projects.map((p) => p.cwd), ...manager.list().flatMap((a) => (a.worktree ? [a.worktree.repo] : []))])
 
   // ---------- IPC ----------
+  // Every argument from the renderer passes through validate.ts first.
+  const id = (raw: unknown) => parse(idSchema, raw, 'ID inválido.')
+  const ticketId = (raw: unknown) => parse(idSchema, raw, 'Esse ticket não existe mais.')
+  ipcMain.on('office:rendererError', (e, payload: unknown) => {
+    if (e.sender === win?.webContents) rendererError(payload)
+  })
+  ipcMain.handle('office:openLogs', async () => {
+    const err = await shell.openPath(logDir())
+    if (err) throw new Error(`Não consegui abrir a pasta de logs: ${err}`)
+  })
+  // Copied here, not in the page: the page's clipboard needs focus, and the text never passes through it.
+  ipcMain.handle('office:copyDiagnostics', async () => {
+    clipboard.writeText(await diagnostics())
+  })
   ipcMain.handle('office:getState', (): OfficeState => ({
     agents: manager.list(),
     permissions: manager.pendingRequests(),
@@ -274,20 +259,21 @@ app.whenReady().then(async () => {
   ipcMain.handle('office:refreshStats', () => stats.refresh())
   ipcMain.handle('office:checkAccounts', () => accounts.check())
   ipcMain.handle('office:addAccount', (_e, name: unknown) => {
-    const account = accounts.create(typeof name === 'string' ? name : '')
+    const account = accounts.create(accountNameSchema.parse(name))
     store.settings = { ...store.settings, accounts: [...store.settings.accounts, account] }
     broadcast({ type: 'settings', settings: store.settings })
     void accounts.check()
     void usage.refresh()
     return store.settings
   })
-  ipcMain.handle('office:removeAccount', (_e, id: unknown) => {
-    if (id === MAIN_ACCOUNT) throw new Error('A conta principal não pode ser removida.')
+  ipcMain.handle('office:removeAccount', (_e, raw: unknown) => {
+    const gone = id(raw)
+    if (gone === MAIN_ACCOUNT) throw new Error('A conta principal não pode ser removida.')
     const s = store.settings
-    const drop = (ids?: string[]) => ids?.filter((x) => x !== id)
+    const drop = (ids?: string[]) => ids?.filter((x) => x !== gone)
     store.settings = {
       ...s,
-      accounts: s.accounts.filter((a) => a.id !== id),
+      accounts: s.accounts.filter((a) => a.id !== gone),
       defaultAccounts: drop(s.defaultAccounts) ?? [],
       projects: s.projects.map((p) => ({ ...p, accounts: drop(p.accounts) })),
     }
@@ -296,8 +282,9 @@ app.whenReady().then(async () => {
     broadcast({ type: 'usage', usage: usage.current() })
     return store.settings
   })
-  ipcMain.handle('office:loginAccount', (_e, id: unknown) => accounts.login(String(id)))
-  ipcMain.handle('office:setAccountPool', (_e, floorId: unknown, ids: unknown) => {
+  ipcMain.handle('office:loginAccount', (_e, raw: unknown) => accounts.login(id(raw)))
+  ipcMain.handle('office:setAccountPool', (_e, rawFloor: unknown, ids: unknown) => {
+    const floorId = parse(floorIdSchema, rawFloor, 'Esse andar não existe mais.')
     const s = store.settings
     const pool = cleanAccountIds(ids, s.accounts)
     if (floorId === null) store.settings = { ...s, defaultAccounts: pool }
@@ -306,40 +293,41 @@ app.whenReady().then(async () => {
     broadcast({ type: 'settings', settings: store.settings })
     return store.settings
   })
-  ipcMain.handle('office:getLog', (_e, id: string) => manager.getLog(String(id)))
-  ipcMain.handle('office:hire', (_e, req: HireRequest) => {
-    if (!req || typeof req.cwd !== 'string' || !existsSync(req.cwd) || !statSync(req.cwd).isDirectory()) {
-      throw new Error('Escolha uma pasta de projeto que exista.')
-    }
-    if (typeof req.task !== 'string' || !req.task.trim()) throw new Error('Descreva a tarefa do agente.')
-    return manager.hire({
-      name: String(req.name ?? '').slice(0, 40),
-      cwd: req.cwd,
-      task: req.task,
-      ...cleanBrain(req, store.settings.accounts),
-      permissionMode: req.permissionMode,
-      worktree: typeof req.worktree === 'boolean' ? req.worktree : undefined,
-    })
-  })
-  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown, worktree: unknown) => {
-    if (typeof cwd !== 'string' || !existsSync(cwd) || !statSync(cwd).isDirectory()) throw new Error('Escolha uma pasta de projeto que exista.')
-    const modes: OfficePermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan', 'bypassPermissions']
-    const permissionMode = modes.includes(mode as OfficePermissionMode) ? (mode as OfficePermissionMode) : store.settings.defaultPermissionMode
-    return manager.summon(cwd, { ...defaultBrain(), ...cleanBrain(brain, store.settings.accounts), permissionMode }, typeof worktree === 'boolean' ? worktree : undefined)
-  })
-  ipcMain.handle('office:isGitRepo', async (_e, cwd: unknown) => typeof cwd === 'string' && cwd.length < 4096 && isAbsolute(cwd) && isDir(cwd) && !!(await repoRoot(cwd)))
-  ipcMain.handle('office:send', (_e, id: string, text: string, attachments: unknown) =>
-    manager.sendMessage(String(id), String(text), undefined, Array.isArray(attachments) ? attachments : []),
+  ipcMain.handle('office:getLog', (_e, raw: unknown) => manager.getLog(id(raw)))
+  // A permission mode outside the list falls back to the office default.
+  ipcMain.handle('office:hire', (_e, req: unknown) =>
+    manager.hire({ ...cleanHire(req, store.settings), look: cleanLook((req as { look?: unknown } | null)?.look) }),
   )
-  ipcMain.handle('office:interrupt', (_e, id: string) => manager.interrupt(String(id)))
-  ipcMain.handle('office:compact', (_e, id: string) => manager.compact(String(id)))
-  ipcMain.handle('office:clearContext', (_e, id: string) => manager.clearContext(String(id)))
+  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown, worktree: unknown) => {
+    if (!pathSchema.safeParse(cwd).success || !isDir(cwd)) throw new Error('Escolha uma pasta de projeto que exista.')
+    const m = permissionModeSchema.safeParse(mode)
+    const permissionMode = m.success ? m.data : store.settings.defaultPermissionMode
+    return manager.summon(cwd, { ...defaultBrain(), ...cleanBrain(brain, store.settings.accounts), permissionMode }, worktreeFlagSchema.parse(worktree))
+  })
+  ipcMain.handle('office:isGitRepo', async (_e, cwd: unknown) => {
+    const p = pathSchema.safeParse(cwd)
+    return p.success && isAbsolute(p.data) && isDir(p.data) && !!(await repoRoot(p.data))
+  })
+  ipcMain.handle('office:send', (_e, raw: unknown, text: unknown, attachments: unknown) =>
+    manager.sendMessage(
+      id(raw),
+      parse(messageSchema, text, 'Mensagem grande demais. Mande em partes ou anexe como arquivo.'),
+      undefined,
+      parse(attachmentsSchema.optional(), attachments, 'Anexos inválidos.') ?? [],
+    ),
+  )
+  ipcMain.handle('office:interrupt', (_e, raw: unknown) => manager.interrupt(id(raw)))
+  ipcMain.handle('office:compact', (_e, raw: unknown) => manager.compact(id(raw)))
+  ipcMain.handle('office:clearContext', (_e, raw: unknown) => manager.clearContext(id(raw)))
+  ipcMain.handle('office:closeTerminal', (_e, raw: unknown) => bridge.closeSession(id(raw)))
+
   // ---------- worktrees (AO-33) ----------
   // What the player chose in the native dialog of prepareFire. Only that dialog can
   // authorize removing a worktree: the renderer never sends "remove".
   const fireChoices = new Map<string, { remove: boolean; dirty: number }>()
-  ipcMain.handle('office:prepareFire', async (_e, id: unknown) => {
-    const a = isUuid(id) ? manager.agent(id) : undefined
+  const agentId = (raw: unknown) => parse(uuidSchema, raw, 'Esse agente não está mais no escritório.')
+  ipcMain.handle('office:prepareFire', async (_e, raw: unknown) => {
+    const a = manager.agent(agentId(raw))
     const wt = a?.worktree
     if (!a || !wt) return 'plain'
     const st = await worktreeState(wt).catch(() => null)
@@ -374,12 +362,12 @@ app.whenReady().then(async () => {
     fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty })
     return 'confirmed'
   })
-  ipcMain.handle('office:fire', async (_e, id: unknown) => {
-    if (!isUuid(id)) return
-    const wt = manager.agent(id)?.worktree
-    const choice = fireChoices.get(id)
-    fireChoices.delete(id)
-    manager.fire(id)
+  ipcMain.handle('office:fire', async (_e, raw: unknown) => {
+    const aid = id(raw)
+    const wt = manager.agent(aid)?.worktree
+    const choice = fireChoices.get(aid)
+    fireChoices.delete(aid)
+    manager.fire(aid)
     if (!wt) return
     if (!choice?.remove) return `A cópia isolada ficou em ${wt.root} (branch ${wt.branch}).`
     // Forced only when the player confirmed losing changes; anything newer than that keeps the copy.
@@ -389,24 +377,20 @@ app.whenReady().then(async () => {
   })
 
   // ---------- result card: changed files (AO-34) ----------
-  const resultFor = (id: unknown) => {
-    const r = isUuid(id) ? manager.result(id) : undefined
+  const changesFor = (raw: unknown) => {
+    const r = manager.result(parse(uuidSchema, raw, 'Esse resultado já foi recebido.'))
     if (!r) throw new Error('Esse resultado já foi recebido.')
-    return r
-  }
-  const changesFor = (id: unknown) => {
-    const r = resultFor(id)
     if (!r.changes) throw new Error('Ainda não sei o que esse agente mudou.')
     return { r, c: r.changes }
   }
-  ipcMain.handle('office:resultDiff', (_e, id: unknown, path: unknown) => {
-    const { c } = changesFor(id)
-    if (typeof path !== 'string' || path.length > 4096) throw new Error('Caminho inválido.')
-    return fileDiff(c, path)
+  ipcMain.handle('office:resultDiff', (_e, raw: unknown, path: unknown) => {
+    const { c } = changesFor(raw)
+    return fileDiff(c, parse(changedPathSchema, path, 'Caminho inválido.'))
   })
-  ipcMain.handle('office:openResultInEditor', async (_e, id: unknown, path: unknown) => {
-    const { c } = changesFor(id)
-    const file = typeof path === 'string' && c.files.some((f) => f.path === path) ? path : undefined
+  ipcMain.handle('office:openResultInEditor', async (_e, raw: unknown, path: unknown) => {
+    const { c } = changesFor(raw)
+    const p = changedPathSchema.optional().safeParse(path)
+    const file = p.success && p.data && c.files.some((f) => f.path === p.data) ? p.data : undefined
     if (await openInEditor(c.root, file)) return true
     // No Cursor or VS Code: show it in Finder. Never shell.openPath: the agent may have
     // written a .command or .app, and the default app would run it.
@@ -414,8 +398,8 @@ app.whenReady().then(async () => {
     if (target && existsSync(target)) shell.showItemInFolder(target)
     return false
   })
-  ipcMain.handle('office:discardResult', async (_e, id: unknown) => {
-    const { r, c } = changesFor(id)
+  ipcMain.handle('office:discardResult', async (_e, raw: unknown) => {
+    const { r, c } = changesFor(raw)
     if (!c.git || c.committed || c.discarded) throw new Error('Não há mudanças para descartar aqui.')
     const n = c.files.filter((f) => f.restorable).length
     const { response } = await dialog.showMessageBox(win!, {
@@ -435,22 +419,20 @@ app.whenReady().then(async () => {
     if (done.skipped.length) dialog.showErrorBox('Alguns arquivos ficaram como estão', `Não deu para restaurar:\n${done.skipped.slice(0, 20).join('\n')}`)
     return next
   })
-  ipcMain.handle('office:commitResult', async (_e, id: unknown, message: unknown) => {
-    const { r, c } = changesFor(id)
-    const msg = typeof message === 'string' ? message.trim() : ''
-    if (!msg || msg.length > 2000) throw new Error('Escreva uma mensagem de commit (até 2000 caracteres).')
+  ipcMain.handle('office:commitResult', async (_e, raw: unknown, message: unknown) => {
+    const { r, c } = changesFor(raw)
+    const msg = parse(commitMessageSchema, message, 'Escreva uma mensagem de commit (até 2000 caracteres).')
     if (!c.git || c.committed || c.discarded) throw new Error('Não há mudanças para commitar aqui.')
     const sha = await commitChanges(c, msg)
     const next = { ...c, committed: sha }
     manager.setChanges(r.id, next)
     return next
   })
-  ipcMain.handle('office:openResultPR', async (_e, id: unknown, title: unknown) => {
-    const { r } = changesFor(id)
+  ipcMain.handle('office:openResultPR', async (_e, raw: unknown, title: unknown) => {
+    const { r } = changesFor(raw)
     const wt = manager.agent(r.agentId)?.worktree
     if (!wt) throw new Error('Só dá para abrir PR de um agente que trabalha numa cópia isolada (worktree).')
-    const t = typeof title === 'string' ? title.trim().split('\n')[0].slice(0, 200) : ''
-    if (!t) throw new Error('Escreva um título para o PR.')
+    const t = parse(prTitleSchema, title, 'Escreva um título para o PR.')
     const { response } = await dialog.showMessageBox(win!, {
       type: 'question',
       buttons: ['Enviar e abrir PR', 'Cancelar'],
@@ -463,7 +445,6 @@ app.whenReady().then(async () => {
     const body = `${r.text.slice(0, 6000)}\n\n---\nAberto pelo Agent Office (${nameOf(r.agentId)}, branch \`${wt.branch}\`).`
     return openPullRequest(wt, t, body)
   })
-  ipcMain.handle('office:closeTerminal', (_e, id: string) => bridge.closeSession(String(id)))
   ipcMain.handle('office:listSessions', () => recentSessions())
   ipcMain.handle('office:recall', async (_e, sessionId: unknown) => {
     if (!isSessionId(sessionId)) throw new Error('ID de sessão inválido.')
@@ -494,16 +475,16 @@ app.whenReady().then(async () => {
     if (!entry?.cwd) return { ok: false, message: 'Não sei em que pasta essa sessão rodava.' }
     return openInTerminal(sessionId, entry.cwd)
   })
-  ipcMain.handle('office:respond', (_e, d: PermissionDecision) => manager.respond(d))
-  ipcMain.handle('office:ackResult', (_e, id: string) => {
-    manager.ackResult(String(id))
+  ipcMain.handle('office:respond', (_e, d: unknown) => manager.respond(parse(permissionDecisionSchema, d, 'Resposta inválida.')))
+  ipcMain.handle('office:ackResult', (_e, raw: unknown) => {
+    manager.ackResult(id(raw))
     updateBadge()
   })
   ipcMain.handle('office:pickFolder', async (_e, defaultPath?: unknown) => {
     const r = await dialog.showOpenDialog(win!, {
       properties: ['openDirectory', 'createDirectory'],
       title: 'Pasta do projeto',
-      defaultPath: typeof defaultPath === 'string' && existsSync(defaultPath) ? defaultPath : undefined,
+      defaultPath: pathSchema.safeParse(defaultPath).success && existsSync(defaultPath as string) ? (defaultPath as string) : undefined,
     })
     return r.canceled ? null : r.filePaths[0]
   })
@@ -535,30 +516,27 @@ app.whenReady().then(async () => {
       return bridge.status()
     }
   })
-  ipcMain.handle('office:saveSettings', (_e, patch: Partial<Settings>) => {
-    const before = JSON.stringify(store.settings.projects)
-    const accountList = patch && 'accounts' in patch ? cleanAccounts(patch.accounts, store.settings.accounts) : store.settings.accounts
-    const defaultAccounts = patch && 'defaultAccounts' in patch ? cleanAccountIds(patch.defaultAccounts, accountList) : store.settings.defaultAccounts
-    const projects = patch && 'projects' in patch ? cleanProjects(patch.projects, store.settings.projects) : store.settings.projects
-    const days = patch && 'ticketAutoCloseDays' in patch ? Number(patch.ticketAutoCloseDays) : store.settings.ticketAutoCloseDays
-    const ticketAutoCloseDays = Number.isInteger(days) && days >= 0 && days <= 365 ? days : store.settings.ticketAutoCloseDays
-    const subs = patch && 'maxSubagents' in patch ? Number(patch.maxSubagents) : store.settings.maxSubagents
-    const maxSubagents = Number.isInteger(subs) && subs >= 0 && subs <= 100 ? subs : store.settings.maxSubagents
-    const cap = patch && 'agentBudgetUsd' in patch ? Number(patch.agentBudgetUsd) : store.settings.agentBudgetUsd
-    const agentBudgetUsd = Number.isFinite(cap) && cap >= 0 && cap <= 100_000 ? Math.round(cap * 100) / 100 : store.settings.agentBudgetUsd
-    store.settings = {
-      ...store.settings,
-      ...patch,
-      projects,
-      accounts: accountList,
-      defaultAccounts,
-      ticketAutoCloseDays,
-      maxSubagents,
-      agentBudgetUsd,
-      bridgePort: store.settings.bridgePort,
-    }
+  ipcMain.handle('office:saveTemplate', (_e, raw: unknown) => {
+    const t = cleanTemplate(raw, store.settings.projects)
+    store.settings = { ...store.settings, templates: upsertTemplate(store.settings.templates, t) }
     broadcast({ type: 'settings', settings: store.settings })
-    if (patch && 'ticketAutoCloseDays' in patch) board.autoClose(ticketAutoCloseDays)
+    return t
+  })
+  ipcMain.handle('office:deleteTemplate', (_e, raw: unknown) => {
+    const templateId = id(raw)
+    store.settings = { ...store.settings, templates: store.settings.templates.filter((t) => t.id !== templateId) }
+    broadcast({ type: 'settings', settings: store.settings })
+  })
+  ipcMain.handle('office:saveSettings', (_e, patch: unknown) => {
+    const before = JSON.stringify(store.settings.projects)
+    const days = store.settings.ticketAutoCloseDays
+    // Unknown keys are dropped; a bad value keeps the current one. The bridge port never changes here.
+    const cleaned = cleanSettings(patch, store.settings)
+    // Templates change only through saveTemplate/deleteTemplate; a removed floor turns its templates global.
+    store.settings = { ...cleaned, templates: loadTemplates(store.settings.templates, cleaned.projects) }
+    const { projects, ticketAutoCloseDays } = store.settings
+    broadcast({ type: 'settings', settings: store.settings })
+    if (ticketAutoCloseDays !== days) board.autoClose(ticketAutoCloseDays)
     if (JSON.stringify(projects) !== before) {
       squads = readSquads()
       broadcast({ type: 'squads', squads })
@@ -566,53 +544,48 @@ app.whenReady().then(async () => {
     }
     return store.settings
   })
-  ipcMain.handle('office:createTicket', (_e, draft: TicketDraft) => board.create(draft, player()))
-  ipcMain.handle('office:updateTicket', (_e, id: string, patch: TicketPatch) => board.update(String(id), patch, player()))
-  ipcMain.handle('office:moveTicket', (_e, id: string, status: TicketStatus, beforeId?: string) =>
-    board.move(String(id), status, beforeId ? String(beforeId) : undefined, player()),
+  ipcMain.handle('office:createTicket', (_e, draft: unknown) => board.create(parse(ticketDraftSchema, draft, 'Ticket inválido.'), player()))
+  ipcMain.handle('office:updateTicket', (_e, raw: unknown, patch: unknown) =>
+    board.update(ticketId(raw), parse(ticketPatchSchema, patch, 'Ticket inválido.'), player()),
   )
-  ipcMain.handle('office:commentTicket', (_e, id: string, text: string) => {
-    board.comment(String(id), String(text), player())
+  ipcMain.handle('office:moveTicket', (_e, raw: unknown, status: unknown, beforeId?: unknown) =>
+    board.move(ticketId(raw), parse(ticketStatusSchema, status, 'Coluna inválida.'), beforeId ? ticketId(beforeId) : undefined, player()),
+  )
+  ipcMain.handle('office:commentTicket', (_e, raw: unknown, text: unknown) => {
+    board.comment(ticketId(raw), parse(commentSchema, text, 'Comentário grande demais.'), player())
   })
-  ipcMain.handle('office:deleteTicket', (_e, id: string) => board.remove(String(id)))
-  ipcMain.handle('office:closeTickets', (_e, ids?: unknown) => board.close(Array.isArray(ids) ? ids.map(String) : undefined, player()))
-  ipcMain.handle('office:listClosed', (_e, search?: unknown) => board.listClosed(typeof search === 'string' ? search : undefined))
-  ipcMain.handle('office:reopenTicket', (_e, id: string) => board.reopen(String(id), player()))
-  ipcMain.handle('office:assignTicket', (_e, id: string, who: unknown) => {
-    const t = board.assign(String(id), who === 'me' ? player() : undefined, player())
+  ipcMain.handle('office:deleteTicket', (_e, raw: unknown) => board.remove(ticketId(raw)))
+  ipcMain.handle('office:closeTickets', (_e, ids?: unknown) => board.close(parse(ticketIdsSchema, ids, 'Tickets inválidos.'), player()))
+  ipcMain.handle('office:listClosed', (_e, search?: unknown) => board.listClosed(searchSchema.parse(search)))
+  ipcMain.handle('office:reopenTicket', (_e, raw: unknown) => board.reopen(ticketId(raw), player()))
+  ipcMain.handle('office:assignTicket', (_e, raw: unknown, who: unknown) => {
+    const t = board.assign(ticketId(raw), parse(assigneeSchema, who, 'Responsável inválido.') === 'me' ? player() : undefined, player())
     if (!t.assignee && t.status === 'doing') board.move(t.id, 'todo', undefined, player())
     else if (t.assignee && (t.status === 'backlog' || t.status === 'todo')) board.move(t.id, 'doing', undefined, player())
   })
-  ipcMain.handle('office:delegateTicket', (_e, id: string, target: DelegateTarget) => {
-    const t: DelegateTarget =
-      target && typeof target === 'object' && 'agentId' in target
-        ? { agentId: String(target.agentId) }
-        : {
-            hire: {
-              ...cleanBrain(target?.hire, store.settings.accounts),
-              // A ticket may be written by someone else (or another agent): never run it with "bypass".
-              permissionMode: DELEGATE_MODES.includes(target?.hire?.permissionMode as never) ? target.hire.permissionMode : undefined,
-              worktree: typeof target?.hire?.worktree === 'boolean' ? target.hire.worktree : undefined,
-            },
-          }
-    return desk.delegate(String(id), t, player())
-  })
-  ipcMain.handle('office:openExternal', (_e, url: string) => {
+  // A ticket may be written by someone else (or another agent): never run it with "bypass".
+  ipcMain.handle('office:delegateTicket', (_e, raw: unknown, target: unknown) =>
+    desk.delegate(ticketId(raw), cleanDelegateTarget(target, store.settings.accounts), player()),
+  )
+  ipcMain.handle('office:openExternal', (_e, url: unknown) => {
     // Only web links leave the app; file:// or custom schemes could run things.
-    if (/^https?:\/\//i.test(String(url))) return shell.openExternal(String(url))
+    const link = externalUrlSchema.safeParse(url)
+    if (link.success) return shell.openExternal(link.data)
   })
-  ipcMain.handle('office:revealPath', (_e, p: string) => {
-    if (typeof p === 'string' && existsSync(p)) shell.showItemInFolder(p)
+  ipcMain.handle('office:revealPath', (_e, p: unknown) => {
+    const path = pathSchema.safeParse(p)
+    if (path.success && existsSync(path.data)) shell.showItemInFolder(path.data)
   })
   ipcMain.handle('office:radioVideo', () => radioVideo())
-  ipcMain.handle('office:listSquads', (_e, cwd: unknown) => (isDir(cwd) ? loadSquads(cwd).map(squadInfo) : []))
+  ipcMain.handle('office:listSquads', (_e, cwd: unknown) => (pathSchema.safeParse(cwd).success && isDir(cwd) ? loadSquads(cwd).map(squadInfo) : []))
   ipcMain.handle('office:runSquad', (_e, cwd: unknown, code: unknown, mode: unknown, note: unknown) => {
-    if (!isDir(cwd)) throw new Error('Essa pasta de squads não existe mais.')
+    if (!pathSchema.safeParse(cwd).success || !isDir(cwd)) throw new Error('Essa pasta de squads não existe mais.')
     // Orchestrators work in the Diretoria of their project's floor.
     if (projectFor(store.settings.projects, cwd)?.cwd !== cwd) throw new Error('Crie um andar para esse projeto antes de contratar um squad.')
-    const squad = typeof code === 'string' ? findSquad(cwd, code) : undefined
-    if (!squad) throw new Error(`Não achei o squad ${String(code)} em ${cwd}/squads.`)
-    const extra = typeof note === 'string' ? note.trim().slice(0, 2000) : ''
+    const plain = squadCodeSchema.safeParse(code)
+    const squad = plain.success ? findSquad(cwd, plain.data) : undefined
+    if (!squad) throw new Error(`Não achei o squad ${plain.success ? plain.data : ''} em ${cwd}/squads.`)
+    const extra = (squadNoteSchema.parse(note) ?? '').trim().slice(0, 2000)
     return manager.runSquad(
       squadInfo(squad),
       `Rode um ciclo do squad ${squad.name} (squads/${squad.code}), do primeiro passo do pipeline até o fim.${extra ? `\n\nRecado de ${store.settings.playerName}: ${extra}` : ''}`,
@@ -620,7 +593,7 @@ app.whenReady().then(async () => {
       {
         ...defaultBrain(),
         // Same rule as tickets: a cycle reaches real systems, so it never runs with "bypass".
-        permissionMode: DELEGATE_MODES.includes(mode as OfficePermissionMode) ? (mode as OfficePermissionMode) : 'default',
+        permissionMode: delegateMode(mode),
       },
     )
   })
@@ -641,11 +614,13 @@ app.whenReady().then(async () => {
   if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, squadDefs())
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
+  if (process.env.AGENT_OFFICE_CRASH && !app.isPackaged) forceCrash(win, process.env.AGENT_OFFICE_CRASH)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) win = createWindow()
   })
   app.on('before-quit', () => {
+    log.info('Saindo')
     bridge.stop()
     usage.stop()
     stats.stop()
@@ -705,4 +680,24 @@ function seedAgents(manager: AgentManager, file: string): void {
       manager.hire({ ...req, permissionMode: req.permissionMode ?? 'default' }).catch((err) => console.error('seed:', err))
     }, 2500 + i * 1500),
   )
+}
+
+/**
+ * Dev helper (never in a packaged app): AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error
+ * breaks something 6 s after start, to check the error handling.
+ */
+function forceCrash(w: BrowserWindow, what: string): void {
+  setTimeout(() => {
+    log.warn(`AGENT_OFFICE_CRASH=${what}: quebrando de propósito`)
+    if (what === 'main') throw new Error('Erro de teste no processo principal (AGENT_OFFICE_CRASH=main)')
+    if (what === 'rejection') void Promise.reject(new Error('Rejeição de teste (AGENT_OFFICE_CRASH=rejection)'))
+    if (what === 'renderer') w.webContents.forcefullyCrashRenderer()
+    if (what === 'hang') {
+      void w.webContents.executeJavaScript('for (;;) {}')
+      // "unresponsive" comes from input the page does not answer: poke it like a mouse would.
+      const poke = setInterval(() => (w.isDestroyed() ? clearInterval(poke) : w.webContents.sendInputEvent({ type: 'mouseMove', x: 100, y: 100 })), 500)
+      setTimeout(() => clearInterval(poke), 30_000)
+    }
+    if (what === 'page-error') void w.webContents.executeJavaScript("setTimeout(() => { throw new Error('Erro de teste na janela') }); Promise.reject(new Error('Rejeição de teste na janela')); 1")
+  }, 6000)
 }

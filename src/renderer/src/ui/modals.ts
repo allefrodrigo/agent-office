@@ -6,10 +6,11 @@ import type { State } from '../state'
 import { accountField, openAccounts } from './accounts'
 import { h, icon, timeAgo } from './dom'
 import { portrait } from './portrait'
+import { templatesTab } from './templates'
 
 export const LAST_CWD = 'agent-office:last-cwd'
 
-const MODES: { value: OfficePermissionMode; label: string; hint: string }[] = [
+export const MODES: { value: OfficePermissionMode; label: string; hint: string }[] = [
   { value: 'default', label: 'Pedir permissão', hint: 'Ele vem até você antes de editar arquivos ou rodar comandos.' },
   { value: 'acceptEdits', label: 'Editar livremente', hint: 'Edita arquivos sozinho; pede antes de rodar comandos.' },
   { value: 'auto', label: 'Automático', hint: 'Um classificador aprova o que é seguro e só traz o resto para você.' },
@@ -257,7 +258,7 @@ export function worktreeToggle(): { el: HTMLElement; set(cwd: string | undefined
 
 const LAST_NEW_AGENT_TAB = 'agent-office:new-agent-tab'
 
-type NewAgentTab = 'summon' | 'hire'
+type NewAgentTab = 'summon' | 'hire' | 'templates'
 
 export type NewAgentChoice = { kind: 'summon'; cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain; worktree?: boolean } | { kind: 'hire' }
 
@@ -266,6 +267,8 @@ export type NewAgentChoice = { kind: 'summon'; cwd: string; permissionMode: Offi
  * - Conversar: folder and freedom only; resolves the choice so the caller summons the
  *   agent and opens the panel.
  * - Com tarefa: adds a name and a task; hires right here and resolves `{ kind: 'hire' }`.
+ * - Modelos: a saved template fills everything but the folder and account; hires right
+ *   here (see ./templates.ts) and resolves `{ kind: 'hire' }`.
  * - Squad: only on a project floor with squads; closes and hands over to `hireSquad`.
  * The fields are built once, so switching tabs keeps whatever was typed. On a project
  * floor the folder is the project's. Resolves null if the player gave up.
@@ -307,7 +310,8 @@ export function openNewAgent(
     }
 
     const savedTab = localStorage.getItem(LAST_NEW_AGENT_TAB)
-    let tab: NewAgentTab = opts.tab ?? (savedTab === 'hire' ? 'hire' : 'summon')
+    let tab: NewAgentTab = opts.tab ?? (savedTab === 'hire' || savedTab === 'templates' ? savedTab : 'summon')
+    const templates = templatesTab(root, state, project, { toast, cwd: () => folder.cwd(), ensureFolder: () => folder.ensure(), accounts: () => account.value() })
     const go = h('button', { class: 'btn btn-primary' })
     const nameField = field('Nome', name)
     const taskField = field('Tarefa', task)
@@ -317,6 +321,7 @@ export function openNewAgent(
     const segBtn = (label: string, title: string, onclick: () => void) => h('button', { class: 'seg-btn', type: 'button', title, onclick }, label)
     const talkBtn = segBtn('Conversar', 'Sem tarefa: ele chega e o painel abre para você digitar', () => setTab('summon', true))
     const taskBtn = segBtn('Com tarefa', 'Nome, tarefa e modelo: ele já chega trabalhando', () => setTab('hire', true))
+    const templatesBtn = segBtn('Modelos', 'Contrate com as escolhas salvas num modelo', () => setTab('templates', true))
     // The orchestrator is optional: plain agents work on a project floor too.
     const squads = project ? state.squads.filter((q) => q.cwd === project.cwd).length : 0
     const squadBtn =
@@ -326,20 +331,33 @@ export function openNewAgent(
             opts.hireSquad!()
           })
         : null
-    const seg = h('div', { class: 'seg', role: 'tablist' }, talkBtn, taskBtn, squadBtn)
+    const seg = h('div', { class: 'seg', role: 'tablist' }, talkBtn, taskBtn, templatesBtn, squadBtn)
+    const modelField = field('Modelo', brain.model, brain.hint)
+    const effortField = meterField('Esforço', brain.meter)
+    const modeField = field('Permissões', mode, modeHint)
 
     // Hidden with the class, not the attribute: .field sets display and would win over [hidden].
     const setTab = (next: NewAgentTab, remember: boolean) => {
       tab = next
       if (remember) localStorage.setItem(LAST_NEW_AGENT_TAB, next)
       const hire = next === 'hire'
-      talkBtn.classList.toggle('on', !hire)
+      const byTemplate = next === 'templates'
+      talkBtn.classList.toggle('on', next === 'summon')
       taskBtn.classList.toggle('on', hire)
+      templatesBtn.classList.toggle('on', byTemplate)
       nameField.classList.toggle('hidden', !hire)
       taskField.classList.toggle('hidden', !hire)
-      go.replaceChildren(...(hire ? [icon('plus', 16), 'Contratar'] : [icon('terminal', 15), 'Chamar']))
-      tabHint.textContent = hire ? `Ele sobe pelo elevador e já começa. ${send} contrata.` : 'Sem tarefa: ele chega e o painel abre para você digitar.'
+      // a template brings its own brain and freedom
+      for (const f of [modelField, effortField, modeField]) f.classList.toggle('hidden', byTemplate)
+      templates.el.classList.toggle('hidden', !byTemplate)
+      go.replaceChildren(...(hire || byTemplate ? [icon('plus', 16), 'Contratar'] : [icon('terminal', 15), 'Chamar']))
+      tabHint.textContent = byTemplate
+        ? `Ele chega com as escolhas do modelo; sem instrução base, digite a tarefa. ${send} contrata.`
+        : hire
+          ? `Ele sobe pelo elevador e já começa. ${send} contrata.`
+          : 'Sem tarefa: ele chega e o painel abre para você digitar.'
       if (hire) task.focus()
+      else if (byTemplate) templates.focus()
       else go.focus()
     }
 
@@ -375,9 +393,14 @@ export function openNewAgent(
         go.removeAttribute('disabled')
       }
     }
+    const byTemplate = async () => {
+      go.setAttribute('disabled', '')
+      if (await templates.submit()) finish({ kind: 'hire' })
+      else go.removeAttribute('disabled')
+    }
     const submit = () => {
       if (go.hasAttribute('disabled')) return
-      void (tab === 'hire' ? hire() : summon())
+      void (tab === 'templates' ? byTemplate() : tab === 'hire' ? hire() : summon())
     }
     go.addEventListener('click', submit)
 
@@ -389,10 +412,11 @@ export function openNewAgent(
         folder.el,
         isolated.el,
         taskField,
-        field('Modelo', brain.model, brain.hint),
-        meterField('Esforço', brain.meter),
+        templates.el,
+        modelField,
+        effortField,
         ...(account.el ? [account.el] : []),
-        field('Permissões', mode, modeHint),
+        modeField,
         tabHint,
       ],
       [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), go],
@@ -401,7 +425,7 @@ export function openNewAgent(
     el.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' || e.isComposing) return
       const t = e.target
-      if (tab === 'hire') {
+      if (tab === 'hire' || tab === 'templates') {
         // Enter breaks lines in the task; ⌘/Ctrl+Enter sends from anywhere.
         if (e.metaKey || e.ctrlKey) {
           e.preventDefault()
@@ -598,6 +622,37 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
           'Adiciona hooks HTTP em ~/.claude/settings.json. Cada `claude` aberto no terminal aparece como agente, e os pedidos de permissão vêm até você aqui. Com o app fechado, o terminal funciona normal.',
         ),
         h('div', { class: 'bridge-row' }, bridgeStatus, bridgeBtn),
+      ),
+      h(
+        'div',
+        { class: 'bridge-box bridge-help' },
+        h('div', { class: 'bridge-title' }, icon('alert', 16), 'Ajuda'),
+        h(
+          'div',
+          { class: 'field-hint' },
+          'O app grava um log dos erros (sem prompts nem tokens). Ao relatar um problema, cole o diagnóstico: versão, sistema, versão do Claude Code e as últimas 200 linhas do log.',
+        ),
+        h(
+          'div',
+          { class: 'bridge-row bridge-row-start' },
+          h('button', {
+            class: 'btn',
+            type: 'button',
+            onclick: () => window.office.openLogs().catch((err) => toast(cleanError(err), 'err')),
+          }, icon('folder', 14), 'Abrir pasta de logs'),
+          h('button', {
+            class: 'btn',
+            type: 'button',
+            onclick: async () => {
+              try {
+                await window.office.copyDiagnostics()
+                toast('Diagnóstico copiado. Cole no relato do problema.', 'ok')
+              } catch (err) {
+                toast(cleanError(err), 'err')
+              }
+            },
+          }, icon('copy', 14), 'Copiar diagnóstico'),
+        ),
       ),
     ],
     [
