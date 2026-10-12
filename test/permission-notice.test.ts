@@ -141,6 +141,18 @@ describe('comandos fora da lista não ganham Permitir', () => {
     'ls ' + 'a/'.repeat(120),
   ])('%j', (c) => expect(commandRisk(c, scope)).not.toBe(''))
 
+  it.each([
+    'ls /',
+    'ls -R /',
+    'ls -la /Users',
+    'cat /tmp/foo',
+    'cat /Users/mac-allef/Documents/x.txt',
+    `cat ${CWD}/src/a.ts`,
+    'head -n 5 /etc/hosts',
+    'wc -l src/a.ts /tmp/x',
+    'cat //tmp/x',
+  ])('caminho absoluto: %s', (c) => expect(commandRisk(c, scope)).not.toBe(''))
+
   it('sem a pasta do agente, argumentos de caminho não valem', () => {
     expect(commandRisk('cat package.json')).not.toBe('')
     expect(commandRisk('ls')).toBe('')
@@ -178,6 +190,52 @@ describe('ferramentas de arquivo', () => {
     ['subagente', 'Agent', { description: 'x' }],
     ['desconhecida', 'Desconhecida', {}],
   ])('%s', (_label, tool, input) => expect(toolRisk(tool as string, input as Record<string, unknown>, scope)).not.toBe(''))
+
+  it.each([
+    'package.json',
+    'package-lock.json',
+    'Makefile',
+    'GNUmakefile',
+    'build.sh',
+    'scripts/release.mjs',
+    'bin/run',
+    '.vscode/tasks.json',
+    '.vscode/settings.json',
+    '.github/workflows/ci.yml',
+    '.husky/pre-commit',
+    '.gitattributes',
+    '.gitmodules',
+    '.npmrc',
+    '.envrc',
+    '.mcp.json',
+    '.claude/agents/x.md',
+    'vite.config.ts',
+    'electron.vite.config.mjs',
+    'vitest.config.cjs',
+    '.eslintrc.js',
+    '.prettierrc',
+    'tsconfig.json',
+    'tsconfig.node.json',
+    'Dockerfile',
+    'docker-compose.yml',
+    'pyproject.toml',
+    'setup.py',
+    'Cargo.toml',
+    'pkg/sub/package.json',
+  ])('escrever em arquivo que roda código: %s', (f) => {
+    expect(toolRisk('Write', { file_path: `${CWD}/${f}` }, scope)).not.toBe('')
+    expect(toolRisk('Edit', { file_path: `${CWD}/${f}` }, scope)).not.toBe('')
+    // Ler continua podendo.
+    if (!f.includes('.claude') && !f.startsWith('.git') && f !== '.npmrc' && !f.startsWith('.github') && !f.startsWith('.husky')) {
+      expect(toolRisk('Read', { file_path: `${CWD}/${f}` }, scope)).toBe('')
+    }
+  })
+
+  it('pasta do agente dentro de bin/ ou scripts/ não bloqueia tudo', () => {
+    const s = { cwd: '/Users/x/scripts/proj' }
+    expect(toolRisk('Edit', { file_path: '/Users/x/scripts/proj/src/a.ts' }, s)).toBe('')
+    expect(toolRisk('Edit', { file_path: '/Users/x/scripts/proj/scripts/a.ts' }, s)).not.toBe('')
+  })
 
   it('sem a pasta do agente, nada de arquivo ganha botão', () => {
     expect(toolRisk('Edit', { file_path: `${CWD}/a.ts` })).not.toBe('')

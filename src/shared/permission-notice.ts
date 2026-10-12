@@ -9,7 +9,8 @@ import type { PermissionRequest } from './types'
 // eval, sh -c, aliases, unicode…), e qualquer parser nosso difere do shell de verdade.
 // Só ganham o botão:
 // - Read/Edit/MultiEdit/Write/NotebookEdit/Glob/Grep cujo caminho resolvido fica dentro
-//   da pasta do agente e não é sensível (.env, .git/, chaves…);
+//   da pasta do agente e não é sensível (.env, .git/, chaves…); escrita também não vale
+//   para arquivos que viram código executado (package.json, Makefile, *.sh, .vscode/…);
 // - comandos Bash de leitura de uma lista fixa, escritos só com letras, números, espaço,
 //   ponto, barra, hífen e sublinhado (nenhum metacaractere de shell), que casam
 //   exatamente com o padrão.
@@ -78,6 +79,9 @@ const FILE_VERBS: Record<string, string> = {
   Grep: 'Buscar em',
 }
 
+/** Ferramentas que escrevem: além de dentro da pasta, o arquivo não pode virar código executado. */
+const WRITE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
+
 /** Ferramentas de arquivo: o caminho (obrigatório) precisa ficar dentro da pasta do agente. */
 const FILE_TOOLS: Record<string, 'file_path' | 'notebook_path'> = {
   Read: 'file_path',
@@ -91,7 +95,12 @@ const FILE_TOOLS: Record<string, 'file_path' | 'notebook_path'> = {
 export function toolRisk(tool: string, input: Record<string, unknown> = {}, scope: NoticeScope = {}): string {
   if (tool === 'Bash') return commandRisk(typeof input.command === 'string' ? input.command : '', scope)
   const key = FILE_TOOLS[tool]
-  if (key) return pathRisk(input[key], scope)
+  if (key) {
+    const why = pathRisk(input[key], scope)
+    if (why) return why
+    if (WRITE_TOOLS.has(tool) && executesCode(input[key] as string, scope)) return 'arquivo que roda código'
+    return ''
+  }
   if (tool === 'Glob' || tool === 'Grep') {
     // Sem path = a pasta do agente. O padrão do Glob não pode subir de pasta.
     if (input.path !== undefined && input.path !== null) {
@@ -150,6 +159,68 @@ export function normalizePath(p: string): string {
   return '/' + out.join('/')
 }
 
+/**
+ * Arquivos que o npm, o make, o git, o editor, a CI ou uma ferramenta de build executam (ou
+ * que dizem o que executar). Escrever num deles é rodar código depois: sem botão. Na dúvida,
+ * entra na lista. Vale para o caminho pedido e para o real (symlinks).
+ */
+export function executesCode(raw: string, scope: NoticeScope = {}): boolean {
+  const file = normalizePath(raw)
+  if (!file) return true
+  const cwd = scope.cwd ? normalizePath(scope.cwd) : ''
+  const pairs: [string, string][] = [[file, cwd]]
+  if (scope.realpath) {
+    try {
+      pairs.push([scope.realpath(file), cwd ? scope.realpath(cwd) : ''])
+    } catch {
+      return true
+    }
+  }
+  return pairs.some(([p, dir]) => {
+    // Só a parte dentro da pasta do agente: a pasta em si pode morar em ~/bin/… sem problema.
+    const rel = dir && p.startsWith(dir + '/') ? p.slice(dir.length) : p
+    const name = rel.slice(rel.lastIndexOf('/') + 1)
+    return EXEC_DIRS.test(rel) || EXEC_FILES.some((re) => re.test(name))
+  })
+}
+
+/** Pastas de configuração de ferramenta e de scripts (tarefas do editor, CI, hooks, devcontainer…). */
+const EXEC_DIRS = /\/(\.vscode|\.idea|\.fleet|\.zed|\.github|\.gitlab|\.husky|\.githooks|\.git|\.circleci|\.buildkite|\.devcontainer|\.claude|\.cursor|\.config|\.direnv|\.yarn|\.cargo|\.mvn|node_modules|bin|scripts?)\//i
+
+/** Nomes de arquivo (sem a pasta), sem diferenciar maiúsculas. */
+const EXEC_FILES: readonly RegExp[] = [
+  // npm, yarn, pnpm, bun, node
+  /^(package|package-lock|npm-shrinkwrap|deno|bower|composer)\.jsonc?$/i,
+  /^(yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|bunfig\.toml|composer\.lock)$/i,
+  /^\.(npmrc|yarnrc(\.yml)?|pnpmfile\.cjs|nvmrc|node-version)$/i,
+  // make e sistemas de build
+  /^(gnu)?makefile$/i,
+  /\.mk$/i,
+  /^(justfile|taskfile\.ya?ml|rakefile|gemfile(\.lock)?|procfile|cmakelists\.txt|meson\.build|pom\.xml|build\.rs|cargo\.toml|go\.mod|build\.xml|vagrantfile|brewfile)$/i,
+  /^(build|settings)\.(gradle|sbt)(\.kts)?$/i,
+  /^gradlew(\.bat)?$/i,
+  // python
+  /^(setup\.(py|cfg)|pyproject\.toml|tox\.ini|noxfile\.py|conftest\.py|manage\.py|pipfile(\.lock)?)$/i,
+  /^requirements.*\.txt$/i,
+  // containers e ambiente
+  /^dockerfile/i,
+  /\.dockerfile$/i,
+  /^(docker-)?compose.*\.ya?ml$/i,
+  /^\.(envrc|tool-versions|mise\.toml|editorconfig|mcp\.json|gitlab-ci\.ya?ml|travis\.yml|pre-commit-config\.ya?ml)$/i,
+  /^(flake|shell|default)\.nix$/i,
+  // git (.gitattributes roda filtros, .gitmodules busca código) e hooks
+  /^\.git/i,
+  /^\.?lefthook/i,
+  // configs de ferramentas JS/TS: rodam como código ao chamar a ferramenta
+  /^[tj]sconfig.*\.json$/i,
+  /\.config\.[cm]?[jt]sx?$/i,
+  /rc\.[cm]?[jt]s$/i,
+  /^\.[a-z0-9-]+rc(\.json|\.ya?ml|\.toml)?$/i,
+  /^(babel\.config|gulpfile|gruntfile|jakefile)/i,
+  // scripts
+  /\.(sh|bash|zsh|fish|ksh|csh|command|ps1|psm1|bat|cmd|vbs|applescript|scpt)$/i,
+]
+
 const inside = (file: string, dir: string) => file === dir || file.startsWith(dir === '/' ? '/' : dir + '/')
 
 // ---------- comandos ----------
@@ -161,8 +232,8 @@ const inside = (file: string, dir: string) => file === dir || file.startsWith(di
  */
 const COMMAND_CHARS = /^[A-Za-z0-9 ._/-]+$/
 
-/** Caminho relativo à pasta do agente: sem /, sem .., sem começar com hífen. */
-const REL_PATH = /^(?!-)[A-Za-z0-9._/-]+$/
+/** Caminho relativo à pasta do agente: sem / no começo, sem .., sem começar com hífen. */
+const REL_PATH = /^(?![-/])[A-Za-z0-9._/-]+$/
 
 interface CommandSpec {
   /** Palavras fixas do começo. */
@@ -214,7 +285,8 @@ function matches(spec: CommandSpec, words: string[], scope: NoticeScope): boolea
       continue
     }
     // Caminho relativo à pasta do agente, e que continua lá dentro depois dos symlinks.
-    if (spec.paths && REL_PATH.test(w) && !w.split('/').includes('..') && !sensitivePath(w) && scope.cwd && !pathRisk(`${scope.cwd}/${w}`, scope)) continue
+    // Nada absoluto (`ls /`, `cat /tmp/x`): `${cwd}/${w}` normalizaria para dentro da pasta.
+    if (spec.paths && !w.startsWith('/') && REL_PATH.test(w) && !w.split('/').includes('..') && !sensitivePath(w) && scope.cwd && !pathRisk(`${scope.cwd}/${w}`, scope)) continue
     return false
   }
   return true
