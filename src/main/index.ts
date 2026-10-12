@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { randomUUID } from 'node:crypto'
 import { basename, isAbsolute, join } from 'node:path'
@@ -348,6 +348,11 @@ app.whenReady().then(async () => {
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
   ipcMain.handle('office:getStats', () => stats.current())
   ipcMain.handle('office:refreshStats', () => stats.refresh())
+  ipcMain.handle('office:copyText', (_e, text: unknown) => {
+    const parsed = z.string().max(2_000_000).safeParse(text)
+    if (!parsed.success) throw new Error('Não consegui copiar: o texto veio inválido.')
+    clipboard.writeText(parsed.data)
+  })
   ipcMain.handle('office:saveMarkdown', async (_e, ...args: unknown[]) => {
     const parsed = SaveMarkdownArgs.safeParse(args)
     if (!parsed.success) throw new Error('Não consegui exportar: o conteúdo veio inválido.')

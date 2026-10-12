@@ -26,7 +26,7 @@ export async function copyReport(state: State, agentId: string, toast: Toast): P
   const text = finalReport(await state.log(agentId)) || pending?.text.trim() || ''
   if (!text) return toast(`${a.name} ainda não entregou um resultado.`, 'info')
   try {
-    await navigator.clipboard.writeText(text)
+    await window.office.copyText(text)
     toast('Relatório copiado.', 'ok')
   } catch (err) {
     toast(cleanError(err), 'err')

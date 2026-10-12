@@ -548,6 +548,8 @@ export interface OfficeAPI {
   refreshStats(): Promise<ClaudeStats>
   /** Asks where to save (Save dialog) and writes the Markdown there. Resolves the path, or null if cancelled. */
   saveMarkdown(fileName: string, content: string): Promise<string | null>
+  /** Puts text on the system clipboard (works even when the page has no focus). */
+  copyText(text: string): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 
