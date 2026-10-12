@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { createReadStream } from 'node:fs'
-import { mkdir, readdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { Account, ClaudeStats, DayStats, LedgerSwitch, ModelTokens, PlanUsage, StatsBucket } from '@shared/types'
 import { messageCost, priceOf } from '@shared/pricing'
+import { writeJsonAtomic } from './fs-safe'
 
 /**
  * Claude Code statistics (what /stats shows) read from the transcripts on disk:
@@ -267,9 +268,7 @@ export class StatsReader extends EventEmitter {
     for (const [k, date] of this.seen) (seen[date] ??= []).push(k)
     this.data = { ...this.data, days, seen }
     await mkdir(join(this.file, '..'), { recursive: true })
-    const tmp = `${this.file}.tmp`
-    await writeFile(tmp, JSON.stringify(this.data))
-    await rename(tmp, this.file)
+    writeJsonAtomic(this.file, this.data)
   }
 
   /** ~/.claude/stats-cache.json: /stats' own cache, for days before the app read anything. */

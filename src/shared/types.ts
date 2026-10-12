@@ -469,6 +469,32 @@ export interface OfficeState {
   squads: SquadInfo[]
   /** Today's spend per folder, from the cost book. */
   ledgerToday: LedgerToday
+  /** Data files found corrupt at startup (restored from a backup, or started over). */
+  dataNotices: DataNotice[]
+}
+
+/** A data file that did not parse: what happened, for the warning in the renderer. */
+export interface DataNotice {
+  id: string
+  at: number
+  /** office.json, tickets.json or tickets-closed.json */
+  file: string
+  /** restored = a backup loaded; lost = no good copy, started over. */
+  kind: 'restored' | 'lost'
+  text: string
+  /** Where the corrupt file was kept. */
+  path: string
+}
+
+/** A copy of the data in userData/backups/. */
+export interface BackupEntry {
+  /** Folder name: AAAA-MM-DD (daily) or antes-<timestamp> (before a restore or import). */
+  id: string
+  kind: 'daily' | 'snapshot'
+  at: number
+  /** Bytes, all files together. */
+  size: number
+  files: string[]
 }
 
 export type OfficeEvent =
@@ -497,6 +523,8 @@ export type OfficeEvent =
   | { type: 'stats'; stats: ClaudeStats }
   /** The player clicked a system notification: open the card of that request or result now. */
   | { type: 'notice:open'; agentId: string; itemId: string }
+  /** A data file was found corrupt after startup (the closed tickets load on first use). */
+  | { type: 'data:notice'; notice: DataNotice }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -584,6 +612,15 @@ export interface OfficeAPI {
   saveMarkdown(fileName: string, content: string): Promise<string | null>
   /** Puts text on the system clipboard (works even when the page has no focus). */
   copyText(text: string): Promise<void>
+  /** Copies in userData/backups, newest first. */
+  listBackups(): Promise<BackupEntry[]>
+  /** Asks, saves the current state as a backup, puts the backup in place and restarts. Resolves false if the user said no. */
+  restoreBackup(id: string): Promise<boolean>
+  openBackupsFolder(): Promise<void>
+  /** Saves everything in one file the user picks. Resolves its path, or null if cancelled. */
+  exportData(): Promise<string | null>
+  /** Picks an export, asks, saves the current state as a backup, replaces the data and restarts. */
+  importData(): Promise<boolean>
   /** An error the page did not catch, for the app log (main keeps only short strings). */
   reportError(err: RendererError): void
   /** Opens userData/logs in the file manager. */
