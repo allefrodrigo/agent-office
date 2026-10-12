@@ -149,17 +149,17 @@
 
 .chip-wait {
   background: rgba(245, 165, 36, 0.18);
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .chip-done {
   background: rgba(62, 207, 142, 0.16);
-  color: #8ff0c4;
+  color: var(--green-text);
 }
 
 .chip-err {
   background: rgba(239, 91, 91, 0.18);
-  color: #ffb0b0;
+  color: var(--red-text);
 }
 
 .badge {

@@ -40,7 +40,7 @@
 }
 
 .btn-danger {
-  color: #ffb0b0;
+  color: var(--red-text);
 }
 
 .btn-danger:hover {
@@ -48,7 +48,7 @@
 }
 
 .btn-danger-soft {
-  color: #ffb0b0;
+  color: var(--red-text);
   background: rgba(239, 91, 91, 0.08);
   border-color: rgba(239, 91, 91, 0.25);
 }

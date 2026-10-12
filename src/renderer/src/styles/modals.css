@@ -88,7 +88,7 @@
 }
 
 .field-hint .warn {
-  color: #ffb0b0;
+  color: var(--red-text);
   font-weight: 600;
 }
 

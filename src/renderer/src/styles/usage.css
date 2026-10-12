@@ -68,7 +68,7 @@
 }
 
 .info-chip.ctx-warn {
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .info-chip.ctx-full {
@@ -86,7 +86,7 @@
   padding: 0 5px;
   border-radius: 3px;
   background: rgba(245, 165, 36, 0.14);
-  color: #ffd38a;
+  color: var(--amber-text);
   font: 700 10px/16px var(--mono);
 }
 
@@ -103,13 +103,13 @@
   border: 1px solid rgba(62, 207, 142, 0.15);
   border-radius: 4px;
   background: #0b0c13;
-  color: #8ff0c4;
+  color: var(--green-text);
   font: 600 11px var(--mono);
 }
 
 .info-led.ctx-warn {
   border-color: rgba(245, 165, 36, 0.25);
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .info-led.ctx-full {
@@ -161,7 +161,7 @@
   padding: 1px 5px;
   border-radius: 3px;
   background: rgba(245, 165, 36, 0.14);
-  color: #ffd38a;
+  color: var(--amber-text);
   font-size: 10px;
   letter-spacing: 0;
   text-transform: none;
@@ -246,7 +246,7 @@
   padding: 0 4px;
   border-radius: 3px;
   background: rgba(62, 207, 142, 0.14);
-  color: #8ff0c4;
+  color: var(--green-text);
   font-size: 10px;
   line-height: 14px;
 }
@@ -255,7 +255,7 @@
   padding: 0 5px;
   border-radius: 3px;
   background: rgba(245, 165, 36, 0.16);
-  color: #ffd38a;
+  color: var(--amber-text);
   font-size: 10px;
   font-weight: 600;
   line-height: 15px;

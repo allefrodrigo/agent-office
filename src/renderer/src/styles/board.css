@@ -248,7 +248,7 @@
 
 .ttype-bug {
   background: rgba(239, 91, 91, 0.16);
-  color: #ffb0b0;
+  color: var(--red-text);
 }
 
 .ttype-feature {
@@ -258,7 +258,7 @@
 
 .ttype-improvement {
   background: rgba(62, 207, 142, 0.14);
-  color: #8ff0c4;
+  color: var(--green-text);
 }
 
 .tprio {
@@ -337,11 +337,11 @@
 }
 
 .tmeta-ok {
-  color: #8ff0c4;
+  color: var(--green-text);
 }
 
 .tmeta-late {
-  color: #ffb0b0;
+  color: var(--red-text);
   font-weight: 600;
 }
 

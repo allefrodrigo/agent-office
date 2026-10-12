@@ -164,7 +164,7 @@
 }
 
 .ab-warn .ab-ring-pct {
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .ab-full .ab-ring-pct {
@@ -197,7 +197,7 @@
   border: 1px solid rgba(62, 207, 142, 0.15);
   border-radius: 6px;
   background: #0f1018;
-  color: #8ff0c4;
+  color: var(--green-text);
   font: 600 11.5px var(--mono);
 }
 
@@ -214,7 +214,7 @@
 
 .ab-led-waiting {
   border-color: rgba(245, 165, 36, 0.25);
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .ab-led-starting,
@@ -320,7 +320,7 @@ button.ab-stamp:hover {
 }
 
 .ab-fire:hover {
-  color: #ffb0b0;
+  color: var(--red-text);
 }
 
 /* compact/clear menu under the ring */

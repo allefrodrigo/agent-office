@@ -55,7 +55,7 @@
 }
 
 .rep-pill.on {
-  border-color: #ffb347;
+  border-color: var(--board-amber);
   background: rgba(255, 179, 71, 0.14);
   color: #ffe2a8;
 }
@@ -116,7 +116,7 @@
 
 .rep-total {
   font: 700 46px/1.1 var(--mono);
-  color: #ffb347;
+  color: var(--board-amber);
   text-shadow: 0 0 14px rgba(255, 179, 71, 0.45);
   font-variant-numeric: tabular-nums;
 }
@@ -222,7 +222,7 @@
 }
 
 .rep-tile-day .rep-tile-k {
-  color: #ffb347;
+  color: var(--board-amber);
 }
 
 .rep-tile-project .rep-tile-k {
@@ -278,7 +278,7 @@
 
 .rep-col-val {
   height: 16px;
-  color: #ffb347;
+  color: var(--board-amber);
   font: 700 10.5px var(--mono);
   text-align: center;
   white-space: nowrap;
@@ -312,7 +312,7 @@
 }
 
 .rep-col.record .rep-col-bar {
-  box-shadow: 0 0 0 2px #ffb347, 0 0 12px rgba(255, 179, 71, 0.5);
+  box-shadow: 0 0 0 2px var(--board-amber), 0 0 12px rgba(255, 179, 71, 0.5);
 }
 
 .rep-col-day {
@@ -401,7 +401,7 @@
 
 .rep-project-usd {
   font: 700 15px var(--mono);
-  color: #ffb347;
+  color: var(--board-amber);
   text-align: right;
 }
 
@@ -417,7 +417,7 @@
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: #ffb347;
+  background: var(--board-amber);
 }
 
 /* rankings */
@@ -456,14 +456,14 @@
 }
 
 .medal-1 .rep-rank-pos {
-  background: #ffb347;
+  background: var(--board-amber);
   color: #2a1a00;
   box-shadow: 0 0 10px rgba(255, 179, 71, 0.45);
 }
 
 .medal-2 .rep-rank-pos {
   background: #c9cbd8;
-  color: #1a1b2b;
+  color: var(--card-solid);
 }
 
 .medal-3 .rep-rank-pos {
@@ -541,7 +541,7 @@
 
 .rep-rank-side b {
   font: 700 13.5px var(--mono);
-  color: #ffb347;
+  color: var(--board-amber);
 }
 
 .rep-rank-side small {

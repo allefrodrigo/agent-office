@@ -9,7 +9,7 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  font: 13px/1.45 var(--font);
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
@@ -33,7 +33,7 @@ button {
 }
 
 #world {
-  background: radial-gradient(ellipse at 50% 40%, #2a2b45 0%, #1c1d2e 70%);
+  background: radial-gradient(ellipse at 50% 40%, #2a2b45 0%, var(--bg) 70%);
 }
 
 .world-canvas {

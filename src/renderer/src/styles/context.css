@@ -37,7 +37,7 @@
 }
 
 .ctx-warn .ctx-num {
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .ctx-full .ctx-num {
@@ -65,10 +65,10 @@
 
 .banner-wait {
   background: rgba(245, 165, 36, 0.14);
-  color: #ffd38a;
+  color: var(--amber-text);
 }
 
 .banner-done {
   background: rgba(62, 207, 142, 0.12);
-  color: #8ff0c4;
+  color: var(--green-text);
 }

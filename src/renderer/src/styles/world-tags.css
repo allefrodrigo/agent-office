@@ -23,5 +23,5 @@
 }
 
 .dot-money {
-  background: #ffb347;
+  background: var(--board-amber);
 }

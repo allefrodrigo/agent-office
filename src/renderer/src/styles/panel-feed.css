@@ -82,7 +82,7 @@
 }
 
 ::highlight(log-search-current) {
-  background-color: #f5a524;
+  background-color: var(--amber);
   color: #1b1d2b;
 }
 
@@ -159,7 +159,7 @@
 }
 
 .entry-pre.err {
-  color: #ffb0b0;
+  color: var(--red-text);
 }
 
 .entry-result.collapsed .entry-pre {
@@ -172,7 +172,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  color: #8ff0c4;
+  color: var(--green-text);
   font-size: 12px;
 }
 
@@ -198,7 +198,7 @@
 }
 
 .entry-error {
-  color: #ffb0b0;
+  color: var(--red-text);
   font-family: var(--mono);
   font-size: 11.5px;
 }
