@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ChangedFile, ResultChanges, WorktreeInfo } from '@shared/types'
 
@@ -18,8 +19,11 @@ const EMPTY_BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391'
 const MAX_FILES = 300
 /** Dirty files bigger than this are not copied into the snapshot (they can't be restored). */
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024
-/** Diffs bigger than this are cut. */
+/** A diff is read up to this many bytes (the rest is never loaded) and shown up to MAX_DIFF_CHARS. */
+const MAX_DIFF_BYTES = 1024 * 1024
 const MAX_DIFF_CHARS = 300_000
+/** Any other git output (status, numstat…) past this fails instead of filling memory. */
+const MAX_OUTPUT_BYTES = 16 * 1024 * 1024
 const SHA_RE = /^[0-9a-f]{40}([0-9a-f]{24})?$/
 
 interface GitOptions {
@@ -28,11 +32,26 @@ interface GitOptions {
   timeout?: number
   /** Written to stdin; stdin is always closed so nothing waits for input. */
   input?: string
+  /** Output cap in bytes. */
+  maxBytes?: number
+  /** Past maxBytes, keep what came instead of failing (the caller says it was cut). */
+  cut?: boolean
+  /**
+   * Run the repo's hooks. Only commit and push do (the player's own pre-commit and
+   * pre-push); everything the office runs by itself goes with hooks off.
+   */
+  hooks?: boolean
 }
 
 class GitError extends Error {}
 
-function runFile(cmd: string, args: string[], cwd: string, opts: GitOptions): Promise<Buffer> {
+/** Result of a capped run: `cut` = the output hit the cap and was stopped there. */
+interface Output {
+  out: Buffer
+  cut: boolean
+}
+
+function runFile(cmd: string, args: string[], cwd: string, opts: GitOptions): Promise<Output> {
   return new Promise((done, fail) => {
     const child = execFile(
       cmd,
@@ -40,15 +59,16 @@ function runFile(cmd: string, args: string[], cwd: string, opts: GitOptions): Pr
       {
         cwd,
         timeout: opts.timeout ?? 30_000,
-        maxBuffer: 64 * 1024 * 1024,
+        maxBuffer: opts.maxBytes ?? MAX_OUTPUT_BYTES,
         windowsHide: true,
         encoding: 'buffer',
         // Never wait for a password prompt nobody can see.
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GH_PROMPT_DISABLED: '1' },
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GH_PROMPT_DISABLED: '1', GIT_PAGER: 'cat', PAGER: 'cat' },
       },
       (err, stdout, stderr) => {
         const code = err && typeof (err as { code?: unknown }).code === 'number' ? (err as { code: number }).code : err ? -1 : 0
-        if (!err || opts.ok?.includes(code)) return done(stdout)
+        if (!err || opts.ok?.includes(code)) return done({ out: stdout, cut: false })
+        if (opts.cut && (err as { code?: unknown }).code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return done({ out: stdout, cut: true })
         const msg = String(stderr ?? '').trim() || err.message
         fail(new GitError(msg.split('\n').slice(0, 6).join('\n')))
       },
@@ -57,10 +77,18 @@ function runFile(cmd: string, args: string[], cwd: string, opts: GitOptions): Pr
   })
 }
 
-const run = async (cmd: string, args: string[], cwd: string, opts: GitOptions = {}) => (await runFile(cmd, args, cwd, opts)).toString('utf8')
-const git = (cwd: string, args: string[], opts?: GitOptions) => run('git', ['-c', 'core.quotepath=off', ...args], cwd, opts)
+/**
+ * Config that keeps a repo from running commands when the office only reads it: no
+ * fsmonitor program, no hooks, no external diff or text conversion, no pager.
+ */
+const SAFE_CONFIG = ['-c', 'core.quotepath=off', '-c', 'core.fsmonitor=false', '-c', 'diff.external=', '-c', 'core.pager=cat']
+const NO_HOOKS = ['-c', `core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`]
+
+const run = async (cmd: string, args: string[], cwd: string, opts: GitOptions = {}) => (await runFile(cmd, args, cwd, opts)).out.toString('utf8')
+const gitArgs = (args: string[], opts?: GitOptions) => [...SAFE_CONFIG, ...(opts?.hooks ? [] : NO_HOOKS), ...args]
+const git = (cwd: string, args: string[], opts?: GitOptions) => run('git', gitArgs(args, opts), cwd, opts)
 /** Raw bytes of a blob (binary files survive "Descartar"). */
-const blobBytes = (cwd: string, blob: string) => runFile('git', ['cat-file', 'blob', blob], cwd, {})
+const blobBytes = async (cwd: string, blob: string) => (await runFile('git', gitArgs(['cat-file', 'blob', blob]), cwd, {})).out
 
 /** The empty blob, written once per repo so diffs of added and deleted files find it. */
 async function emptyBlob(root: string): Promise<string> {
@@ -108,10 +136,13 @@ async function headOf(cwd: string): Promise<string | null> {
 
 /** `p` (relative to `root`) stays inside it, also after following symlinks of the folders. */
 export function insideRoot(root: string, p: string): string | null {
-  if (typeof p !== 'string' || !p || p.length > 4096 || p.includes('\0')) return null
+  // A leading '-' could read as an option to git or the editor.
+  if (typeof p !== 'string' || !p || p.length > 4096 || p.includes('\0') || p.startsWith('-')) return null
   const abs = resolve(root, p)
   const rel = relative(root, abs)
-  if (!rel || rel.startsWith('..') || isAbsolute(rel)) return null
+  if (!rel || rel === '..' || rel.startsWith('..' + sep) || isAbsolute(rel)) return null
+  // Never inside the repo's own .git.
+  if (rel.split(sep)[0] === '.git') return null
   // A folder on the way may be a symlink out of the repo.
   try {
     let dir = dirname(abs)
@@ -174,7 +205,9 @@ export async function createWorktree(cwd: string, name: string, id: string): Pro
   if (existsSync(root)) throw new Error(`a pasta ${root} já existe`)
   excludeOfficeDir(repo, (await git(repo, ['rev-parse', '--git-common-dir'])).trim())
   mkdirSync(dirname(root), { recursive: true })
-  await git(repo, ['worktree', 'add', '-b', branch, root, base], { timeout: 120_000 })
+  // .agent-office could be a symlink out of the repo: the copy must land inside it.
+  if (!insideRoot(repo, relative(repo, root))) throw new Error('a pasta .agent-office aponta para fora do repositório')
+  await git(repo, ['worktree', 'add', '-b', branch, '--', root, base], { timeout: 120_000 })
   // Started in a subfolder of the repo: work in the same subfolder of the copy.
   const sub = relative(repo, cwd)
   const path = sub && !sub.startsWith('..') ? join(root, sub) : root
@@ -343,10 +376,13 @@ function parseNumstat(out: string): Map<string, { added: number; removed: number
 }
 
 /** Lines of a new file, or binary when it has a NUL byte. */
-function countLines(abs: string): { added: number; binary: boolean } {
+async function countLines(abs: string): Promise<{ added: number; binary: boolean }> {
   try {
-    if (statSync(abs).size > 4 * 1024 * 1024) return { added: 0, binary: true }
-    const buf = readFileSync(abs)
+    // lstat: a symlink is listed, never followed out of the repo.
+    const st = lstatSync(abs)
+    if (!st.isFile()) return { added: 0, binary: false }
+    if (st.size > MAX_DIFF_BYTES) return { added: 0, binary: true }
+    const buf = await readFile(abs)
     if (buf.includes(0)) return { added: 0, binary: true }
     if (!buf.length) return { added: 0, binary: false }
     let n = 0
@@ -393,7 +429,7 @@ export async function changesSince(snap: Snapshot, extra?: { branch?: string }):
   for (const path of [...untracked, ...staged]) {
     if (seen.has(path)) continue
     seen.add(path)
-    files.push({ path, status: 'added', removed: 0, ...countLines(join(root, path)), restorable: true })
+    files.push({ path, status: 'added', removed: 0, ...(await countLines(join(root, path))), restorable: true })
   }
   files.sort((a, b) => a.path.localeCompare(b.path))
   const truncated = files.length > MAX_FILES || !!snap.partial
@@ -414,38 +450,73 @@ function listed(c: ResultChanges, path: unknown): ChangedFile {
   return f
 }
 
+
+/** A diff read up to MAX_DIFF_BYTES: git is stopped there, so a huge file never fills memory. */
+async function cappedDiff(root: string, args: string[], ok?: number[]): Promise<{ text: string; cut: boolean }> {
+  const { out, cut } = await runFile('git', gitArgs(['diff', '--no-color', '--no-ext-diff', '--no-textconv', ...args]), root, { ok, maxBytes: MAX_DIFF_BYTES, cut: true })
+  return { text: out.toString('utf8'), cut }
+}
+
 /** Unified diff of one file of the card, from the start of the task to now. */
 export async function fileDiff(c: ResultChanges, path: unknown): Promise<string> {
   if (!c.git) throw new Error('Sem git não há diff para mostrar.')
   const f = listed(c, path)
-  let out: string
-  const exists = existsSync(join(c.root, f.path))
-  if (f.start === undefined && c.head && f.status !== 'added') {
-    out = await git(c.root, ['diff', '--no-color', '--no-ext-diff', c.head, '--', f.path])
+  const abs = join(c.root, f.path)
+  let st
+  try {
+    st = lstatSync(abs)
+  } catch {
+    st = null
+  }
+  // A link is shown as a link, never followed (it may point out of the repo).
+  if (st?.isSymbolicLink()) return `(link simbólico para ${readlinkSync(abs)})`
+  const exists = !!st?.isFile()
+  let d: { text: string; cut: boolean }
+  if (f.start === undefined && c.head && SHA_RE.test(c.head) && f.status !== 'added') {
+    d = await cappedDiff(c.root, [c.head, '--', f.path])
   } else if (f.start === undefined || f.start === null) {
     // New since the start: everything is an added line.
-    out = exists ? await git(c.root, ['diff', '--no-color', '--no-ext-diff', '--no-index', '--', '/dev/null', f.path], { ok: [1] }) : ''
+    d = exists ? await cappedDiff(c.root, ['--no-index', '--', '/dev/null', f.path], [1]) : { text: '', cut: false }
   } else {
     if (!SHA_RE.test(f.start)) return '(o arquivo era grande demais para guardar a versão anterior)'
     const empty = await emptyBlob(c.root)
     const cur = exists ? ((await currentBlobs(c.root, [f.path], true)).get(f.path) ?? empty) : empty
-    out = await git(c.root, ['diff', '--no-color', '--no-ext-diff', f.start, cur])
+    d = await cappedDiff(c.root, [f.start, cur])
     // Blob diffs are headed by the two ids: show the file name instead.
-    out = out.replace(/^(diff --git a\/|--- a\/|\+\+\+ b\/)[0-9a-f]{40}( b\/[0-9a-f]{40})?$/gm, (_m, lead: string, two?: string) => `${lead}${f.path}${two ? ` b/${f.path}` : ''}`)
+    d.text = d.text.replace(/^(diff --git a\/|--- a\/|\+\+\+ b\/)[0-9a-f]{40}( b\/[0-9a-f]{40})?$/gm, (_m, lead: string, two?: string) => `${lead}${f.path}${two ? ` b/${f.path}` : ''}`)
   }
+  let out = d.text
   if (!out.trim()) return f.binary ? '(arquivo binário)' : '(sem diferenças agora)'
-  return out.length > MAX_DIFF_CHARS ? out.slice(0, MAX_DIFF_CHARS) + '\n… (diff cortado)' : out
+  const cut = d.cut || out.length > MAX_DIFF_CHARS
+  if (out.length > MAX_DIFF_CHARS) out = out.slice(0, MAX_DIFF_CHARS)
+  return cut ? `${out.replace(/\n[^\n]*$/, '')}\n… (diff cortado: grande demais para mostrar aqui; abra no editor)` : out
+}
+
+/**
+ * Writes a saved blob back without following a symlink: into a temp file in the same
+ * (already checked) folder, then renamed over the path, which replaces a link itself.
+ */
+async function restoreBlob(root: string, abs: string, blob: string): Promise<void> {
+  const content = await blobBytes(root, blob)
+  mkdirSync(dirname(abs), { recursive: true })
+  if (!insideRoot(root, relative(root, abs))) throw new Error('caminho fora do repositório')
+  const tmp = join(dirname(abs), `.agent-office-restore-${process.pid}-${Date.now()}`)
+  writeFileSync(tmp, content, { flag: 'wx' })
+  renameSync(tmp, abs)
 }
 
 /**
  * Puts every listed file back as it was at the start of the task: files from HEAD come
- * back from HEAD, files the player had already changed get their saved copy, files the
- * task created are deleted. The caller confirms with the player first.
+ * back with `git checkout`, files the task created go with `git rm --cached` + `git clean`,
+ * and files the player had already changed get their saved copy. Every path is checked
+ * against the root first. The caller confirms with the player.
  */
 export async function discardChanges(c: ResultChanges): Promise<{ restored: number; skipped: string[] }> {
   if (!c.git) throw new Error('Sem git não dá para desfazer as mudanças.')
+  const head = c.head && SHA_RE.test(c.head) ? c.head : undefined
   const skipped: string[] = []
   const fromHead: string[] = []
+  const created: string[] = []
   let restored = 0
   for (const f of c.files) {
     const abs = insideRoot(c.root, f.path)
@@ -453,35 +524,42 @@ export async function discardChanges(c: ResultChanges): Promise<{ restored: numb
       skipped.push(f.path)
       continue
     }
-    if (f.start === undefined && f.status !== 'added' && c.head) {
-      fromHead.push(f.path)
-    } else if (f.start === undefined || f.start === null) {
-      // Created by the task: out of the index and off the disk.
-      await git(c.root, ['rm', '--cached', '-q', '--ignore-unmatch', '--', f.path]).catch(() => '')
-      if (existsSync(abs) && lstatSync(abs).isFile()) unlinkSync(abs)
-      restored++
-    } else if (SHA_RE.test(f.start)) {
-      const content = await blobBytes(c.root, f.start)
-      mkdirSync(dirname(abs), { recursive: true })
-      writeFileSync(abs, content)
-      restored++
+    if (f.start === undefined && f.status !== 'added' && head) fromHead.push(f.path)
+    else if (f.start === undefined || f.start === null) created.push(f.path)
+    else if (SHA_RE.test(f.start)) {
+      try {
+        await restoreBlob(c.root, abs, f.start)
+        restored++
+      } catch {
+        skipped.push(f.path)
+      }
     } else skipped.push(f.path)
   }
-  if (fromHead.length && c.head) {
-    await chunked(c.root, ['checkout', c.head], fromHead)
+  if (created.length) {
+    // Out of the index, then off the disk; git clean removes a link, never what it points to.
+    await chunked(c.root, ['rm', '--cached', '-q', '--ignore-unmatch'], created).catch(() => '')
+    await chunked(c.root, ['clean', '-f', '-q'], created)
+    restored += created.length
+  }
+  if (fromHead.length && head) {
+    await chunked(c.root, ['checkout', head], fromHead)
     restored += fromHead.length
   }
   return { restored, skipped }
 }
 
-/** Commits exactly the listed files (not whatever else is staged). Returns the short sha. */
+/**
+ * Commits exactly the listed files (not whatever else is staged). The message goes on
+ * stdin (-F -), so nothing in it reads as an option. Hooks run: they are the player's.
+ * Returns the short sha.
+ */
 export async function commitChanges(c: ResultChanges, message: string): Promise<string> {
   if (!c.git) throw new Error('Essa pasta não é um repositório git.')
   if (c.truncated) throw new Error('São mudanças demais para commitar daqui. Use o terminal.')
   const paths = c.files.map((f) => f.path).filter((p) => insideRoot(c.root, p))
   if (!paths.length) throw new Error('Não há arquivos para commitar.')
   await chunked(c.root, ['add', '-A'], paths)
-  await git(c.root, ['commit', '-m', message, '--', ...paths], { timeout: 120_000 })
+  await git(c.root, ['commit', '-F', '-', '--', ...paths], { timeout: 120_000, input: message, hooks: true })
   return (await git(c.root, ['rev-parse', '--short', 'HEAD'])).trim()
 }
 
@@ -522,9 +600,11 @@ export async function openPullRequest(wt: WorktreeInfo, title: string, body: str
   if (!st.ahead) throw new Error('O branch ainda não tem commits. Commite as mudanças antes.')
   const remotes = (await git(wt.root, ['remote'])).split('\n').map((r) => r.trim()).filter(Boolean)
   const remote = remotes.includes('origin') ? 'origin' : remotes[0]
-  if (!remote || !/^[\w.-]+$/.test(remote)) throw new Error('Esse repositório não tem remoto para onde enviar o branch.')
-  await git(wt.root, ['push', '-u', remote, wt.branch], { timeout: 180_000 })
-  const out = await run(gh, ['pr', 'create', '--head', wt.branch, '--title', title, '--body', body], wt.root, { timeout: 120_000 })
+  if (!remote || !/^\w[\w.-]*$/.test(remote)) throw new Error('Esse repositório não tem remoto para onde enviar o branch.')
+  // Hooks on: pre-push is the player's. The ref is spelled out so it can't read as an option.
+  await git(wt.root, ['push', '-u', remote, `refs/heads/${wt.branch}:refs/heads/${wt.branch}`], { timeout: 180_000, hooks: true })
+  // --flag=value: a title or body starting with '-' stays a value.
+  const out = await run(gh, ['pr', 'create', `--head=${wt.branch}`, `--title=${title}`, `--body=${body}`], wt.root, { timeout: 120_000 })
   const url = out.trim().split('\n').reverse().find((l) => /^https:\/\/\S+$/.test(l.trim()))
   if (!url) throw new Error('O gh não devolveu o link do PR.')
   return url.trim()

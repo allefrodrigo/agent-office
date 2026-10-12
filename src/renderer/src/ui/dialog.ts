@@ -18,6 +18,11 @@ export class Dialog {
   private context: string | undefined
   /** Set when a subagent of the agent made the request: what it is doing, or ''. */
   private subagent: string | undefined
+  /** Result card: where the changed files go, which diffs are open, the commit message being typed. */
+  private changesEl: HTMLDivElement | null = null
+  private changesFor: string | null = null
+  private openDiffs = new Set<string>()
+  private commitDraft: string | null = null
 
   constructor(
     root: HTMLElement,
@@ -225,10 +230,17 @@ export class Dialog {
       this.close()
       await window.office.ackResult(r.id)
     }
+    if (this.changesFor !== r.id) {
+      this.changesFor = r.id
+      this.openDiffs.clear()
+      this.commitDraft = null
+    }
+    this.changesEl = h('div', { class: 'chg' })
+    this.renderChanges(agent, r)
     this.frame(
       agent,
       r.isError ? 'teve um problema' : 'veio entregar o resultado',
-      [h('div', { class: 'dialog-scroll' }, renderMarkdown(r.text || '(sem texto)')), meta ? h('div', { class: 'dialog-meta' }, meta) : h('span')],
+      [h('div', { class: 'dialog-scroll' }, renderMarkdown(r.text || '(sem texto)')), this.changesEl, meta ? h('div', { class: 'dialog-meta' }, meta) : h('span')],
       [
         agent.source === 'office'
           ? h('button', {
@@ -245,6 +257,174 @@ export class Dialog {
       r.isError ? 'err' : 'done',
     )
   }
+
+  /** The files of the open result card arrived or changed (committed, discarded). */
+  syncChanges(resultId: string): void {
+    if (this.itemId !== resultId || !this.agentId) return
+    const agent = this.state.agents.get(this.agentId)
+    const r = this.state.results.get(resultId)
+    if (agent && r) this.renderChanges(agent, r)
+  }
+
+  /** "Arquivos alterados": list with +/−, a diff per file on click, and what to do with them. */
+  private renderChanges(agent: AgentSummary, r: AgentResult): void {
+    const el = this.changesEl
+    if (!el) return
+    const c = r.changes
+    if (!c) {
+      // Office agents send the list a moment after the result; terminal sessions never do.
+      const waiting = agent.source === 'office' && Date.now() - r.createdAt < 15_000
+      el.className = waiting ? 'chg chg-wait' : 'hidden'
+      el.replaceChildren(waiting ? 'Conferindo os arquivos alterados…' : '')
+      return
+    }
+    el.className = 'chg'
+    const plus = c.files.reduce((n, f) => n + (f.added ?? 0), 0)
+    const minus = c.files.reduce((n, f) => n + (f.removed ?? 0), 0)
+    const count = c.total ?? c.files.length
+    const head = h(
+      'div',
+      { class: 'chg-head' },
+      h('span', { class: 'chg-title' }, count ? `${count} arquivo${count === 1 ? '' : 's'} alterado${count === 1 ? '' : 's'}` : 'Nenhum arquivo alterado'),
+      c.git && count ? h('span', { class: 'chg-stat' }, h('span', { class: 'chg-plus' }, `+${plus}`), h('span', { class: 'chg-minus' }, `−${minus}`)) : null,
+      c.branch ? h('span', { class: 'chip chip-branch', title: `Cópia isolada (worktree) no branch ${c.branch}` }, icon('branch', 11), c.branch) : null,
+      c.committed ? h('span', { class: 'chip chg-done' }, icon('check', 11), `commit ${c.committed}`) : null,
+      c.discarded ? h('span', { class: 'chip chg-undone' }, icon('undo', 11), 'descartado') : null,
+    )
+    const parts: HTMLElement[] = [head]
+    if (!c.git && count) parts.push(h('div', { class: 'chg-note' }, 'Pasta sem git: estes são os arquivos que as ferramentas Edit/Write escreveram, segundo o log. Não há diff nem como desfazer daqui.'))
+    if (count) {
+      const list = h('div', { class: 'chg-list' })
+      for (const f of c.files) list.append(...this.fileRow(r, f.path))
+      if (c.truncated) list.append(h('div', { class: 'chg-note' }, `…e mais ${count - c.files.length} arquivo(s). Veja tudo no editor ou no terminal.`))
+      parts.push(list)
+    }
+    parts.push(this.changeActions(r))
+    el.replaceChildren(...parts)
+  }
+
+  private fileRow(r: AgentResult, path: string): HTMLElement[] {
+    const f = r.changes!.files.find((x) => x.path === path)!
+    const git = r.changes!.git
+    const letter = git ? ({ added: 'A', modified: 'M', deleted: 'D' } as const)[f.status] : 'W'
+    const label = git ? ({ added: 'Novo', modified: 'Alterado', deleted: 'Apagado' } as const)[f.status] : (f.tool ?? 'Escrito')
+    const open = this.openDiffs.has(path)
+    const row = h(
+      'button',
+      {
+        class: `chg-file${open ? ' on' : ''}`,
+        type: 'button',
+        title: git ? `${label}${f.preexisting ? ' (já tinha mudanças antes da tarefa; o diff é contra aquela versão)' : ''}. Clique para ver o diff.` : `${label}. Clique para abrir no editor.`,
+        onclick: () => {
+          if (!git) return void this.openEditor(r, path)
+          if (open) this.openDiffs.delete(path)
+          else this.openDiffs.add(path)
+          this.syncChanges(r.id)
+        },
+      },
+      h('span', { class: `chg-letter chg-${f.status}` }, letter),
+      h('span', { class: 'chg-path' }, path),
+      f.preexisting ? h('span', { class: 'chg-pre', title: 'Já tinha mudanças antes da tarefa' }, '•') : null,
+      git ? h('span', { class: 'chg-nums' }, f.binary ? 'bin' : [h('span', { class: 'chg-plus' }, `+${f.added ?? 0}`), h('span', { class: 'chg-minus' }, `−${f.removed ?? 0}`)]) : null,
+    )
+    if (!open) return [row]
+    const pre = h('pre', { class: 'code diff chg-diff' }, 'Carregando o diff…')
+    window.office
+      .resultDiff(r.id, path)
+      .then((text) => pre.replaceChildren(...diffLines(text)))
+      .catch((err) => pre.replaceChildren(cleanErr(err)))
+    return [row, pre]
+  }
+
+  private changeActions(r: AgentResult): HTMLElement {
+    const c = r.changes!
+    const busy = (b: HTMLButtonElement, p: Promise<unknown>) => {
+      b.setAttribute('disabled', '')
+      return p.finally(() => b.removeAttribute('disabled'))
+    }
+    const editor = h('button', { class: 'btn btn-small', type: 'button', onclick: () => this.openEditor(r) }, icon('edit', 13), 'Abrir no editor')
+    if (!c.git || !c.files.length) return h('div', { class: 'chg-actions' }, c.files.length ? editor : null)
+    const live = !c.committed && !c.discarded
+    const discard = h('button', { class: 'btn btn-small btn-danger-soft', type: 'button', disabled: !live, title: 'Volta os arquivos para como estavam antes da tarefa (pede confirmação)' }, icon('undo', 13), 'Descartar')
+    discard.addEventListener('click', () =>
+      busy(
+        discard,
+        window.office.discardResult(r.id).then((next) => {
+          if (next) this.actions.toast('Mudanças descartadas: os arquivos voltaram para como estavam antes da tarefa.', 'ok')
+        }),
+      ).catch((err) => this.actions.toast(cleanErr(err), 'err')),
+    )
+    if (this.commitDraft === null) this.commitDraft = commitHint(r.text)
+    const message = h('input', { class: 'input chg-msg', value: this.commitDraft, maxlength: 2000, placeholder: 'Mensagem do commit', disabled: !live, title: 'Sugerida a partir do relatório do agente. Edite à vontade.' }) as HTMLInputElement
+    message.addEventListener('keydown', (e) => e.stopPropagation())
+    message.addEventListener('input', () => (this.commitDraft = message.value))
+    const commit = h('button', { class: 'btn btn-small btn-primary', type: 'button', disabled: !live }, icon('check', 13), 'Commitar')
+    commit.addEventListener('click', () => {
+      if (!message.value.trim()) return message.focus()
+      busy(
+        commit,
+        window.office.commitResult(r.id, message.value.trim()).then((next) => this.actions.toast(`Commit ${next.committed} feito${c.branch ? ` no branch ${c.branch}` : ''}.`, 'ok')),
+      ).catch((err) => this.actions.toast(cleanErr(err), 'err'))
+    })
+    const pr = c.branch
+      ? h('button', { class: 'btn btn-small', type: 'button', disabled: !!c.discarded, title: 'git push do branch e gh pr create (pede confirmação)' }, icon('pr', 13), 'Abrir PR')
+      : null
+    pr?.addEventListener('click', () =>
+      busy(
+        pr,
+        window.office.openResultPR(r.id, message.value.trim() || commitHint(r.text)).then((url) => {
+          if (!url) return
+          this.actions.toast('PR aberto. Abrindo no navegador.', 'ok')
+          void window.office.openExternal(url)
+        }),
+      ).catch((err) => this.actions.toast(cleanErr(err), 'err')),
+    )
+    return h(
+      'div',
+      { class: 'chg-actions' },
+      h('div', { class: 'chg-row' }, editor, discard, h('div', { class: 'grow' }), pr),
+      h('div', { class: 'chg-row' }, message, commit),
+    )
+  }
+
+  private openEditor(r: AgentResult, path?: string): void {
+    window.office
+      .openResultInEditor(r.id, path)
+      .then((opened) => {
+        if (!opened) this.actions.toast('Não achei o Cursor nem o VS Code (comando cursor/code). Mostrei no Finder.', 'info')
+      })
+      .catch((err) => this.actions.toast(cleanErr(err), 'err'))
+  }
+}
+
+/** A unified diff as colored lines. Every line goes in as text, never as HTML. */
+function diffLines(text: string): HTMLElement[] {
+  return text.split('\n').map((l) => {
+    const cls = /^(diff --git|index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(l)
+      ? 'diff-file'
+      : l.startsWith('@@')
+        ? 'diff-hunk'
+        : l.startsWith('+')
+          ? 'diff-add'
+          : l.startsWith('-')
+            ? 'diff-del'
+            : 'diff-ctx'
+    return h('div', { class: cls }, l || ' ')
+  })
+}
+
+/** First line of the report, without markdown, as a commit subject. */
+function commitHint(text: string): string {
+  const line = text
+    .split('\n')
+    .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/[*_`]/g, '').trim())
+    .find(Boolean)
+  const s = (line ?? 'Mudanças do agente').replace(/\s+/g, ' ')
+  return s.length > 72 ? `${s.slice(0, 71).replace(/\s+\S*$/, '')}…` : s
+}
+
+function cleanErr(err: unknown): string {
+  return (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
 /** Richer previews for edits and writes. */

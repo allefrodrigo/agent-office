@@ -5,7 +5,7 @@ import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
 import { STATUS_LABEL } from './hud'
 import { renderMarkdown } from './markdown'
-import { brainFields, cleanError, confirmDialog, field, LAST_CWD, modal } from './modals'
+import { brainFields, cleanError, confirmDialog, field, LAST_CWD, modal, worktreeToggle } from './modals'
 import { portrait } from './portrait'
 
 export interface BoardActions {
@@ -527,9 +527,12 @@ export class Board {
     brain.model.title = 'Modelo do agente novo'
     const brainRow = h('div', { class: 'tdelegate-row' }, brain.model)
     const brainHint = h('div', { class: 'tdelegate-brain' }, h('div', { class: 'field-hint' }, brain.hint), brain.meter)
+    const isolated = worktreeToggle()
+    isolated.set(t.cwd)
     // Model and effort only matter for a new hire; an agent already here keeps its own.
     const syncMode = () => {
       for (const el of [mode, brainRow, brainHint]) el.classList.toggle('hidden', !!who.value)
+      isolated.el.classList.toggle('tdelegate-off', !!who.value)
     }
     who.addEventListener('change', syncMode)
     syncMode()
@@ -539,7 +542,7 @@ export class Board {
       if (!t.cwd && !who.value) return this.actions.toast('Escolha a pasta do projeto antes de contratar um agente para o ticket.', 'err')
       go.setAttribute('disabled', '')
       try {
-        const a = await window.office.delegateTicket(t.id, who.value ? { agentId: who.value } : { hire: { ...brain.value(), permissionMode: mode.value as OfficePermissionMode } })
+        const a = await window.office.delegateTicket(t.id, who.value ? { agentId: who.value } : { hire: { ...brain.value(), permissionMode: mode.value as OfficePermissionMode, worktree: isolated.value() } })
         this.actions.toast(who.value ? `${a.name} pegou o ${t.key}.` : `${a.name} foi contratado para o ${t.key} e está subindo.`, 'ok')
       } catch (err) {
         this.actions.toast(cleanError(err), 'err')
@@ -560,6 +563,7 @@ export class Board {
       h('div', { class: 'tdelegate-row' }, who, mode, go, take),
       brainRow,
       brainHint,
+      isolated.el,
       h('div', { class: 'field-hint' }, 'O agente recebe o ticket completo (veja "O que o agente lê"), o ticket vai para Fazendo e, quando ele termina, o relatório chega aqui e o ticket vai para Revisão.'),
     )
   }
