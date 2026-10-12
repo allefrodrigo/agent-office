@@ -12,3 +12,12 @@ dist/
 .agent-office/
 .claude/worktrees/
 coverage/
+
+# Certificados de assinatura e segredos: vão nos secrets do GitHub, nunca no repo
+*.p12
+*.pfx
+*.cer
+*.provisionprofile
+.env
+.env.*
+!.env.example
