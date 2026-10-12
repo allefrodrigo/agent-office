@@ -131,7 +131,10 @@ src/
     store.ts            persistência (userData/office.json)
     env.ts              carrega o PATH do shell de login (apps abertos pelo Finder não têm)
     demo.ts             agentes simulados (npm run demo)
-    index.ts            janela, IPC, notificações, badge do Dock
+    index.ts            janela, notificações, badge do Dock; monta o contexto dos handlers IPC
+    ipc/                handlers IPC por área (estado, contas, agentes, worktrees, sessões,
+                        configurações, tickets, squads); cada argumento passa por validate.ts
+    dev-hooks.ts        capturas (AGENT_OFFICE_SHOTS), teclas, bench, seed e falhas forçadas
   preload/index.ts      expõe window.office (API tipada em shared/types.ts)
   shared/               tipos e textos compartilhados
   renderer/src/
