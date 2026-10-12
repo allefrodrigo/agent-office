@@ -48,6 +48,9 @@ const api: OfficeAPI = {
   getLedger: (query) => ipcRenderer.invoke('office:getLedger', query ?? {}),
   getStats: () => ipcRenderer.invoke('office:getStats'),
   refreshStats: () => ipcRenderer.invoke('office:refreshStats'),
+  reportError: (err) => ipcRenderer.send('office:rendererError', err),
+  openLogs: () => ipcRenderer.invoke('office:openLogs'),
+  copyDiagnostics: () => ipcRenderer.invoke('office:copyDiagnostics'),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

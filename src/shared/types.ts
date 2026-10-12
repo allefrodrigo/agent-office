@@ -496,6 +496,14 @@ export type OfficeEvent =
   /** Claude Code statistics were read again from disk. */
   | { type: 'stats'; stats: ClaudeStats }
 
+/** window.onerror / unhandledrejection, as the page reports them to the log. */
+export interface RendererError {
+  kind: 'error' | 'rejection'
+  message: string
+  source?: string
+  stack?: string
+}
+
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
   getLog(agentId: string): Promise<LogEntry[]>
@@ -570,6 +578,12 @@ export interface OfficeAPI {
   getStats(): Promise<ClaudeStats>
   /** Reads the new bytes of the transcripts now (disk only, no API call). */
   refreshStats(): Promise<ClaudeStats>
+  /** An error the page did not catch, for the app log (main keeps only short strings). */
+  reportError(err: RendererError): void
+  /** Opens userData/logs in the file manager. */
+  openLogs(): Promise<void>
+  /** Puts version, OS, Claude Code version and the last 200 log lines on the clipboard. */
+  copyDiagnostics(): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

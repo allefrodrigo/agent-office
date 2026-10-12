@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, session, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -11,6 +11,8 @@ import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { startDemo } from './demo'
 import { CostBook } from './ledger'
+import { diagnostics, guardWindow, installFatalHandlers, onFatalFlush, rendererError } from './crash'
+import { captureConsole, initLog, log, logDir, secret } from './log'
 import { dropInheritedClaudeEnv, loadShellPath } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
 import { findSquad, isDir, loadSquads, squadInfo } from './squads'
@@ -79,11 +81,16 @@ function createWindow(): BrowserWindow {
   // The window only ever shows our own bundle.
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   w.webContents.on('will-navigate', (e) => e.preventDefault())
-
-  if (process.env.ELECTRON_RENDERER_URL) w.loadURL(process.env.ELECTRON_RENDERER_URL)
-  // Screenshot runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera.
-  else w.loadFile(join(here, '../renderer/index.html'), headless ? { query: { shots: '1' } } : undefined)
+  // A crashed or frozen page loads again; the agents keep running in this process.
+  guardWindow(w, loadPage)
+  loadPage(w)
   return w
+}
+
+function loadPage(w: BrowserWindow): void {
+  if (process.env.ELECTRON_RENDERER_URL) void w.loadURL(process.env.ELECTRON_RENDERER_URL)
+  // Screenshot runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera.
+  else void w.loadFile(join(here, '../renderer/index.html'), process.env.AGENT_OFFICE_SHOTS ? { query: { shots: '1' } } : undefined)
 }
 
 // Claude FM's live restarts now and then under a new video ID; clau.de/radio always points at the current one.
@@ -116,6 +123,11 @@ dropInheritedClaudeEnv()
 app.setAppUserModelId('dev.allef.agentoffice')
 // Dev helper: run a second, isolated instance (own data, own bridge port in its office.json).
 if (process.env.AGENT_OFFICE_DATA_DIR) app.setPath('userData', process.env.AGENT_OFFICE_DATA_DIR)
+// Dev helper: AGENT_OFFICE_LOG_MAX_KB rotates the log sooner, to test rotation.
+initLog(app.getPath('userData'), { maxBytes: !app.isPackaged ? Number(process.env.AGENT_OFFICE_LOG_MAX_KB) * 1024 || undefined : undefined })
+captureConsole()
+installFatalHandlers()
+log.info(`Agent Office ${app.getVersion()} iniciando (${process.platform} ${process.arch}, Electron ${process.versions.electron})`)
 
 app.whenReady().then(async () => {
   await loadShellPath()
@@ -124,6 +136,11 @@ app.whenReady().then(async () => {
   const book = new CostBook(store)
   manager.book = book
   const board = new TicketBoard(app.getPath('userData'))
+  // A fatal error saves what is in memory before asking what to do.
+  onFatalFlush(() => {
+    store.flush()
+    board.flush()
+  })
   manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects)
   const desk = new TicketDesk(board, manager, () => store.settings)
   // Old tickets in "Feito" close by themselves: now, then every hour.
@@ -180,6 +197,12 @@ app.whenReady().then(async () => {
   const bridge = new Bridge(manager, store.settings.bridgePort, join(app.getPath('userData'), 'bridge-token'), (status) =>
     broadcast({ type: 'bridge:status', status }),
   )
+  // The bridge token must never reach the log: the Bridge just wrote it, read it back.
+  try {
+    secret(readFileSync(join(app.getPath('userData'), 'bridge-token'), 'utf8'))
+  } catch (err) {
+    log.warn('Não consegui ler o bridge-token para escondê-lo do log:', err)
+  }
   bridge.start()
   usage.start()
   system.start()
@@ -197,6 +220,17 @@ app.whenReady().then(async () => {
   // Every argument from the renderer passes through validate.ts first.
   const id = (raw: unknown) => parse(idSchema, raw, 'ID inválido.')
   const ticketId = (raw: unknown) => parse(idSchema, raw, 'Esse ticket não existe mais.')
+  ipcMain.on('office:rendererError', (e, payload: unknown) => {
+    if (e.sender === win?.webContents) rendererError(payload)
+  })
+  ipcMain.handle('office:openLogs', async () => {
+    const err = await shell.openPath(logDir())
+    if (err) throw new Error(`Não consegui abrir a pasta de logs: ${err}`)
+  })
+  // Copied here, not in the page: the page's clipboard needs focus, and the text never passes through it.
+  ipcMain.handle('office:copyDiagnostics', async () => {
+    clipboard.writeText(await diagnostics())
+  })
   ipcMain.handle('office:getState', (): OfficeState => ({
     agents: manager.list(),
     permissions: manager.pendingRequests(),
@@ -436,11 +470,13 @@ app.whenReady().then(async () => {
   if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, squadDefs())
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
+  if (process.env.AGENT_OFFICE_CRASH && !app.isPackaged) forceCrash(win, process.env.AGENT_OFFICE_CRASH)
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) win = createWindow()
   })
   app.on('before-quit', () => {
+    log.info('Saindo')
     bridge.stop()
     usage.stop()
     stats.stop()
@@ -500,4 +536,24 @@ function seedAgents(manager: AgentManager, file: string): void {
       manager.hire({ ...req, permissionMode: req.permissionMode ?? 'default' })
     }, 2500 + i * 1500),
   )
+}
+
+/**
+ * Dev helper (never in a packaged app): AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error
+ * breaks something 6 s after start, to check the error handling.
+ */
+function forceCrash(w: BrowserWindow, what: string): void {
+  setTimeout(() => {
+    log.warn(`AGENT_OFFICE_CRASH=${what}: quebrando de propósito`)
+    if (what === 'main') throw new Error('Erro de teste no processo principal (AGENT_OFFICE_CRASH=main)')
+    if (what === 'rejection') void Promise.reject(new Error('Rejeição de teste (AGENT_OFFICE_CRASH=rejection)'))
+    if (what === 'renderer') w.webContents.forcefullyCrashRenderer()
+    if (what === 'hang') {
+      void w.webContents.executeJavaScript('for (;;) {}')
+      // "unresponsive" comes from input the page does not answer: poke it like a mouse would.
+      const poke = setInterval(() => (w.isDestroyed() ? clearInterval(poke) : w.webContents.sendInputEvent({ type: 'mouseMove', x: 100, y: 100 })), 500)
+      setTimeout(() => clearInterval(poke), 30_000)
+    }
+    if (what === 'page-error') void w.webContents.executeJavaScript("setTimeout(() => { throw new Error('Erro de teste na janela') }); Promise.reject(new Error('Rejeição de teste na janela')); 1")
+  }, 6000)
 }
