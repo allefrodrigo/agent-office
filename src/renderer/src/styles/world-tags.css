@@ -1,0 +1,27 @@
+/* the limit alarm's tag: red, pulsing with the beacon */
+.tag-alarm .tag-pill {
+  background: rgba(190, 24, 40, 0.92);
+  cursor: default;
+  animation: alarm-pulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes alarm-pulse {
+  from {
+    box-shadow: 0 0 0 0 rgba(255, 60, 70, 0.6);
+  }
+  to {
+    box-shadow: 0 0 14px 3px rgba(255, 60, 70, 0.75);
+  }
+}
+
+/* the spending board's tag */
+.tag-money .tag-pill {
+  background: rgba(30, 24, 8, 0.88);
+  color: #ffcf7a;
+  font-variant-numeric: tabular-nums;
+  cursor: default;
+}
+
+.dot-money {
+  background: var(--board-amber);
+}

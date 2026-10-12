@@ -1,0 +1,27 @@
+/* ---------- agent panel ---------- */
+
+.panel {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  bottom: 84px;
+  width: 400px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  z-index: 5;
+  animation: slide 0.2s ease-out;
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(20px);
+    opacity: 0;
+  }
+}
+
+.panel-head {
+  position: relative;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}

@@ -1,11 +1,9 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, powerMonitor, session, shell } from 'electron'
-import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { app, BrowserWindow, dialog, Notification, powerMonitor, session } from 'electron'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { permissionNotice, realPathOf } from '@shared/permission-notice'
-import { projectFor } from '@shared/projects'
-import type { Actor, AgentBrain, HireRequest, OfficeEvent, OfficeState, PermissionRequest } from '@shared/types'
-import { MAIN_ACCOUNT } from '@shared/accounts'
+import type { Actor, AgentBrain, OfficeEvent, PermissionRequest } from '@shared/types'
 import { Accounts } from './accounts'
 import { AgentManager } from './agents'
 import { Bridge } from './bridge'
@@ -13,57 +11,27 @@ import { TicketDesk } from './delegate'
 import { prepareStress, startDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
-import { dataNotices } from './fs-safe'
-import { diagnostics, guardWindow, installFatalHandlers, onFatalFlush, rendererError } from './crash'
-import { captureConsole, initLog, log, logDir, secret } from './log'
+import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
+import { captureConsole, initLog, log, secret } from './log'
 import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env'
-import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
-import { findSquad, isDir, loadSquads, squadInfo } from './squads'
+import { isDir, loadSquads, squadInfo } from './squads'
 import { Store } from './store'
 import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
-import { cleanLook, cleanTemplate, loadTemplates, upsertTemplate } from './templates'
-import { commitChanges, discardChanges, fileDiff, insideRoot, openInEditor, openPullRequest, pendingLoss, pruneWorktrees, removeWorktree, repoRoot, worktreeFromPath, worktreeState } from './git'
-import {
-  accountNameSchema,
-  changedPathSchema,
-  commitMessageSchema,
-  prTitleSchema,
-  uuidSchema,
-  worktreeFlagSchema,
-  assigneeSchema,
-  attachmentsSchema,
-  cleanAccountIds,
-  cleanBrain,
-  cleanDelegateTarget,
-  cleanHire,
-  cleanLedgerQuery,
-  cleanSettings,
-  commentSchema,
-  delegateMode,
-  externalUrlSchema,
-  floorIdSchema,
-  idSchema,
-  messageSchema,
-  parse,
-  pathSchema,
-  permissionDecisionSchema,
-  permissionModeSchema,
-  searchSchema,
-  squadCodeSchema,
-  squadNoteSchema,
-  ticketDraftSchema,
-  ticketIdsSchema,
-  ticketPatchSchema,
-  ticketStatusSchema,
-  copyTextSchema,
-  markdownFileName,
-  saveMarkdownArgsSchema,
-  subagentLogArgsSchema,
-} from './validate'
+import { pruneWorktrees } from './git'
 import { Updater } from './updater'
+import { captureShots, forceCrash, runBench, seedAgents } from './dev-hooks'
+import type { IpcContext } from './ipc/context'
+import { registerAccountsIpc } from './ipc/accounts'
+import { registerAgentsIpc } from './ipc/agents'
+import { registerAppIpc } from './ipc/app'
+import { registerSessionsIpc } from './ipc/sessions'
+import { registerSettingsIpc } from './ipc/settings'
+import { registerSquadsIpc } from './ipc/squads'
+import { registerTicketsIpc } from './ipc/tickets'
+import { registerWorktreesIpc } from './ipc/worktrees'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
@@ -106,19 +74,6 @@ function loadPage(w: BrowserWindow): void {
   // Screenshot and bench runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera; the bench opens the perf panel too.
   else if (process.env.AGENT_OFFICE_BENCH) void w.loadFile(join(here, '../renderer/index.html'), { query: { shots: '1', perf: '1' } })
   else void w.loadFile(join(here, '../renderer/index.html'), process.env.AGENT_OFFICE_SHOTS ? { query: { shots: '1' } } : undefined)
-}
-
-// Claude FM's live restarts now and then under a new video ID; clau.de/radio always points at the current one.
-const RADIO_FALLBACK = 'tRsQsTMvPNg'
-async function radioVideo(): Promise<string> {
-  try {
-    const res = await fetch('https://clau.de/radio', { redirect: 'manual', signal: AbortSignal.timeout(5000) })
-    const id = new URL(res.headers.get('location') ?? '').searchParams.get('v') ?? ''
-    if (/^[\w-]{11}$/.test(id)) return id
-  } catch {
-    // offline or the short link moved: keep the last known stream
-  }
-  return RADIO_FALLBACK
 }
 
 /** A card the notification points at: a permission request or a result. */
@@ -364,415 +319,37 @@ app.whenReady().then(async () => {
   void pruneWorktrees([...store.settings.projects.map((p) => p.cwd), ...manager.list().flatMap((a) => (a.worktree ? [a.worktree.repo] : []))])
 
   // ---------- IPC ----------
-  // Every argument from the renderer passes through validate.ts first.
-  const id = (raw: unknown) => parse(idSchema, raw, 'ID inválido.')
-  const ticketId = (raw: unknown) => parse(idSchema, raw, 'Esse ticket não existe mais.')
-  ipcMain.on('office:rendererError', (e, payload: unknown) => {
-    if (e.sender === win?.webContents) rendererError(payload)
-  })
-  ipcMain.handle('office:openLogs', async () => {
-    const dir = logDir()
-    // openPath('') would open nothing useful (AO-27).
-    if (!dir) throw new Error('A pasta de logs não pôde ser criada, então não há log para abrir. Confira a permissão da pasta de dados do app.')
-    const err = await shell.openPath(dir)
-    if (err) throw new Error(`Não consegui abrir a pasta de logs: ${err}`)
-  })
-  // Copied here, not in the page: the page's clipboard needs focus, and the text never passes through it.
-  ipcMain.handle('office:copyDiagnostics', async () => {
-    clipboard.writeText(await diagnostics())
-  })
-  ipcMain.handle('office:getState', (): OfficeState => ({
-    agents: manager.list(),
-    permissions: manager.pendingRequests(),
-    results: manager.pendingResults(),
-    tickets: board.list(),
-    bridge: bridge.status(),
-    settings: store.settings,
-    platform: process.platform,
-    usage: usage.current(),
-    accounts: accounts.statuses(),
-    system: system.current(),
-    squads,
-    ledgerToday: book.today(),
-    dataNotices: dataNotices(),
-    onBattery,
-  }))
-  ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
-  ipcMain.handle('office:refreshUsage', () => usage.refresh())
-  ipcMain.handle('office:getStats', () => stats.current())
-  ipcMain.handle('office:refreshStats', () => stats.refresh())
-  ipcMain.handle('office:copyText', (_e, text: unknown) => {
-    clipboard.writeText(parse(copyTextSchema, text, 'Não consegui copiar: o texto veio inválido.'))
-  })
-  ipcMain.handle('office:saveMarkdown', async (_e, ...args: unknown[]) => {
-    const [fileName, content] = parse(saveMarkdownArgsSchema, args, 'Não consegui exportar: o conteúdo veio inválido.')
-    const r = await dialog.showSaveDialog(win!, {
-      title: 'Exportar em Markdown',
-      defaultPath: join(app.getPath('documents'), markdownFileName(fileName)),
-      filters: [{ name: 'Markdown', extensions: ['md'] }],
-      properties: ['createDirectory', 'showOverwriteConfirmation'],
-    })
-    if (r.canceled || !r.filePath) return null
-    writeFileSync(r.filePath, content, 'utf8')
-    return r.filePath
-  })
-  ipcMain.handle('office:checkAccounts', () => accounts.check())
-  ipcMain.handle('office:addAccount', (_e, name: unknown) => {
-    const account = accounts.create(accountNameSchema.parse(name))
-    store.settings = { ...store.settings, accounts: [...store.settings.accounts, account] }
-    broadcast({ type: 'settings', settings: store.settings })
-    void accounts.check()
-    void usage.refresh()
-    return store.settings
-  })
-  ipcMain.handle('office:removeAccount', (_e, raw: unknown) => {
-    const gone = id(raw)
-    if (gone === MAIN_ACCOUNT) throw new Error('A conta principal não pode ser removida.')
-    const s = store.settings
-    const drop = (ids?: string[]) => ids?.filter((x) => x !== gone)
-    store.settings = {
-      ...s,
-      accounts: s.accounts.filter((a) => a.id !== gone),
-      defaultAccounts: drop(s.defaultAccounts) ?? [],
-      projects: s.projects.map((p) => ({ ...p, accounts: drop(p.accounts) })),
-    }
-    broadcast({ type: 'settings', settings: store.settings })
-    broadcast({ type: 'accounts', accounts: accounts.statuses() })
-    broadcast({ type: 'usage', usage: usage.current() })
-    return store.settings
-  })
-  ipcMain.handle('office:loginAccount', (_e, raw: unknown) => accounts.login(id(raw)))
-  ipcMain.handle('office:setAccountPool', (_e, rawFloor: unknown, ids: unknown) => {
-    const floorId = parse(floorIdSchema, rawFloor, 'Esse andar não existe mais.')
-    const s = store.settings
-    const pool = cleanAccountIds(ids, s.accounts)
-    if (floorId === null) store.settings = { ...s, defaultAccounts: pool }
-    else if (s.projects.some((p) => p.id === floorId)) store.settings = { ...s, projects: s.projects.map((p) => (p.id === floorId ? { ...p, accounts: pool.length ? pool : undefined } : p)) }
-    else throw new Error('Esse andar não existe mais.')
-    broadcast({ type: 'settings', settings: store.settings })
-    return store.settings
-  })
-  ipcMain.handle('office:getLog', (_e, raw: unknown) => manager.getLog(id(raw)))
-  ipcMain.handle('office:getSubagentLog', (_e, ...args: unknown[]) => {
-    const [agentId, subId] = parse(subagentLogArgsSchema, args, 'ID inválido.')
-    return manager.getSubagentLog(agentId, subId)
-  })
-  // A permission mode outside the list falls back to the office default.
-  ipcMain.handle('office:hire', (_e, req: unknown) =>
-    manager.hire({ ...cleanHire(req, store.settings), look: cleanLook((req as { look?: unknown } | null)?.look) }),
-  )
-  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown, worktree: unknown) => {
-    if (!pathSchema.safeParse(cwd).success || !isDir(cwd)) throw new Error('Escolha uma pasta de projeto que exista.')
-    const m = permissionModeSchema.safeParse(mode)
-    const permissionMode = m.success ? m.data : store.settings.defaultPermissionMode
-    return manager.summon(cwd, { ...defaultBrain(), ...cleanBrain(brain, store.settings.accounts), permissionMode }, worktreeFlagSchema.parse(worktree))
-  })
-  ipcMain.handle('office:isGitRepo', async (_e, cwd: unknown) => {
-    const p = pathSchema.safeParse(cwd)
-    return p.success && isAbsolute(p.data) && isDir(p.data) && !!(await repoRoot(p.data))
-  })
-  ipcMain.handle('office:send', (_e, raw: unknown, text: unknown, attachments: unknown) =>
-    manager.sendMessage(
-      id(raw),
-      parse(messageSchema, text, 'Mensagem grande demais. Mande em partes ou anexe como arquivo.'),
-      undefined,
-      parse(attachmentsSchema.optional(), attachments, 'Anexos inválidos.') ?? [],
-    ),
-  )
-  ipcMain.handle('office:interrupt', (_e, raw: unknown) => manager.interrupt(id(raw)))
-  ipcMain.handle('office:compact', (_e, raw: unknown) => manager.compact(id(raw)))
-  ipcMain.handle('office:clearContext', (_e, raw: unknown) => manager.clearContext(id(raw)))
-  ipcMain.handle('office:closeTerminal', (_e, raw: unknown) => bridge.closeSession(id(raw)))
-
-  // ---------- worktrees (AO-33) ----------
-  // What the player chose in the native dialog of prepareFire. Only that dialog can
-  // authorize removing a worktree: the renderer never sends "remove".
-  const fireChoices = new Map<string, { remove: boolean; dirty: number; ignored: number }>()
-  const agentId = (raw: unknown) => parse(uuidSchema, raw, 'Esse agente não está mais no escritório.')
-  const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
-  ipcMain.handle('office:prepareFire', async (_e, raw: unknown) => {
-    const a = manager.agent(agentId(raw))
-    const wt = a?.worktree
-    if (!a || !wt) return 'plain'
-    const st = await worktreeState(wt).catch(() => null)
-    if (!st?.exists) {
-      fireChoices.set(a.id, { remove: false, dirty: 0, ignored: 0 })
-      return 'plain'
-    }
-    const kept = st.ahead ? ` O branch tem ${st.ahead} commit${st.ahead > 1 ? 's' : ''} e fica no repositório mesmo se você remover a cópia.` : ''
-    // git worktree remove also deletes ignored files (.env, node_modules): say so.
-    const ignoredLine = st.ignored
-      ? `\n\nTem também ${plural(st.ignored, 'arquivo ou pasta ignorado', 'arquivos ou pastas ignorados')} pelo git (como .env ou node_modules), que somem junto com a cópia.`
-      : ''
-    const { response } = await dialog.showMessageBox(win!, {
-      type: 'question',
-      buttons: ['Manter a cópia', 'Remover a cópia', 'Cancelar'],
-      defaultId: 0,
-      cancelId: 2,
-      message: `Dispensar ${a.name}?`,
-      detail:
-        `A sessão para e o agente vai embora. Ele trabalhava numa cópia isolada (branch ${wt.branch}) em ${wt.root}.\n\n` +
-        (st.dirty ? `A cópia tem ${st.dirty} arquivo${st.dirty > 1 ? 's' : ''} com mudanças não commitadas.` : 'A cópia não tem mudanças não commitadas.') +
-        kept +
-        ignoredLine,
-    })
-    if (response === 2) return 'cancelled'
-    if (response === 1 && pendingLoss(st)) {
-      const what = [
-        st.dirty ? plural(st.dirty, 'mudança não commitada', 'mudanças não commitadas') : '',
-        st.ignored ? plural(st.ignored, 'arquivo ignorado pelo git', 'arquivos ignorados pelo git') : '',
-      ].filter(Boolean)
-      const sure = await dialog.showMessageBox(win!, {
-        type: 'warning',
-        buttons: ['Apagar e dispensar', 'Cancelar'],
-        defaultId: 1,
-        cancelId: 1,
-        message: `Apagar ${what.join(' e ')}?`,
-        detail:
-          'Não dá para desfazer. Para guardar o trabalho, cancele e use "Commitar" no cartão de resultado' +
-          (st.ignored ? '; copie antes os arquivos ignorados que quiser manter (.env, configs locais).' : '.'),
-      })
-      if (sure.response !== 0) return 'cancelled'
-    }
-    fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty, ignored: st.ignored })
-    return 'confirmed'
-  })
-  ipcMain.handle('office:fire', async (_e, raw: unknown) => {
-    const aid = id(raw)
-    const wt = manager.agent(aid)?.worktree
-    const choice = fireChoices.get(aid)
-    fireChoices.delete(aid)
-    manager.fire(aid)
-    if (!wt) return
-    if (!choice?.remove) return `A cópia isolada ficou em ${wt.root} (branch ${wt.branch}).`
-    // Forced only when the player confirmed losing changes; anything newer than that keeps the copy.
-    const now = await worktreeState(wt).catch(() => null)
-    const force = pendingLoss(choice) > 0 && !!now && now.dirty <= choice.dirty && now.ignored <= choice.ignored
-    return removeWorktree(wt, force).catch((err) => `Não consegui remover a cópia: ${err instanceof Error ? err.message : String(err)}`)
-  })
-
-  // ---------- result card: changed files (AO-34) ----------
-  const changesFor = (raw: unknown) => {
-    const r = manager.result(parse(uuidSchema, raw, 'Esse resultado já foi recebido.'))
-    if (!r) throw new Error('Esse resultado já foi recebido.')
-    if (!r.changes) throw new Error('Ainda não sei o que esse agente mudou.')
-    return { r, c: r.changes }
+  // One file per area in ipc/; every argument from the renderer passes through validate.ts first.
+  const ipc: IpcContext = {
+    win: () => win,
+    store,
+    manager,
+    board,
+    book,
+    desk,
+    bridge,
+    usage,
+    accounts,
+    system,
+    stats,
+    broadcast,
+    updateBadge,
+    nameOf,
+    player,
+    defaultBrain,
+    squads: () => squads,
+    rereadSquads: () => (squads = readSquads()),
+    onBattery: () => onBattery,
   }
-  ipcMain.handle('office:resultDiff', (_e, raw: unknown, path: unknown) => {
-    const { c } = changesFor(raw)
-    return fileDiff(c, parse(changedPathSchema, path, 'Caminho inválido.'))
-  })
-  ipcMain.handle('office:openResultInEditor', async (_e, raw: unknown, path: unknown) => {
-    const { c } = changesFor(raw)
-    const p = changedPathSchema.optional().safeParse(path)
-    const file = p.success && p.data && c.files.some((f) => f.path === p.data) ? p.data : undefined
-    if (await openInEditor(c.root, file)) return true
-    // No Cursor or VS Code: show it in Finder. Never shell.openPath: the agent may have
-    // written a .command or .app, and the default app would run it.
-    const target = file ? insideRoot(c.root, file) : c.root
-    if (target && existsSync(target)) shell.showItemInFolder(target)
-    return false
-  })
-  ipcMain.handle('office:discardResult', async (_e, raw: unknown) => {
-    const { r, c } = changesFor(raw)
-    if (!c.git || c.committed || c.discarded) throw new Error('Não há mudanças para descartar aqui.')
-    const n = c.files.filter((f) => f.restorable).length
-    const { response } = await dialog.showMessageBox(win!, {
-      type: 'warning',
-      buttons: ['Descartar mudanças', 'Cancelar'],
-      defaultId: 1,
-      cancelId: 1,
-      message: `Descartar as mudanças de ${n} arquivo${n === 1 ? '' : 's'}?`,
-      detail:
-        `Os arquivos voltam a ser como eram quando ${nameOf(r.agentId)} começou a tarefa, em ${c.root}. Arquivos criados pela tarefa são apagados. ` +
-        'Mudanças que você já tinha antes da tarefa ficam. Não dá para desfazer.',
-    })
-    if (response !== 0) return null
-    const done = await discardChanges(c)
-    const next = { ...c, discarded: true }
-    manager.setChanges(r.id, next)
-    if (done.skipped.length) dialog.showErrorBox('Alguns arquivos ficaram como estão', `Não deu para restaurar:\n${done.skipped.slice(0, 20).join('\n')}`)
-    return next
-  })
-  ipcMain.handle('office:commitResult', async (_e, raw: unknown, message: unknown) => {
-    const { r, c } = changesFor(raw)
-    const msg = parse(commitMessageSchema, message, 'Escreva uma mensagem de commit (até 2000 caracteres).')
-    if (!c.git || c.committed || c.discarded) throw new Error('Não há mudanças para commitar aqui.')
-    const sha = await commitChanges(c, msg)
-    const next = { ...c, committed: sha }
-    manager.setChanges(r.id, next)
-    return next
-  })
-  ipcMain.handle('office:openResultPR', async (_e, raw: unknown, title: unknown) => {
-    const { r } = changesFor(raw)
-    const wt = manager.agent(r.agentId)?.worktree
-    if (!wt) throw new Error('Só dá para abrir PR de um agente que trabalha numa cópia isolada (worktree).')
-    const t = parse(prTitleSchema, title, 'Escreva um título para o PR.')
-    const { response } = await dialog.showMessageBox(win!, {
-      type: 'question',
-      buttons: ['Enviar e abrir PR', 'Cancelar'],
-      defaultId: 0,
-      cancelId: 1,
-      message: `Abrir um pull request do branch ${wt.branch}?`,
-      detail: `Vamos rodar git push do branch para o remoto do repositório e gh pr create com o título "${t}" e o relatório do agente como descrição.`,
-    })
-    if (response !== 0) return null
-    const body = `${r.text.slice(0, 6000)}\n\n---\nAberto pelo Agent Office (${nameOf(r.agentId)}, branch \`${wt.branch}\`).`
-    return openPullRequest(wt, t, body)
-  })
-  ipcMain.handle('office:listSessions', () => recentSessions())
-  ipcMain.handle('office:recall', async (_e, sessionId: unknown) => {
-    if (!isSessionId(sessionId)) throw new Error('ID de sessão inválido.')
-    const entry = await sessionEntry(sessionId)
-    if (!entry) throw new Error('Não achei essa sessão no disco.')
-    if (!entry.cwd || !existsSync(entry.cwd) || !statSync(entry.cwd).isDirectory()) {
-      throw new Error(`A pasta dessa sessão não existe mais${entry.cwd ? `: ${entry.cwd}` : '.'}`)
-    }
-    const { log, model, helpers } = await transcript(sessionId).catch(() => ({ log: [], model: undefined, helpers: [] }))
-    // A session that ran in an agent's worktree comes back on the project's floor, in that copy.
-    const isolated = await worktreeFromPath(entry.cwd)
-    return manager.recall(
-      sessionId,
-      isolated?.cwd ?? entry.cwd,
-      log,
-      {
-        // keep the model the conversation was using
-        model: model ?? store.settings.defaultModel,
-        effort: defaultBrain().effort,
-        permissionMode: store.settings.defaultPermissionMode,
-      },
-      isolated?.worktree,
-      helpers,
-    )
-  })
-  ipcMain.handle('office:openInTerminal', async (_e, sessionId: unknown) => {
-    if (!isSessionId(sessionId)) return { ok: false, message: 'ID de sessão inválido.' }
-    const entry = await sessionEntry(sessionId)
-    if (!entry?.cwd) return { ok: false, message: 'Não sei em que pasta essa sessão rodava.' }
-    return openInTerminal(sessionId, entry.cwd)
-  })
-  ipcMain.handle('office:respond', (_e, d: unknown) => manager.respond(parse(permissionDecisionSchema, d, 'Resposta inválida.')))
-  ipcMain.handle('office:ackResult', (_e, raw: unknown) => {
-    manager.ackResult(id(raw))
-    updateBadge()
-  })
-  ipcMain.handle('office:pickFolder', async (_e, defaultPath?: unknown) => {
-    const r = await dialog.showOpenDialog(win!, {
-      properties: ['openDirectory', 'createDirectory'],
-      title: 'Pasta do projeto',
-      defaultPath: pathSchema.safeParse(defaultPath).success && existsSync(defaultPath as string) ? (defaultPath as string) : undefined,
-    })
-    return r.canceled ? null : r.filePaths[0]
-  })
-  ipcMain.handle('office:installBridge', async () => {
-    const { response } = await dialog.showMessageBox(win!, {
-      type: 'question',
-      buttons: ['Conectar', 'Cancelar'],
-      defaultId: 0,
-      cancelId: 1,
-      message: 'Conectar sessões do Claude Code no terminal?',
-      detail:
-        'Vamos adicionar hooks HTTP em ~/.claude/settings.json (com backup em settings.json.agent-office.bak). ' +
-        'Cada sessão do terminal vira um agente no escritório, e pedidos de permissão chegam até você aqui. ' +
-        'Se o app estiver fechado, o Claude Code segue normal no terminal.',
-    })
-    if (response !== 0) return bridge.status()
-    try {
-      return bridge.install()
-    } catch (err) {
-      dialog.showErrorBox('Não consegui editar ~/.claude/settings.json', err instanceof Error ? err.message : String(err))
-      return bridge.status()
-    }
-  })
-  ipcMain.handle('office:uninstallBridge', () => {
-    try {
-      return bridge.uninstall()
-    } catch (err) {
-      dialog.showErrorBox('Não consegui editar ~/.claude/settings.json', err instanceof Error ? err.message : String(err))
-      return bridge.status()
-    }
-  })
-  ipcMain.handle('office:saveTemplate', (_e, raw: unknown) => {
-    const t = cleanTemplate(raw, store.settings.projects)
-    store.settings = { ...store.settings, templates: upsertTemplate(store.settings.templates, t) }
-    broadcast({ type: 'settings', settings: store.settings })
-    return t
-  })
-  ipcMain.handle('office:deleteTemplate', (_e, raw: unknown) => {
-    const templateId = id(raw)
-    store.settings = { ...store.settings, templates: store.settings.templates.filter((t) => t.id !== templateId) }
-    broadcast({ type: 'settings', settings: store.settings })
-  })
-  ipcMain.handle('office:saveSettings', (_e, patch: unknown) => {
-    const before = JSON.stringify(store.settings.projects)
-    const days = store.settings.ticketAutoCloseDays
-    // Unknown keys are dropped; a bad value keeps the current one. The bridge port never changes here.
-    const cleaned = cleanSettings(patch, store.settings)
-    // Templates change only through saveTemplate/deleteTemplate; a removed floor turns its templates global.
-    store.settings = { ...cleaned, templates: loadTemplates(store.settings.templates, cleaned.projects) }
-    const { projects, ticketAutoCloseDays } = store.settings
-    broadcast({ type: 'settings', settings: store.settings })
-    if (ticketAutoCloseDays !== days) board.autoClose(ticketAutoCloseDays)
-    if (JSON.stringify(projects) !== before) {
-      squads = readSquads()
-      broadcast({ type: 'squads', squads })
-      manager.relocate()
-    }
-    return store.settings
-  })
-  ipcMain.handle('office:createTicket', (_e, draft: unknown) => board.create(parse(ticketDraftSchema, draft, 'Ticket inválido.'), player()))
-  ipcMain.handle('office:updateTicket', (_e, raw: unknown, patch: unknown) =>
-    board.update(ticketId(raw), parse(ticketPatchSchema, patch, 'Ticket inválido.'), player()),
-  )
-  ipcMain.handle('office:moveTicket', (_e, raw: unknown, status: unknown, beforeId?: unknown) =>
-    board.move(ticketId(raw), parse(ticketStatusSchema, status, 'Coluna inválida.'), beforeId ? ticketId(beforeId) : undefined, player()),
-  )
-  ipcMain.handle('office:commentTicket', (_e, raw: unknown, text: unknown) => {
-    board.comment(ticketId(raw), parse(commentSchema, text, 'Comentário grande demais.'), player())
-  })
-  ipcMain.handle('office:deleteTicket', (_e, raw: unknown) => board.remove(ticketId(raw)))
-  ipcMain.handle('office:closeTickets', (_e, ids?: unknown) => board.close(parse(ticketIdsSchema, ids, 'Tickets inválidos.'), player()))
-  ipcMain.handle('office:listClosed', (_e, search?: unknown) => board.listClosed(searchSchema.parse(search)))
-  ipcMain.handle('office:reopenTicket', (_e, raw: unknown) => board.reopen(ticketId(raw), player()))
-  ipcMain.handle('office:assignTicket', (_e, raw: unknown, who: unknown) => {
-    const t = board.assign(ticketId(raw), parse(assigneeSchema, who, 'Responsável inválido.') === 'me' ? player() : undefined, player())
-    if (!t.assignee && t.status === 'doing') board.move(t.id, 'todo', undefined, player())
-    else if (t.assignee && (t.status === 'backlog' || t.status === 'todo')) board.move(t.id, 'doing', undefined, player())
-  })
-  // A ticket may be written by someone else (or another agent): never run it with "bypass".
-  ipcMain.handle('office:delegateTicket', (_e, raw: unknown, target: unknown) =>
-    desk.delegate(ticketId(raw), cleanDelegateTarget(target, store.settings.accounts), player()),
-  )
-  ipcMain.handle('office:openExternal', (_e, url: unknown) => {
-    // Only web links leave the app; file:// or custom schemes could run things.
-    const link = externalUrlSchema.safeParse(url)
-    if (link.success) return shell.openExternal(link.data)
-  })
-  ipcMain.handle('office:revealPath', (_e, p: unknown) => {
-    const path = pathSchema.safeParse(p)
-    if (path.success && existsSync(path.data)) shell.showItemInFolder(path.data)
-  })
-  ipcMain.handle('office:radioVideo', () => radioVideo())
-  ipcMain.handle('office:listSquads', (_e, cwd: unknown) => (pathSchema.safeParse(cwd).success && isDir(cwd) ? loadSquads(cwd).map(squadInfo) : []))
-  ipcMain.handle('office:runSquad', (_e, cwd: unknown, code: unknown, mode: unknown, note: unknown) => {
-    if (!pathSchema.safeParse(cwd).success || !isDir(cwd)) throw new Error('Essa pasta de squads não existe mais.')
-    // Orchestrators work in the Diretoria of their project's floor.
-    if (projectFor(store.settings.projects, cwd)?.cwd !== cwd) throw new Error('Crie um andar para esse projeto antes de contratar um squad.')
-    const plain = squadCodeSchema.safeParse(code)
-    const squad = plain.success ? findSquad(cwd, plain.data) : undefined
-    if (!squad) throw new Error(`Não achei o squad ${plain.success ? plain.data : ''} em ${cwd}/squads.`)
-    const extra = (squadNoteSchema.parse(note) ?? '').trim().slice(0, 2000)
-    return manager.runSquad(
-      squadInfo(squad),
-      `Rode um ciclo do squad ${squad.name} (squads/${squad.code}), do primeiro passo do pipeline até o fim.${extra ? `\n\nRecado de ${store.settings.playerName}: ${extra}` : ''}`,
-      `Rodar um ciclo de ${squad.icon} ${squad.name}${extra ? `\n\n${extra}` : ''}`,
-      {
-        ...defaultBrain(),
-        // Same rule as tickets: a cycle reaches real systems, so it never runs with "bypass".
-        permissionMode: delegateMode(mode),
-      },
-    )
-  })
+  registerAppIpc(ipc)
+  registerAccountsIpc(ipc)
+  registerAgentsIpc(ipc)
+  registerWorktreesIpc(ipc)
+  registerSessionsIpc(ipc)
+  registerSettingsIpc(ipc)
+  registerTicketsIpc(ipc)
+  registerSquadsIpc(ipc)
+
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (d, cb) => {
     cb({ requestHeaders: { ...d.requestHeaders, Referer: 'https://agent-office.local/' } })
@@ -823,150 +400,3 @@ app.whenReady().then(async () => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
-
-/**
- * Dev helper: AGENT_OFFICE_SHOTS="out/shot:3000,8000" saves screenshots at those
- * times (ms after load) as out/shot-1.png, out/shot-2.png, then quits.
- * AGENT_OFFICE_EVAL runs a snippet in the page before each shot (e.g. to move the camera).
- * An entry `keys:N Enter Alt+Right =texto ;; js` first types real key presses (trusted,
- * with default actions: Enter clicks the focused button, Tab moves the focus), then runs
- * the js after `;;`. `=texto` types text (`_` is a space). Tests the app by keyboard (AO-38).
- */
-function captureShots(w: BrowserWindow, spec: string): void {
-  const [prefix, times] = spec.split(':')
-  const delays = (times ?? '4000').split(',').map(Number)
-  const evals = (process.env.AGENT_OFFICE_EVAL ?? '').split('|||')
-  w.webContents.on('console-message', (e) => console.log('[renderer]', e.message))
-  w.webContents.once('did-finish-load', () => {
-    delays.forEach((ms, i) => {
-      setTimeout(async () => {
-        let js = evals[i] ?? ''
-        if (js.trim().startsWith('keys:')) {
-          const [keys, rest] = js.trim().slice(5).split(';;')
-          await pressKeys(w, keys)
-          js = rest ?? ''
-        }
-        if (js.trim()) {
-          const out = await w.webContents.executeJavaScript(js).catch((e) => `eval failed: ${e}`)
-          if (out !== undefined) console.log(`[shot ${i + 1}]`, typeof out === 'string' ? out : JSON.stringify(out))
-        }
-        await new Promise((r) => setTimeout(r, 400))
-        try {
-          const img = await w.webContents.capturePage()
-          writeFileSync(`${prefix}-${i + 1}.png`, img.toPNG())
-        } catch (err) {
-          // The window is hidden, so the fatal-error dialog would wait forever: report and quit.
-          console.error(`[shot ${i + 1}] falhou:`, err)
-          app.exit(1)
-          return
-        }
-        if (i === delays.length - 1) app.quit()
-      }, ms)
-    })
-  })
-}
-
-type KeyModifier = 'shift' | 'alt' | 'meta' | 'control'
-const KEY_MODIFIERS: Record<string, KeyModifier> = { shift: 'shift', alt: 'alt', meta: 'meta', cmd: 'meta', ctrl: 'control' }
-
-/** Real key presses for AGENT_OFFICE_EVAL `keys:` entries, 120 ms apart. */
-async function pressKeys(w: BrowserWindow, spec: string): Promise<void> {
-  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms))
-  const press = (keyCode: string, modifiers: KeyModifier[] = []) => {
-    w.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
-    // Chromium clicks a focused button on Enter's char event (keypress), not on keydown.
-    const char = keyCode === 'Enter' ? '\r' : keyCode.length === 1 ? keyCode : null
-    if (char && modifiers.every((m) => m === 'shift')) w.webContents.sendInputEvent({ type: 'char', keyCode: char, modifiers })
-    w.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
-  }
-  for (const token of spec.trim().split(/\s+/).filter(Boolean)) {
-    if (token.startsWith('=')) {
-      for (const ch of token.slice(1).replace(/_/g, ' ')) {
-        press(ch)
-        await wait(30)
-      }
-    } else {
-      const parts = token.split('+')
-      const key = parts.pop()!
-      press(key, parts.map((m) => KEY_MODIFIERS[m.toLowerCase()]).filter(Boolean))
-    }
-    await wait(120)
-  }
-}
-
-/**
- * Dev helper (`npm run bench`): AGENT_OFFICE_BENCH=out/bench.json waits for the office
- * to fill up, records the frames for AGENT_OFFICE_BENCH_S seconds (30 by default),
- * writes the report there and quits.
- */
-function runBench(w: BrowserWindow, file: string): void {
-  const seconds = Number(process.env.AGENT_OFFICE_BENCH_S) || 30
-  const warmup = Number(process.env.AGENT_OFFICE_BENCH_WARMUP_S) || 8
-  w.webContents.on('console-message', (e) => console.log('[renderer]', e.message))
-  w.webContents.once('did-finish-load', () => {
-    setTimeout(async () => {
-      try {
-        const paced = process.env.AGENT_OFFICE_BENCH_LIVE === '1'
-        const report = await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000}, ${paced})`)
-        const gpu = app.getGPUFeatureStatus()
-        const out = {
-          version: app.getVersion(),
-          date: new Date().toISOString(),
-          demo: process.env.AGENT_OFFICE_DEMO ?? '',
-          paced,
-          platform: `${process.platform}-${process.arch}`,
-          electron: process.versions.electron,
-          gpu,
-          window: w.getContentSize(),
-          ...report,
-        }
-        writeFileSync(file, JSON.stringify(out, null, 2) + '\n')
-        console.log(`bench: ${out.frames} frames, ${out.frameMs.mean} ms/frame (p95 ${out.frameMs.p95}), ${out.drawCalls.mean} draw calls -> ${file}`)
-      } catch (err) {
-        console.error('bench failed:', err)
-        process.exitCode = 1
-      }
-      app.quit()
-    }, warmup * 1000)
-  })
-}
-
-/**
- * Dev helper: AGENT_OFFICE_SEED=/path/seed.json hires the agents listed there
- * (an array of HireRequest) at startup, one every 1.5 s so they arrive in a line.
- */
-function seedAgents(manager: AgentManager, file: string): void {
-  let list: HireRequest[]
-  try {
-    list = JSON.parse(readFileSync(file, 'utf8'))
-  } catch (err) {
-    console.error('seed: cannot read', file, err)
-    return
-  }
-  list.forEach((req, i) =>
-    setTimeout(() => {
-      if (!existsSync(req.cwd)) return console.error('seed: missing folder', req.cwd)
-      manager.hire({ ...req, permissionMode: req.permissionMode ?? 'default' }).catch((err) => console.error('seed:', err))
-    }, 2500 + i * 1500),
-  )
-}
-
-/**
- * Dev helper (never in a packaged app): AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error
- * breaks something 6 s after start, to check the error handling.
- */
-function forceCrash(w: BrowserWindow, what: string): void {
-  setTimeout(() => {
-    log.warn(`AGENT_OFFICE_CRASH=${what}: quebrando de propósito`)
-    if (what === 'main') throw new Error('Erro de teste no processo principal (AGENT_OFFICE_CRASH=main)')
-    if (what === 'rejection') void Promise.reject(new Error('Rejeição de teste (AGENT_OFFICE_CRASH=rejection)'))
-    if (what === 'renderer') w.webContents.forcefullyCrashRenderer()
-    if (what === 'hang') {
-      void w.webContents.executeJavaScript('for (;;) {}')
-      // "unresponsive" comes from input the page does not answer: poke it like a mouse would.
-      const poke = setInterval(() => (w.isDestroyed() ? clearInterval(poke) : w.webContents.sendInputEvent({ type: 'mouseMove', x: 100, y: 100 })), 500)
-      setTimeout(() => clearInterval(poke), 30_000)
-    }
-    if (what === 'page-error') void w.webContents.executeJavaScript("setTimeout(() => { throw new Error('Erro de teste na janela') }); Promise.reject(new Error('Rejeição de teste na janela')); 1")
-  }, 6000)
-}

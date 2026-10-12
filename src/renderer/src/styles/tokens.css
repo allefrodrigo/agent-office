@@ -1,0 +1,31 @@
+:root {
+  --bg: #1c1d2e;
+  --card: rgba(24, 25, 40, 0.92);
+  --card-solid: #1a1b2b;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.14);
+  --text: #eceaf6;
+  /* AO-38: muted e dim passam AA (4,5:1) nos cartões do HUD; antes #9c9ab5 e #6f6d8a. Confira com node scripts/contrast.mjs. */
+  --muted: #b3b1cb;
+  --dim: #9a98b4;
+  --accent: #d97757;
+  --accent-hi: #e8896a;
+  /* Fundo de botão com texto branco: o --accent dá só 3,1:1 com #fff. */
+  --accent-solid: #b4583a;
+  --accent-solid-hi: #a84f33;
+  --green: #3ecf8e;
+  --amber: #f5a524;
+  --blue: #5b9cf0;
+  --red: #ef5b5b;
+  /* Texto claro sobre fundos tingidos de cada cor (faixas, avisos, chips). */
+  --amber-text: #ffd38a;
+  --green-text: #8ff0c4;
+  --red-text: #ffb0b0;
+  /* Âmbar do placar de gastos (parede do escritório e relatórios). */
+  --board-amber: #ffb347;
+  --radius: 14px;
+  --shadow: 0 10px 40px rgba(5, 5, 15, 0.45), 0 2px 8px rgba(5, 5, 15, 0.3);
+  --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}

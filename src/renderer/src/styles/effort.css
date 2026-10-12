@@ -1,0 +1,207 @@
+/* ---------- effort meter (charge bar) ---------- */
+
+.emeter {
+  --lvl: var(--dim);
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.emeter[data-level='1'] { --lvl: #5bc8f0; }
+.emeter[data-level='2'] { --lvl: var(--green); }
+.emeter[data-level='3'] { --lvl: var(--amber); }
+.emeter[data-level='4'] { --lvl: #f07a3e; }
+.emeter[data-level='5'] { --lvl: var(--red); }
+
+.emeter-track {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  flex: none;
+}
+
+.emeter-tile {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 22px;
+  height: 52px;
+  padding: 3px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  outline: none;
+}
+
+.emeter-tile:focus-visible {
+  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.6);
+}
+
+/* pixel bars: each level taller, with a hard 2px "bevel" like the office sprites */
+.emeter-bar {
+  display: block;
+  width: 100%;
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.35), inset 0 2px 0 rgba(255, 255, 255, 0.06);
+  image-rendering: pixelated;
+  transition: background 0.12s steps(2), box-shadow 0.12s steps(2), transform 0.12s steps(2);
+}
+
+.emeter-l1 .emeter-bar { height: 20%; }
+.emeter-l2 .emeter-bar { height: 40%; }
+.emeter-l3 .emeter-bar { height: 60%; }
+.emeter-l4 .emeter-bar { height: 80%; }
+.emeter-l5 .emeter-bar { height: 100%; }
+
+.emeter-tile.lit .emeter-bar {
+  background: var(--lvl);
+  box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.3), inset 0 3px 0 rgba(255, 255, 255, 0.35), 0 0 10px color-mix(in srgb, var(--lvl) 45%, transparent);
+}
+
+.emeter-tile:hover .emeter-bar {
+  transform: translateY(-2px);
+}
+
+.emeter-tile.on {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.emeter-auto {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-bottom: 2px;
+  border: 2px solid var(--line-strong);
+  font: 700 10px/1 var(--mono);
+  color: var(--muted);
+}
+
+.emeter-tile.on .emeter-auto {
+  border-color: var(--accent);
+  color: var(--accent-hi);
+}
+
+.emeter-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.emeter-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.emeter-name {
+  font: 700 13px/1.2 var(--mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--lvl);
+}
+
+.emeter[data-level='0'] .emeter-name {
+  color: var(--text);
+}
+
+.emeter-tag {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.emeter-stats {
+  display: grid;
+  gap: 3px;
+}
+
+.emeter-stat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.emeter-stat-label {
+  width: 82px;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.emeter-pips {
+  display: flex;
+  gap: 3px;
+}
+
+.emeter-pips i {
+  width: 9px;
+  height: 7px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.emeter-pips i.on {
+  background: var(--lvl);
+}
+
+.emeter-unknown .emeter-pips i {
+  background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.1) 0 2px, transparent 2px 4px);
+}
+
+.emeter-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--dim);
+}
+
+/* level-up pop when a new level is picked */
+.emeter-pop .emeter-tile.on .emeter-bar,
+.emeter-pop .emeter-tile.on .emeter-auto {
+  animation: emeter-pop 0.28s steps(3);
+}
+
+@keyframes emeter-pop {
+  0% { transform: translateY(0) scaleY(0.6); }
+  60% { transform: translateY(-4px) scaleY(1.08); }
+  100% { transform: translateY(0) scaleY(1); }
+}
+
+/* "Modo lenda": the top bar flickers like a flame */
+.emeter[data-level='5'] .emeter-l5.lit .emeter-bar {
+  animation: emeter-flame 0.9s steps(2) infinite;
+}
+
+@keyframes emeter-flame {
+  50% { box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.3), inset 0 3px 0 #ffd27a, 0 0 16px rgba(239, 91, 91, 0.7); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .emeter * { animation: none !important; transition: none !important; }
+}
+
+.emeter-compact {
+  padding: 6px 8px;
+  gap: 10px;
+}
+
+.emeter-compact .emeter-tile {
+  width: 18px;
+  height: 34px;
+  padding: 2px;
+}
+
+.emeter-compact .emeter-auto {
+  width: 13px;
+  height: 13px;
+  font-size: 9px;
+}
+
+.tdelegate-brain {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
