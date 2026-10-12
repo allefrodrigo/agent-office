@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, realpathSync, renameSync, writeFileSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ChangedFile, ResultChanges, WorktreeInfo } from '@shared/types'
 
 /**
@@ -233,6 +233,31 @@ export function insideRoot(root: string, p: string): string | null {
   return abs
 }
 
+/** Real path of `p`; for a file that is gone, its folder's real path + its name; else `p`. */
+function realOrSelf(p: string): string {
+  try {
+    return realpathSync(p)
+  } catch {
+    try {
+      return join(realpathSync(dirname(p)), basename(p))
+    } catch {
+      return p
+    }
+  }
+}
+
+/**
+ * How the card shows a file written without git: relative to `root` when it is inside
+ * (also after resolving symlinks such as /tmp -> /private/tmp), absolute otherwise.
+ */
+export function displayPath(root: string, file: string): string {
+  const inside = (r: string, f: string) => {
+    const rel = relative(r, f)
+    return rel && rel !== '..' && !rel.startsWith('..' + sep) && !isAbsolute(rel) ? rel : null
+  }
+  return inside(root, file) ?? inside(realOrSelf(root), realOrSelf(file)) ?? file
+}
+
 // ---------- worktrees (AO-33) ----------
 
 /** "Ada Lovelace" -> "ada-lovelace": safe as a folder name and as part of a branch. */
@@ -421,6 +446,8 @@ export interface Snapshot {
   head: string | null
   /** path -> blob of its content at the start; null = it did not exist; 'unknown' = too big to copy. */
   dirty: Record<string, string | null>
+  /** path -> its index entry at the start ("<mode> <blob>"); null = not in the index; 'unknown' = conflict or unreadable. */
+  index?: Record<string, string | null>
   partial?: boolean
 }
 
@@ -438,7 +465,8 @@ export async function takeSnapshot(cwd: string): Promise<Snapshot | null> {
   for (const entry of status) {
     const path = entry.slice(3)
     if (!path) continue
-    if (Object.keys(dirty).length >= MAX_FILES) {
+    // Every file counts toward the cap, also the ones waiting to be hashed.
+    if (Object.keys(dirty).length + toHash.length >= MAX_FILES) {
       partial = true
       break
     }
@@ -457,7 +485,29 @@ export async function takeSnapshot(cwd: string): Promise<Snapshot | null> {
     const hashes = (await chunked(root, ['hash-object', '--no-filters', '-w'], toHash)).trim().split('\n')
     toHash.forEach((p, i) => (dirty[p] = SHA_RE.test(hashes[i] ?? '') ? hashes[i] : UNKNOWN))
   }
-  return { root, head, dirty, ...(partial ? { partial } : {}) }
+  const index = await indexEntries(root, Object.keys(dirty))
+  return { root, head, dirty, index, ...(partial ? { partial } : {}) }
+}
+
+/** Index entry ("<mode> <blob>") of each path; null = not in the index; 'unknown' = conflict or unreadable. */
+async function indexEntries(root: string, paths: string[]): Promise<Record<string, string | null>> {
+  const out: Record<string, string | null> = {}
+  for (const p of paths) out[p] = null
+  if (!paths.length) return out
+  let raw: string
+  try {
+    raw = await chunked(root, ['ls-files', '-s', '-z'], paths)
+  } catch {
+    for (const p of paths) out[p] = UNKNOWN
+    return out
+  }
+  for (const item of zsplit(raw)) {
+    const m = /^([0-7]{6}) ([0-9a-f]{40}(?:[0-9a-f]{24})?) (\d)\t([\s\S]+)$/.exec(item)
+    if (!m || !(m[4] in out)) continue
+    // A conflict has stages 1-3: the index can't be put back with one entry.
+    out[m[4]] = m[3] === '0' && out[m[4]] === null ? `${m[1]} ${m[2]}` : UNKNOWN
+  }
+  return out
 }
 
 /** Current blob of each path (written to the object store), or null when it is gone. */
@@ -533,7 +583,8 @@ export async function changesSince(snap: Snapshot, extra?: { branch?: string }):
       continue
     }
     const s = await blobStat(root, start ?? empty, cur ?? empty)
-    files.push({ path, status, ...s, start, preexisting: true, restorable: true })
+    const startIndex = snap.index ? (path in snap.index ? snap.index[path] : UNKNOWN) : undefined
+    files.push({ path, status, ...s, start, ...(startIndex !== undefined ? { startIndex } : {}), preexisting: true, restorable: true })
   }
   const seen = new Set(pre)
   for (const [path, s] of tracked) {
@@ -622,6 +673,24 @@ async function restoreBlob(root: string, abs: string, blob: string): Promise<voi
 }
 
 /**
+ * Puts the index entry of a preexisting file back as it was at the start (the agent may
+ * have run `git add`). Unknown start entry: back to HEAD's (or out of the index), which
+ * never touches the disk. Paths were checked by the caller.
+ */
+async function restoreIndex(root: string, f: ChangedFile, head: string | undefined): Promise<void> {
+  const m = typeof f.startIndex === 'string' ? /^([0-7]{6}) ([0-9a-f]{40}(?:[0-9a-f]{24})?)$/.exec(f.startIndex) : null
+  if (m) {
+    await git(root, ['update-index', '--add', '--cacheinfo', `${m[1]},${m[2]},${f.path}`])
+  } else if (f.startIndex === null) {
+    await git(root, ['rm', '--cached', '-q', '--ignore-unmatch', '--', f.path])
+  } else if (head) {
+    await git(root, ['reset', '-q', head, '--', f.path])
+  } else {
+    await git(root, ['rm', '--cached', '-q', '--ignore-unmatch', '--', f.path])
+  }
+}
+
+/**
  * Puts every listed file back as it was at the start of the task: files from HEAD come
  * back with `git checkout`, files the task created go with `git rm --cached` + `git clean`,
  * and files the player had already changed get their saved copy. Every path is checked
@@ -645,6 +714,7 @@ export async function discardChanges(c: ResultChanges): Promise<{ restored: numb
     else if (SHA_RE.test(f.start)) {
       try {
         await restoreBlob(c.root, abs, f.start)
+        await restoreIndex(c.root, f, head)
         restored++
       } catch {
         skipped.push(f.path)

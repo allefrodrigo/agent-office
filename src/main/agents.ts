@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { existsSync, watch, type FSWatcher } from 'node:fs'
-import { basename, isAbsolute, relative } from 'node:path'
+import { basename } from 'node:path'
 import { query, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentBrain,
@@ -33,7 +33,7 @@ import { sessionIdForName } from './peers'
 import { findSquad, memberAgents, orchestratorPrompt, outsideTeam, readProgress, squadDir, teamGuard, type SquadDefinition } from './squads'
 import type { CostBook } from './ledger'
 import type { Store } from './store'
-import { changesSince, createWorktree, takeSnapshot, type Snapshot } from './git'
+import { changesSince, createWorktree, displayPath, takeSnapshot, type Snapshot } from './git'
 
 const LOG_LIMIT = 400
 const PERSISTED_LOG = 150
@@ -93,7 +93,10 @@ interface Agent {
   /** Demo mode: simulated, never saved. */
   demo?: boolean
   /** The task under way: the folder as it was when it started, and the files the Edit/Write tools touched. */
-  task?: { snapshot: Promise<Snapshot | null>; touched: Map<string, string> }
+  /** `ready`: the snapshot finished, so the CLI may start (and runs again without waiting). */
+  task?: { snapshot: Promise<Snapshot | null>; touched: Map<string, string>; ready?: boolean }
+  /** run() is waiting for task.snapshot before starting the CLI; input already exists. */
+  awaitingSnapshot?: boolean
 }
 
 /** Tools whose file_path the card lists when the folder has no git. */
@@ -374,7 +377,7 @@ export class AgentManager extends EventEmitter {
     // A new instruction replaces any undelivered result.
     this.dropResults(id)
     if (this.overBudget(agent)) return
-    if (agent.input && agent.query) {
+    if (agent.input && (agent.query || agent.awaitingSnapshot)) {
       agent.input.push(content)
       this.setStatus(agent, 'working', 'Lendo suas instruções')
     } else {
@@ -388,7 +391,7 @@ export class AgentManager extends EventEmitter {
     agent.compacting = true
     this.addLog(agent, 'system', 'Compactando: resumindo a conversa para liberar contexto…')
     this.dropResults(id)
-    if (agent.input && agent.query) agent.input.push('/compact')
+    if (agent.input && (agent.query || agent.awaitingSnapshot)) agent.input.push('/compact')
     else this.run(agent, '/compact')
     this.setStatus(agent, 'working', 'Organizando a memória')
   }
@@ -496,12 +499,32 @@ export class AgentManager extends EventEmitter {
       return
     }
     // A new task (not a failover or a /compact): remember the folder as it is now, so the
-    // card can show what this task changed. git status takes milliseconds; the CLI needs
-    // a model round trip before its first edit.
+    // card can show what this task changed. The CLI only starts once the snapshot is done:
+    // anything it writes before that would count as the player's own earlier change.
     if (!agent.task && !agent.compacting && !agent.demo) agent.task = { snapshot: takeSnapshot(workDir).catch(() => null), touched: new Map() }
     const input = new InputQueue()
     input.push(prompt)
     agent.input = input
+    const task = agent.task
+    if (task && !task.ready) {
+      // Messages sent meanwhile go into this same queue (sendMessage checks awaitingSnapshot).
+      agent.awaitingSnapshot = true
+      this.setStatus(agent, 'starting', s.status === 'starting' ? s.activity : 'Voltando ao trabalho')
+      void task.snapshot.then(() => {
+        task.ready = true
+        if (agent.input !== input) return // fired, cleared or replaced while waiting
+        agent.awaitingSnapshot = false
+        if (this.agents.get(s.id) === agent) this.startQuery(agent, input, claude, workDir, squad)
+      })
+      return
+    }
+    this.startQuery(agent, input, claude, workDir, squad)
+  }
+
+  /** Starts the CLI process for `run`, reading `input`. */
+  private startQuery(agent: Agent, input: InputQueue, claude: string, workDir: string, squad: SquadDefinition | undefined): void {
+    const s = agent.summary
+    const wt = s.worktree
     // Each run starts a new CLI process, so it can move to another account between turns.
     const before = s.account
     const account = this.accounts?.pick(s)
@@ -960,8 +983,7 @@ export class AgentManager extends EventEmitter {
         git: false,
         root,
         files: [...task.touched].map(([file, tool]) => {
-          const rel = relative(root, file)
-          return { path: rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : file, status: 'modified' as const, tool }
+          return { path: displayPath(root, file), status: 'modified' as const, tool }
         }),
       }
     }

@@ -8,6 +8,7 @@ import {
   commitChanges,
   createWorktree,
   discardChanges,
+  displayPath,
   fileDiff,
   insideRoot,
   openPullRequest,
@@ -42,7 +43,11 @@ function newRepo(prefix = 'ao-git-'): { dir: string; git: (...args: string[]) =>
 
 const read = (p: string) => readFileSync(p, 'utf8')
 
-describe('arquivos alterados (AO-34)', () => {
+// Each test spawns dozens of git processes (~0.2-2 s alone). Under a loaded `npm test` that
+// passes the 5 s default, so these get their own limit. Nothing here waits on purpose.
+const GIT_TIMEOUT = 30_000
+
+describe('arquivos alterados (AO-34)', { timeout: GIT_TIMEOUT }, () => {
   it('lista com +/−, mostra o diff da tarefa e descarta sem perder a mudança do usuário', async () => {
     const { dir, git } = newRepo()
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
@@ -82,6 +87,48 @@ describe('arquivos alterados (AO-34)', () => {
     expect((await changesSince(snap)).files).toHaveLength(0)
   })
 
+  it('descartar também devolve o índice (o agente tinha dado git add)', async () => {
+    const { dir, git } = newRepo()
+    writeFileSync(join(dir, 'b.txt'), 'bee\n')
+    writeFileSync(join(dir, 's.txt'), 'staged\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    writeFileSync(join(dir, 'b.txt'), 'bee\nuser edit\n') // sujo, fora do índice
+    writeFileSync(join(dir, 's.txt'), 'staged\nby user\n')
+    git('add', 's.txt') // o usuário já tinha isto no índice
+    const snap = (await takeSnapshot(dir))!
+    writeFileSync(join(dir, 'b.txt'), 'bee\nagent\n')
+    writeFileSync(join(dir, 's.txt'), 'staged\nagent\n')
+    git('add', 'b.txt', 's.txt')
+    expect(git('status', '--porcelain', 'b.txt')).toMatch(/^M /)
+    await discardChanges(await changesSince(snap))
+    expect(read(join(dir, 'b.txt'))).toBe('bee\nuser edit\n')
+    expect(git('status', '--porcelain', 'b.txt')).toBe(' M b.txt\n')
+    expect(read(join(dir, 's.txt'))).toBe('staged\nby user\n')
+    expect(git('status', '--porcelain', 's.txt')).toBe('M  s.txt\n')
+    expect(git('show', ':s.txt')).toBe('staged\nby user\n')
+  })
+
+  it('o limite de arquivos do snapshot vale para todos, inclusive os que iam para o hash', async () => {
+    const { dir, git } = newRepo()
+    writeFileSync(join(dir, 'x.txt'), 'x\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    for (let i = 0; i < 320; i++) writeFileSync(join(dir, `f${i}.txt`), `${i}\n`)
+    const snap = (await takeSnapshot(dir))!
+    expect(Object.keys(snap.dirty).length).toBe(300)
+    expect(snap.partial).toBe(true)
+  })
+
+  it('sem git: caminho relativo à pasta mesmo atrás de symlink (/tmp -> /private/tmp)', () => {
+    const real = tmp('ao-disp-')
+    const link = join(tmp('ao-disp-link-'), 'pasta')
+    symlinkSync(real, link)
+    expect(displayPath(link, join(real, 'src', 'a.ts'))).toBe(join('src', 'a.ts'))
+    expect(displayPath(real, join(link, 'b.ts'))).toBe('b.ts')
+    expect(displayPath(real, '/etc/hosts')).toBe('/etc/hosts')
+  })
+
   it('commita só os arquivos da lista, com a mensagem literal', async () => {
     const { dir, git } = newRepo()
     writeFileSync(join(dir, 'a.txt'), 'a\n')
@@ -116,7 +163,7 @@ describe('arquivos alterados (AO-34)', () => {
   })
 })
 
-describe('worktrees (AO-33)', () => {
+describe('worktrees (AO-33)', { timeout: GIT_TIMEOUT }, () => {
   it('cada agente tem pasta e branch próprios e não interfere no outro', async () => {
     const { dir, git } = newRepo('ao-wt-')
     writeFileSync(join(dir, 'a.txt'), 'a\n')
@@ -217,7 +264,7 @@ describe('worktrees (AO-33)', () => {
   })
 })
 
-describe('segurança', () => {
+describe('segurança', { timeout: GIT_TIMEOUT }, () => {
   it('recusa nomes de branch maliciosos e limpa o nome do agente', async () => {
     for (const b of ['agent/x;rm -rf ~', '--upload-pack=evil', 'agent/../main', 'agent/-x', 'main', 'agent/a b', 'agent/x.lock', 'agent/$(id)']) {
       expect(validBranch(b)).toBe(false)
