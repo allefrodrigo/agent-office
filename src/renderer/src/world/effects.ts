@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { mat } from './kit'
+import { disposeTree, shared } from './dispose'
 import { FACE_CAMERA, skull } from './skull'
 
 interface Particle {
@@ -22,8 +23,8 @@ interface Strike {
   onHit: () => void
 }
 
-const sparkGeo = new THREE.BoxGeometry(0.05, 0.05, 0.05)
-const puffGeo = new THREE.BoxGeometry(0.22, 0.22, 0.22)
+const sparkGeo = shared(new THREE.BoxGeometry(0.05, 0.05, 0.05))
+const puffGeo = shared(new THREE.BoxGeometry(0.22, 0.22, 0.22))
 
 /** Strike timing, in seconds: drop in, cackle in the air, dive. */
 const DROP_S = 0.8
@@ -120,6 +121,7 @@ export class Effects {
       o.position.set(s.at.x, y, s.at.z)
       if (s.t >= DROP_S + CACKLE_S + DIVE_S) {
         const hit = new THREE.Vector3(s.at.x, 0.55, s.at.z)
+        disposeTree(o)
         this.scene.remove(o)
         this.strikes.splice(i, 1)
         this.smoke(hit)
@@ -139,6 +141,7 @@ export class Effects {
         p.mesh.position.x += Math.sin(p.life * 6) * dt * 0.3
       }
       if (p.life <= 0) {
+        disposeTree(p.mesh)
         this.scene.remove(p.mesh)
         this.particles.splice(i, 1)
       }

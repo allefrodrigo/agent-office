@@ -255,7 +255,16 @@ async function boot(): Promise<void> {
     }
   })
 
-  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, { __game: game, __state: state, __perf: perf, __panel: panel, __dialog: dialog, __board: board })
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, {
+      __game: game,
+      __state: state,
+      __perf: perf,
+      __panel: panel,
+      __dialog: dialog,
+      __board: board,
+      // AO-28: floors, agents and the skull in a loop, reading GPU memory (dev and headless runs only)
+      __leakTest: async () => (await import('./dev/leak-test')).leakTest(game, state),
+    })
 
   // F3 (or ?perf) shows fps, draw calls and GPU memory; the bench reads the same numbers.
   bindPerfKeys()
