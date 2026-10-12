@@ -557,6 +557,37 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
         ),
         h('div', { class: 'bridge-row' }, bridgeStatus, bridgeBtn),
       ),
+      h(
+        'div',
+        { class: 'bridge-box bridge-help' },
+        h('div', { class: 'bridge-title' }, icon('alert', 16), 'Ajuda'),
+        h(
+          'div',
+          { class: 'field-hint' },
+          'O app grava um log dos erros (sem prompts nem tokens). Ao relatar um problema, cole o diagnóstico: versão, sistema, versão do Claude Code e as últimas 200 linhas do log.',
+        ),
+        h(
+          'div',
+          { class: 'bridge-row bridge-row-start' },
+          h('button', {
+            class: 'btn',
+            type: 'button',
+            onclick: () => window.office.openLogs().catch((err) => toast(cleanError(err), 'err')),
+          }, icon('folder', 14), 'Abrir pasta de logs'),
+          h('button', {
+            class: 'btn',
+            type: 'button',
+            onclick: async () => {
+              try {
+                await window.office.copyDiagnostics()
+                toast('Diagnóstico copiado. Cole no relato do problema.', 'ok')
+              } catch (err) {
+                toast(cleanError(err), 'err')
+              }
+            },
+          }, icon('copy', 14), 'Copiar diagnóstico'),
+        ),
+      ),
     ],
     [
       h('span', { class: 'app-version', title: `Build de ${__APP_BUILD__}` }, `Agent Office v${__APP_VERSION__} · build ${__APP_BUILD__}`),
