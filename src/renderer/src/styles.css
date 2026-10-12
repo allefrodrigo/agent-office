@@ -5387,3 +5387,30 @@ button.ab-stamp:hover {
   min-width: 0;
   font-size: 12px;
 }
+/* ---------- performance panel (F3 or ?perf) ---------- */
+
+.perf-panel {
+  position: fixed;
+  top: 140px;
+  left: 16px;
+  z-index: 100001;
+  min-width: 190px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(10, 10, 20, 0.82);
+  border: 1px solid var(--line-strong);
+  font: 11px/1.5 var(--mono);
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.perf-panel div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.perf-panel b {
+  color: var(--text);
+  font-weight: 600;
+}

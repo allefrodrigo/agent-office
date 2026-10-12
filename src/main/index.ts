@@ -10,7 +10,7 @@ import { Accounts } from './accounts'
 import { AgentManager } from './agents'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
-import { startDemo } from './demo'
+import { prepareStress, startDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
 import { dataNotices } from './fs-safe'
@@ -68,8 +68,8 @@ const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
 
 function createWindow(): BrowserWindow {
-  // Screenshot runs (dev only) render in a hidden window so they never steal focus.
-  const headless = !!process.env.AGENT_OFFICE_SHOTS
+  // Screenshot and bench runs (dev only) render in a hidden window so they never steal focus.
+  const headless = !!process.env.AGENT_OFFICE_SHOTS || !!process.env.AGENT_OFFICE_BENCH
   const w = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -102,7 +102,8 @@ function createWindow(): BrowserWindow {
 
 function loadPage(w: BrowserWindow): void {
   if (process.env.ELECTRON_RENDERER_URL) void w.loadURL(process.env.ELECTRON_RENDERER_URL)
-  // Screenshot runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera.
+  // Screenshot and bench runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera; the bench opens the perf panel too.
+  else if (process.env.AGENT_OFFICE_BENCH) void w.loadFile(join(here, '../renderer/index.html'), { query: { shots: '1', perf: '1' } })
   else void w.loadFile(join(here, '../renderer/index.html'), process.env.AGENT_OFFICE_SHOTS ? { query: { shots: '1' } } : undefined)
 }
 
@@ -744,6 +745,9 @@ app.whenReady().then(async () => {
   })
 
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(here, '../../resources/icon.png'))
+  // Stress floors go in before the window asks for the state.
+  const stress = process.env.AGENT_OFFICE_DEMO === 'stress' && prepareStress(store)
+  if (stress) squads = readSquads()
   win = createWindow()
   // Back from logging in on the terminal: check the logins again.
   let checkedAt = 0
@@ -753,8 +757,10 @@ app.whenReady().then(async () => {
     void accounts.check().then(() => usage.refresh())
   })
   if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, squadDefs())
+  if (stress) startStress(manager)
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
+  if (process.env.AGENT_OFFICE_BENCH) runBench(win, process.env.AGENT_OFFICE_BENCH)
   if (process.env.AGENT_OFFICE_CRASH && !app.isPackaged) forceCrash(win, process.env.AGENT_OFFICE_CRASH)
 
   app.on('activate', () => {
@@ -807,6 +813,41 @@ function captureShots(w: BrowserWindow, spec: string): void {
         if (i === delays.length - 1) app.quit()
       }, ms)
     })
+  })
+}
+
+/**
+ * Dev helper (`npm run bench`): AGENT_OFFICE_BENCH=out/bench.json waits for the office
+ * to fill up, records the frames for AGENT_OFFICE_BENCH_S seconds (30 by default),
+ * writes the report there and quits.
+ */
+function runBench(w: BrowserWindow, file: string): void {
+  const seconds = Number(process.env.AGENT_OFFICE_BENCH_S) || 30
+  const warmup = Number(process.env.AGENT_OFFICE_BENCH_WARMUP_S) || 8
+  w.webContents.on('console-message', (e) => console.log('[renderer]', e.message))
+  w.webContents.once('did-finish-load', () => {
+    setTimeout(async () => {
+      try {
+        const report = await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000})`)
+        const gpu = app.getGPUFeatureStatus()
+        const out = {
+          version: app.getVersion(),
+          date: new Date().toISOString(),
+          demo: process.env.AGENT_OFFICE_DEMO ?? '',
+          platform: `${process.platform}-${process.arch}`,
+          electron: process.versions.electron,
+          gpu,
+          window: w.getContentSize(),
+          ...report,
+        }
+        writeFileSync(file, JSON.stringify(out, null, 2) + '\n')
+        console.log(`bench: ${out.frames} frames, ${out.frameMs.mean} ms/frame (p95 ${out.frameMs.p95}), ${out.drawCalls.mean} draw calls -> ${file}`)
+      } catch (err) {
+        console.error('bench failed:', err)
+        process.exitCode = 1
+      }
+      app.quit()
+    }, warmup * 1000)
   })
 }
 

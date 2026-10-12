@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { Look } from '@shared/types'
 import { patchTexture } from './brand'
 import { blob, box, mat, panel } from './kit'
+import { disposeTree, shared } from './dispose'
 import { shadeHex } from './furniture'
 
 export type Pose = 'stand' | 'sit' | 'type' | 'wave' | 'talk' | 'relax' | 'play'
@@ -24,7 +25,7 @@ export interface Uniform {
 
 let shadowGeo: THREE.CircleGeometry | null = null
 let gemGeo: THREE.OctahedronGeometry | null = null
-const shadowMat = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.2, depthWrite: false })
+const shadowMat = shared(new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.2, depthWrite: false }))
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2
@@ -80,7 +81,7 @@ export class Avatar {
     this.root.add(this.body)
     this.anchor.position.y = TAG_Y
     this.root.add(this.anchor)
-    if (!shadowGeo) shadowGeo = new THREE.CircleGeometry(0.26, 12).rotateX(-Math.PI / 2)
+    if (!shadowGeo) shadowGeo = shared(new THREE.CircleGeometry(0.26, 12).rotateX(-Math.PI / 2))
     const shadow = new THREE.Mesh(shadowGeo, shadowMat)
     shadow.position.y = 0.025
     shadow.renderOrder = 1
@@ -94,6 +95,8 @@ export class Avatar {
     this.body.clear()
     this.shirtMeshes = []
     const shirtDark = shadeHex(L.shirt, -30)
+    // the old body's own pieces (hair blobs, logo patch plane) leave the GPU; shared ones stay
+    disposeTree(this.body)
 
     // legs: thigh pivots at the hip, shin pivots at the knee
     for (const [thigh, shin, x] of [
@@ -232,7 +235,7 @@ export class Avatar {
       if (this.gem) this.gem.visible = false
       return
     }
-    if (!gemGeo) gemGeo = new THREE.OctahedronGeometry(0.13, 0).scale(0.8, 1.45, 0.8)
+    if (!gemGeo) gemGeo = shared(new THREE.OctahedronGeometry(0.13, 0).scale(0.8, 1.45, 0.8))
     if (!this.gem) {
       this.gem = new THREE.Mesh(gemGeo, new THREE.MeshLambertMaterial({ flatShading: true, transparent: true, opacity: 0.92 }))
       this.gem.position.y = GEM_Y
@@ -247,6 +250,7 @@ export class Avatar {
   setProp(prop: Prop, force = false): void {
     if (prop === this.prop && !force) return
     this.prop = prop
+    disposeTree(this.propGroup)
     this.propGroup.clear()
     if (prop === 'paper' || prop === 'redPaper') {
       const p = new THREE.Group()
@@ -263,6 +267,11 @@ export class Avatar {
       p.position.set(-0.24, 0.46, 0.14)
       this.propGroup.add(p)
     }
+  }
+
+  /** Frees what only this avatar uses (call when it leaves the scene for good). */
+  dispose(): void {
+    disposeTree(this.root)
   }
 
   get position(): THREE.Vector3 {

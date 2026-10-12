@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { box, cylinder, panel } from './kit'
+import { shared } from './dispose'
 
 // Live pieces of the office: the spending board and the limit alarm.
 
@@ -210,6 +211,7 @@ function radialTexture(): THREE.CanvasTexture {
   grad.addColorStop(1, 'rgba(255,255,255,0)')
   ctx.fillStyle = grad
   ctx.fillRect(0, 0, 64, 64)
-  radial = new THREE.CanvasTexture(c)
+  // one glow for every beacon on every floor
+  radial = shared(new THREE.CanvasTexture(c))
   return radial
 }

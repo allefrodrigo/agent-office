@@ -5,7 +5,8 @@ import { accountPool } from '@shared/accounts'
 import { projectFor } from '@shared/projects'
 import type { State } from './state'
 import { Avatar, type Uniform } from './world/avatar'
-import { brandOf, DEFAULT_BRAND } from './world/brand'
+import { brandOf, DEFAULT_BRAND, releaseLogos } from './world/brand'
+import { disposeTree } from './world/dispose'
 import { Engine } from './world/engine'
 import * as L from './world/layout'
 import { buildOffice, type GroundFloor, type Office } from './world/office'
@@ -309,6 +310,7 @@ export class Game {
     const shrink = (start: number) => {
       const k = 1 - (this.time - start) / 0.6
       if (k <= 0) {
+        actor.avatar.dispose()
         this.engine.scene.remove(actor.avatar.root)
         this.overlays.remove(actor.tag)
         this.actors.delete(actor.id)
@@ -412,6 +414,7 @@ export class Game {
       const shrink = () => {
         const k = this.time < start ? 1 : 1 - (this.time - start) / 0.4
         if (k <= 0 || !this.helpers.has(h.id)) {
+          h.avatar.dispose()
           this.engine.scene.remove(h.avatar.root)
           this.overlays.remove(h.tag)
           this.helpers.delete(h.id)
@@ -626,6 +629,7 @@ export class Game {
   private memberGone(m: Member): void {
     if (!this.members.has(m.id)) return
     this.members.delete(m.id)
+    m.avatar.dispose()
     this.engine.scene.remove(m.avatar.root)
     this.overlays.remove(m.tag)
   }
@@ -1538,6 +1542,8 @@ export class Game {
 
     for (const m of this.members.values()) this.memberGone(m)
     this.uppers.forEach((u, i) => {
+      // the whole floor leaves the GPU: walls, furniture, screens, signs and their textures
+      disposeTree(u.scene.group)
       this.engine.scene.remove(u.scene.group)
       this.overlays.clearLabels(i + 1)
       if (u.boardTag) this.overlays.remove(u.boardTag)
@@ -1592,8 +1598,15 @@ export class Game {
       const a = this.state.agents.get(h.parentId)
       if (a) h.avatar.setUniform(this.uniformFor(a))
     }
+    // everyone wears the current logos now: patches of replaced or removed ones go
+    releaseLogos(new Set(projects.flatMap((p) => (p.logo ? [p.logo] : []))))
     this.syncBoards()
     if (notify) this.hooks.onFloor(this.player.floor)
+  }
+
+  /** People in the scene besides the player, for the dev leak test (dev/leak-test.ts). */
+  get population(): { actors: number; helpers: number; members: number } {
+    return { actors: this.actors.size, helpers: this.helpers.size, members: this.members.size }
   }
 
   get floors(): string[] {
