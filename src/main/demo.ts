@@ -46,21 +46,17 @@ export function startDemo(manager: AgentManager, squads: SquadDefinition[] = [])
     })
   }, 3000)
 
-  // Linus keeps calling subagents, so the helpers show up next to his desk.
+  // Linus keeps calling subagents (3 at a time), so the helpers show up next to his desk,
+  // each with its own log and what it is doing in the balloon (AO-46).
   let round = 0
   const helpers = () => {
     const files = ['agents.ts', 'bridge.ts', 'tickets.ts', 'store.ts', 'usage.ts']
-    const count = 2 + (round % 3)
-    for (let k = 0; k < count; k++) {
-      const taskId = `demo-sub-${round}-${k}`
-      const base = { type: 'system', uuid: taskId, session_id: 'demo' } as const
-      manager.demoTask(ids[3], { ...base, subtype: 'task_started', task_id: taskId, description: `Contar linhas de ${files[k]}`, subagent_type: 'Explore', task_type: 'local_agent', is_backgrounded: true } as never)
-      setTimeout(() => {
-        manager.demoTask(ids[3], { ...base, subtype: 'task_notification', task_id: taskId, status: 'completed', output_file: '', summary: '', usage: { total_tokens: 9000 + k * 700, tool_uses: 2, duration_ms: 4000 } } as never)
-      }, 2500 + Math.random() * 7000)
+    for (let k = 0; k < 3; k++) {
+      const file = files[(round + k) % files.length]
+      simulateSubagent(manager, ids[3], { taskId: `demo-sub-${round}-${k}`, description: `Revisar ${file}`, type: k === 2 ? 'general-purpose' : 'Explore', steps: 5 + k * 2, everyMs: 1400, seed: k, fail: round % 4 === 3 && k === 1 })
     }
     round++
-    setTimeout(helpers, 16000)
+    setTimeout(helpers, 26000)
   }
   setTimeout(helpers, 2000)
 
@@ -158,6 +154,73 @@ export function startStress(manager: AgentManager): void {
     setTimeout(deliver, 4000)
   }
   setTimeout(deliver, 3000)
+
+  // AO-46 load: the first agent keeps 20 subagents running at once, each sending a
+  // message every ~300 ms. Updates reach the renderer grouped (one burst per 250 ms)
+  // and each log stays under its cap; the counters go to stdout every 10 s.
+  const boss = ids[0]
+  let wave = 0
+  const crowd = () => {
+    for (let k = 0; k < 20; k++) simulateSubagent(manager, boss, { taskId: `stress-sub-${wave}-${k}`, description: `Carga ${wave + 1}.${k + 1}`, type: 'Explore', steps: 120, everyMs: 300, seed: k })
+    wave++
+    setTimeout(crowd, 120 * 300 + 4000)
+  }
+  setTimeout(crowd, 1500)
+  setInterval(() => console.log(`[stress] subagentes: ${simulated.messages} mensagens simuladas, ${manager.subagentMemory(boss)} entradas na memória`), 10_000)
+}
+
+/** How many subagent messages the demo produced, for the load numbers. */
+const simulated = { messages: 0 }
+
+const SUB_TOOLS: [string, Record<string, unknown>][] = [
+  ['Read', { file_path: 'src/main/agents.ts' }],
+  ['Grep', { pattern: 'parent_tool_use_id', path: 'src' }],
+  ['Edit', { file_path: 'src/main/git.ts', old_string: 'a', new_string: 'b' }],
+  ['Bash', { command: 'npm test' }],
+  ['Glob', { pattern: 'src/**/*.ts' }],
+  ['Read', { file_path: 'src/renderer/src/ui/panel.ts' }],
+]
+
+/**
+ * One simulated subagent (AO-46), as the SDK sends it: task_started with the id of the
+ * Agent tool_use, then the subagent's own messages carrying that id as parent_tool_use_id,
+ * task_progress now and then, and task_notification at the end.
+ */
+function simulateSubagent(
+  manager: AgentManager,
+  agentId: string,
+  o: { taskId: string; description: string; type: string; steps: number; everyMs: number; seed: number; fail?: boolean },
+): void {
+  const toolUseId = `toolu_${o.taskId}`
+  const base = { type: 'system', uuid: o.taskId, session_id: 'demo', task_id: o.taskId, tool_use_id: toolUseId } as const
+  const started = Date.now()
+  manager.demoTask(agentId, { ...base, subtype: 'task_started', description: o.description, subagent_type: o.type, task_type: 'local_agent', is_backgrounded: false, prompt: `${o.description} e diga o que achou (demonstração).` } as never)
+  let i = 0
+  let tokens = 0
+  const step = () => {
+    if (i >= o.steps) {
+      const status = o.fail ? 'failed' : 'completed'
+      const summary = o.fail ? 'Não consegui rodar os testes: faltou o node_modules (falha simulada).' : `Pronto: ${o.description.toLowerCase()} sem problemas (demonstração).`
+      manager.demoTask(agentId, { ...base, subtype: 'task_notification', status, output_file: '', summary, usage: { total_tokens: tokens, tool_uses: o.steps, duration_ms: Date.now() - started } } as never)
+      return
+    }
+    const [tool, input] = SUB_TOOLS[(i + o.seed) % SUB_TOOLS.length]
+    const id = `${toolUseId}-${i}`
+    const blocks: unknown[] = [{ type: 'tool_use', id, name: tool, input }]
+    if (i % 3 === 0) blocks.unshift({ type: 'text', text: i ? `Seguindo: agora ${tool === 'Bash' ? 'os testes' : 'o próximo arquivo'}.` : 'Vou começar lendo o código.' })
+    manager.demoSubagentMessage(agentId, toolUseId, 'assistant', blocks)
+    simulated.messages++
+    const n = i
+    setTimeout(() => {
+      manager.demoSubagentMessage(agentId, toolUseId, 'user', [{ type: 'tool_result', tool_use_id: id, content: `saída simulada de ${tool} (passo ${n + 1})`, is_error: o.fail && n === o.steps - 1 }])
+      simulated.messages++
+    }, o.everyMs / 2)
+    tokens += 1200 + o.seed * 100
+    if (i % 2) manager.demoTask(agentId, { ...base, subtype: 'task_progress', description: o.description, usage: { total_tokens: tokens, tool_uses: i + 1, duration_ms: Date.now() - started }, last_tool_name: tool } as never)
+    i++
+    setTimeout(step, o.everyMs * (0.7 + Math.random() * 0.6))
+  }
+  setTimeout(step, 300)
 }
 
 function describe(tool: string, input: Record<string, unknown>): string {

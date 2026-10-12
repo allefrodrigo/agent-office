@@ -92,6 +92,8 @@ export interface AgentSummary {
   context?: ContextUsage
   /** Subagents (Agent tool) running for this agent right now. */
   subagents?: SubagentInfo[]
+  /** Subagents that already ended, newest last (a few, with their logs kept in memory). */
+  subagentsDone?: SubagentInfo[]
   /** Project floor the agent works on: its cwd is inside that project's folder. Missing = ground floor. */
   project?: string
   /** Runs a squad cycle in the Diretoria of its project floor instead of working at a desk. */
@@ -170,6 +172,19 @@ export interface SubagentInfo {
   lastTool?: string
   /** Squad member id, when an orchestrator called one of its own team. */
   member?: string
+  /** The Agent tool_use that started it: its messages carry this id as parent_tool_use_id. */
+  toolUseId?: string
+  /** Present-tense line of what it is doing now ("Editando git.ts"), from its own messages. */
+  activity?: string
+  /** Tool calls so far. */
+  toolUses?: number
+  /** One-line progress summary, when the SDK sends one in task_progress. */
+  summary?: string
+  /** Workflow tool run (task_type local_workflow) instead of an Agent tool subagent. */
+  workflow?: boolean
+  /** Missing while it runs. */
+  status?: 'completed' | 'failed' | 'stopped'
+  endedAt?: number
 }
 
 // ---------- squads (Opensquad) ----------
@@ -596,6 +611,8 @@ export type OfficeEvent =
   | { type: 'agent:upsert'; agent: AgentSummary }
   | { type: 'agent:removed'; agentId: string }
   | { type: 'agent:log'; agentId: string; entry: LogEntry }
+  /** New log entries of the agent's subagents, grouped: one event per agent every ~250 ms at most. */
+  | { type: 'agent:sublog'; agentId: string; logs: { subId: string; entries: LogEntry[] }[] }
   | { type: 'permission:new'; request: PermissionRequest }
   | { type: 'permission:resolved'; requestId: string; agentId: string }
   | { type: 'result:new'; result: AgentResult }
@@ -637,6 +654,8 @@ export interface RendererError {
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
   getLog(agentId: string): Promise<LogEntry[]>
+  /** The log of one subagent of the agent (running or recently ended); [] when unknown. */
+  getSubagentLog(agentId: string, subId: string): Promise<LogEntry[]>
   hire(req: HireRequest): Promise<AgentSummary>
   /** A new agent in this folder with no task yet; it waits for your first message. */
   summon(cwd: string, permissionMode: OfficePermissionMode, brain?: AgentBrain, worktree?: boolean): Promise<AgentSummary>
