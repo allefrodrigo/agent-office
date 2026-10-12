@@ -281,8 +281,10 @@ export async function createWorktree(cwd: string, name: string, id: string): Pro
   const root = join(repo, WORKTREES_DIR, slug)
   if (existsSync(root)) throw new Error(`a pasta ${root} já existe`)
   excludeOfficeDir(repo, (await git(repo, ['rev-parse', '--git-common-dir'])).trim())
+  // .agent-office could be a symlink out of the repo: the copy must land inside it. Checked
+  // before mkdir, so nothing is ever created at the far end of such a link.
+  if (!insideRoot(repo, relative(repo, root))) throw new Error('a pasta .agent-office aponta para fora do repositório')
   mkdirSync(dirname(root), { recursive: true })
-  // .agent-office could be a symlink out of the repo: the copy must land inside it.
   if (!insideRoot(repo, relative(repo, root))) throw new Error('a pasta .agent-office aponta para fora do repositório')
   await git(repo, ['worktree', 'add', '-b', branch, '--', root, base], { timeout: 120_000 })
   // Started in a subfolder of the repo: work in the same subfolder of the copy.
@@ -327,36 +329,73 @@ export interface WorktreeState {
   exists: boolean
   /** Files with uncommitted changes (tracked or not). */
   dirty: number
+  /**
+   * Ignored files and folders (.env, node_modules, local configs). `git worktree remove`
+   * deletes them too, so they count as something to confirm before removing the copy.
+   */
+  ignored: number
   /** Commits on the branch since it was made. */
   ahead: number
 }
 
 export async function worktreeState(wt: WorktreeInfo): Promise<WorktreeState> {
   checkWorktree(wt)
-  if (!existsSync(wt.root)) return { exists: false, dirty: 0, ahead: 0 }
-  const status = await git(wt.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
-  const dirty = zsplit(status).filter((e) => e.length > 3).length
+  if (!existsSync(wt.root)) return { exists: false, dirty: 0, ignored: 0, ahead: 0 }
+  // One status for both: `!! ` entries are ignored (a fully ignored folder is one entry).
+  const status = zsplit(await git(wt.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=traditional']))
+  const entries = status.filter((e) => e.length > 3)
+  const ignored = entries.filter((e) => e.startsWith('!! ')).length
+  const dirty = entries.length - ignored
   let ahead = 0
   if (SHA_RE.test(wt.base)) ahead = Number((await git(wt.root, ['rev-list', '--count', `${wt.base}..HEAD`])).trim()) || 0
-  return { exists: true, dirty, ahead }
+  return { exists: true, dirty, ignored, ahead }
+}
+
+/** What removing the copy would delete without git being able to bring it back. */
+export const pendingLoss = (st: Pick<WorktreeState, 'dirty' | 'ignored'>) => st.dirty + st.ignored
+
+/**
+ * True only when every commit of the branch is also reachable from another ref (another
+ * branch, a tag, a HEAD): then deleting the branch loses nothing. Any doubt gives false.
+ */
+async function branchIsRedundant(repo: string, branch: string): Promise<boolean> {
+  try {
+    const ref = `refs/heads/${branch}`
+    const own = (await git(repo, ['rev-list', '--count', ref, '--not', `--exclude=${ref}`, '--all'])).trim()
+    return own === '0'
+  } catch {
+    return false
+  }
 }
 
 /**
  * Removes the worktree. `force` only after the player confirmed losing the uncommitted
- * changes. The branch goes too when it has no commits of its own; otherwise it stays,
- * so no committed work is ever lost. Returns a line for the toast.
+ * changes and the ignored files (.env, node_modules…), which `git worktree remove` also
+ * deletes. The branch goes with `-D` only when it is proven to have no commits of its own;
+ * otherwise only `git branch -d` is tried (git refuses unmerged work), so no committed work
+ * is ever lost. Returns a line for the toast.
  */
 export async function removeWorktree(wt: WorktreeInfo, force: boolean): Promise<string> {
   checkWorktree(wt)
   const st = await worktreeState(wt)
   if (st.exists) {
-    if (st.dirty && !force) return `A cópia de ${wt.branch} tem mudanças novas e ficou em ${wt.root}.`
+    if (pendingLoss(st) && !force) {
+      const what = st.dirty ? 'mudanças novas' : 'arquivos ignorados pelo git (como .env ou node_modules)'
+      return `A cópia de ${wt.branch} tem ${what} e ficou em ${wt.root}.`
+    }
     await git(wt.repo, ['worktree', 'remove', ...(force ? ['--force'] : []), wt.root], { timeout: 60_000 })
   }
   await git(wt.repo, ['worktree', 'prune']).catch(() => '')
   if (st.ahead) return `Cópia removida. O branch ${wt.branch} ficou, com ${st.ahead} commit${st.ahead > 1 ? 's' : ''}.`
-  await git(wt.repo, ['branch', '-D', wt.branch]).catch(() => '')
-  return `Cópia e branch ${wt.branch} removidos.`
+  // A missing folder says nothing about the branch (ahead was never counted): no -D then.
+  if (st.exists && SHA_RE.test(wt.base) && (await branchIsRedundant(wt.repo, wt.branch))) {
+    await git(wt.repo, ['branch', '-D', wt.branch]).catch(() => '')
+  } else {
+    await git(wt.repo, ['branch', '-d', wt.branch]).catch(() => '')
+  }
+  const kept = await git(wt.repo, ['rev-parse', '--verify', '-q', `refs/heads/${wt.branch}`], { ok: [1] }).then((o) => !!o.trim(), () => true)
+  const copy = st.exists ? 'Cópia removida' : 'A cópia já não existia'
+  return kept ? `${copy}. O branch ${wt.branch} ficou no repositório, porque pode ter commits só dele.` : `${copy}. Branch ${wt.branch} removido.`
 }
 
 /** Forgets worktrees whose folder is gone (`git worktree prune`), in every repo given. */

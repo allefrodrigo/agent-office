@@ -159,6 +159,58 @@ describe('worktrees (AO-33)', () => {
     expect(git('worktree', 'list')).not.toContain('cy-abcdef01')
   })
 
+  it('cópia "limpa" com arquivos ignorados (.env) não é apagada sem confirmar', async () => {
+    const { dir, git } = newRepo('ao-wt-ign-')
+    writeFileSync(join(dir, '.gitignore'), '.env\nnode_modules/\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Ig', 'aaaa0001'))!
+    writeFileSync(join(wt.root, '.env'), 'SEGREDO=1\n')
+    mkdirSync(join(wt.root, 'node_modules', 'x'), { recursive: true })
+    writeFileSync(join(wt.root, 'node_modules', 'x', 'i.js'), '')
+    expect(await worktreeState(wt)).toMatchObject({ exists: true, dirty: 0, ignored: 2 })
+    expect(await removeWorktree(wt, false)).toContain('ignorados')
+    expect(read(join(wt.root, '.env'))).toBe('SEGREDO=1\n')
+    // Confirmado: aí vai.
+    await removeWorktree(wt, true)
+    expect(existsSync(wt.root)).toBe(false)
+  })
+
+  it('.agent-office como symlink para fora: recusa sem criar nada lá', async () => {
+    const { dir, git } = newRepo('ao-wt-link-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const fora = tmp('ao-wt-fora-')
+    symlinkSync(fora, join(dir, '.agent-office'))
+    await expect(createWorktree(dir, 'Li', 'bbbb0002')).rejects.toThrow('fora do repositório')
+    expect(existsSync(join(fora, 'worktrees'))).toBe(false)
+  })
+
+  it('pasta da cópia apagada: o branch com commits fica', async () => {
+    const { dir, git } = newRepo('ao-wt-gone-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Go', 'cccc0003'))!
+    writeFileSync(join(wt.root, 'a.txt'), 'novo\n')
+    execFileSync('git', ['commit', '-qam', 'trabalho'], { cwd: wt.root })
+    rmSync(wt.root, { recursive: true, force: true })
+    expect(await removeWorktree(wt, false)).toContain('ficou')
+    expect(git('branch', '--list', wt.branch).trim()).not.toBe('')
+  })
+
+  it('pasta da cópia apagada e branch sem commits próprios: sai com -d', async () => {
+    const { dir, git } = newRepo('ao-wt-gone2-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Gd', 'dddd0004'))!
+    rmSync(wt.root, { recursive: true, force: true })
+    await removeWorktree(wt, false)
+    expect(git('branch', '--list', wt.branch).trim()).toBe('')
+  })
+
   it('repo sem commit não ganha worktree', async () => {
     const { dir } = newRepo('ao-empty-')
     await expect(createWorktree(dir, 'x', 'abc')).rejects.toThrow('nenhum commit')
