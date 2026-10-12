@@ -70,9 +70,11 @@ async function boot(): Promise<void> {
    * Picked at the skull (already confirmed): the camera goes to the agent, the skull
    * strikes, and then its session ends. If that fails, the agent gets back up.
    */
-  const dismiss = (id: string) => {
+  const dismiss = async (id: string) => {
     const a = state.agents.get(id)
     if (!a) return
+    // An agent in a worktree asks first whether its copy stays or goes.
+    if (a.source === 'office' && (await window.office.prepareFire(id).catch(() => 'cancelled')) === 'cancelled') return
     dialog.close()
     panel.close()
     const started = game.dismiss(id, () => {
@@ -86,7 +88,7 @@ async function boot(): Promise<void> {
       }
       window.office
         .fire(id)
-        .then(() => toast(`${a.name} saiu do escritório. A sessão foi encerrada.`, 'err'))
+        .then((note) => toast(`${a.name} saiu do escritório. A sessão foi encerrada.${note ? ` ${note}` : ''}`, 'err'))
         .catch((err) => {
           toast(cleanError(err), 'err')
           game.revive(id)
@@ -105,7 +107,7 @@ async function boot(): Promise<void> {
     const choice = await openNewAgent(ui, state, project, { toast, tab, hireSquad: project ? () => hireSquad(project) : undefined })
     if (choice?.kind !== 'summon') return
     try {
-      const a = await window.office.summon(choice.cwd, choice.permissionMode, choice.brain)
+      const a = await window.office.summon(choice.cwd, choice.permissionMode, choice.brain, choice.worktree)
       const floor = state.settings.projects.find((p) => p.id === a.project)
       toast(floor && floor !== project ? `${a.name} está subindo para o andar ${floor.name}. Diga o que fazer.` : `${a.name} chegou. Diga o que fazer.`, 'ok')
       panel.open(a.id).then(() => panel.focusInput())
@@ -279,6 +281,7 @@ async function boot(): Promise<void> {
     }
     const before = e.type === 'ticket:upsert' ? state.tickets.get(e.ticket.id) : undefined
     state.apply(e)
+    if (e.type === 'result:changes') dialog.syncChanges(e.resultId)
     if (e.type === 'ticket:upsert' && e.ticket.status !== before?.status) {
       const by = e.ticket.activity.at(-1)?.actor
       if (e.ticket.status === 'review' && by?.kind === 'agent') toast(`${by.name} entregou o ${e.ticket.key}. Está esperando sua revisão no quadro.`, 'ok')

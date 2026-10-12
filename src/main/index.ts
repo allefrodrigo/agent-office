@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, session, shell } from 'electron'
 import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { permissionNotice } from '@shared/permission-notice'
 import { projectFor } from '@shared/projects'
@@ -25,8 +25,14 @@ import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
 import { cleanLook, cleanTemplate, loadTemplates, upsertTemplate } from './templates'
+import { commitChanges, discardChanges, fileDiff, insideRoot, openInEditor, openPullRequest, pruneWorktrees, removeWorktree, repoRoot, worktreeFromPath, worktreeState } from './git'
 import {
   accountNameSchema,
+  changedPathSchema,
+  commitMessageSchema,
+  prTitleSchema,
+  uuidSchema,
+  worktreeFlagSchema,
   assigneeSchema,
   attachmentsSchema,
   cleanAccountIds,
@@ -340,6 +346,9 @@ app.whenReady().then(async () => {
     },
   })
 
+  // Worktrees whose folder was deleted by hand: git forgets them (`git worktree prune`).
+  void pruneWorktrees([...store.settings.projects.map((p) => p.cwd), ...manager.list().flatMap((a) => (a.worktree ? [a.worktree.repo] : []))])
+
   // ---------- IPC ----------
   // Every argument from the renderer passes through validate.ts first.
   const id = (raw: unknown) => parse(idSchema, raw, 'ID inválido.')
@@ -427,14 +436,18 @@ app.whenReady().then(async () => {
   })
   ipcMain.handle('office:getLog', (_e, raw: unknown) => manager.getLog(id(raw)))
   // A permission mode outside the list falls back to the office default.
-  ipcMain.handle('office:hire', (_e, req: unknown) => 
+  ipcMain.handle('office:hire', (_e, req: unknown) =>
     manager.hire({ ...cleanHire(req, store.settings), look: cleanLook((req as { look?: unknown } | null)?.look) }),
   )
-  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown) => {
+  ipcMain.handle('office:summon', (_e, cwd: unknown, mode: unknown, brain: unknown, worktree: unknown) => {
     if (!pathSchema.safeParse(cwd).success || !isDir(cwd)) throw new Error('Escolha uma pasta de projeto que exista.')
     const m = permissionModeSchema.safeParse(mode)
     const permissionMode = m.success ? m.data : store.settings.defaultPermissionMode
-    return manager.summon(cwd, { ...defaultBrain(), ...cleanBrain(brain, store.settings.accounts), permissionMode })
+    return manager.summon(cwd, { ...defaultBrain(), ...cleanBrain(brain, store.settings.accounts), permissionMode }, worktreeFlagSchema.parse(worktree))
+  })
+  ipcMain.handle('office:isGitRepo', async (_e, cwd: unknown) => {
+    const p = pathSchema.safeParse(cwd)
+    return p.success && isAbsolute(p.data) && isDir(p.data) && !!(await repoRoot(p.data))
   })
   ipcMain.handle('office:send', (_e, raw: unknown, text: unknown, attachments: unknown) =>
     manager.sendMessage(
@@ -447,8 +460,132 @@ app.whenReady().then(async () => {
   ipcMain.handle('office:interrupt', (_e, raw: unknown) => manager.interrupt(id(raw)))
   ipcMain.handle('office:compact', (_e, raw: unknown) => manager.compact(id(raw)))
   ipcMain.handle('office:clearContext', (_e, raw: unknown) => manager.clearContext(id(raw)))
-  ipcMain.handle('office:fire', (_e, raw: unknown) => manager.fire(id(raw)))
   ipcMain.handle('office:closeTerminal', (_e, raw: unknown) => bridge.closeSession(id(raw)))
+
+  // ---------- worktrees (AO-33) ----------
+  // What the player chose in the native dialog of prepareFire. Only that dialog can
+  // authorize removing a worktree: the renderer never sends "remove".
+  const fireChoices = new Map<string, { remove: boolean; dirty: number }>()
+  const agentId = (raw: unknown) => parse(uuidSchema, raw, 'Esse agente não está mais no escritório.')
+  ipcMain.handle('office:prepareFire', async (_e, raw: unknown) => {
+    const a = manager.agent(agentId(raw))
+    const wt = a?.worktree
+    if (!a || !wt) return 'plain'
+    const st = await worktreeState(wt).catch(() => null)
+    if (!st?.exists) {
+      fireChoices.set(a.id, { remove: false, dirty: 0 })
+      return 'plain'
+    }
+    const kept = st.ahead ? ` O branch tem ${st.ahead} commit${st.ahead > 1 ? 's' : ''} e fica no repositório mesmo se você remover a cópia.` : ''
+    const { response } = await dialog.showMessageBox(win!, {
+      type: 'question',
+      buttons: ['Manter a cópia', 'Remover a cópia', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 2,
+      message: `Dispensar ${a.name}?`,
+      detail:
+        `A sessão para e o agente vai embora. Ele trabalhava numa cópia isolada (branch ${wt.branch}) em ${wt.root}.\n\n` +
+        (st.dirty ? `A cópia tem ${st.dirty} arquivo${st.dirty > 1 ? 's' : ''} com mudanças não commitadas.` : 'A cópia não tem mudanças não commitadas.') +
+        kept,
+    })
+    if (response === 2) return 'cancelled'
+    if (response === 1 && st.dirty) {
+      const sure = await dialog.showMessageBox(win!, {
+        type: 'warning',
+        buttons: ['Apagar e dispensar', 'Cancelar'],
+        defaultId: 1,
+        cancelId: 1,
+        message: `Apagar ${st.dirty} mudança${st.dirty > 1 ? 's' : ''} não commitada${st.dirty > 1 ? 's' : ''}?`,
+        detail: 'Não dá para desfazer. Para guardar o trabalho, cancele e use "Commitar" no cartão de resultado.',
+      })
+      if (sure.response !== 0) return 'cancelled'
+    }
+    fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty })
+    return 'confirmed'
+  })
+  ipcMain.handle('office:fire', async (_e, raw: unknown) => {
+    const aid = id(raw)
+    const wt = manager.agent(aid)?.worktree
+    const choice = fireChoices.get(aid)
+    fireChoices.delete(aid)
+    manager.fire(aid)
+    if (!wt) return
+    if (!choice?.remove) return `A cópia isolada ficou em ${wt.root} (branch ${wt.branch}).`
+    // Forced only when the player confirmed losing changes; anything newer than that keeps the copy.
+    const now = await worktreeState(wt).catch(() => null)
+    const force = !!choice.dirty && !!now && now.dirty <= choice.dirty
+    return removeWorktree(wt, force).catch((err) => `Não consegui remover a cópia: ${err instanceof Error ? err.message : String(err)}`)
+  })
+
+  // ---------- result card: changed files (AO-34) ----------
+  const changesFor = (raw: unknown) => {
+    const r = manager.result(parse(uuidSchema, raw, 'Esse resultado já foi recebido.'))
+    if (!r) throw new Error('Esse resultado já foi recebido.')
+    if (!r.changes) throw new Error('Ainda não sei o que esse agente mudou.')
+    return { r, c: r.changes }
+  }
+  ipcMain.handle('office:resultDiff', (_e, raw: unknown, path: unknown) => {
+    const { c } = changesFor(raw)
+    return fileDiff(c, parse(changedPathSchema, path, 'Caminho inválido.'))
+  })
+  ipcMain.handle('office:openResultInEditor', async (_e, raw: unknown, path: unknown) => {
+    const { c } = changesFor(raw)
+    const p = changedPathSchema.optional().safeParse(path)
+    const file = p.success && p.data && c.files.some((f) => f.path === p.data) ? p.data : undefined
+    if (await openInEditor(c.root, file)) return true
+    // No Cursor or VS Code: show it in Finder. Never shell.openPath: the agent may have
+    // written a .command or .app, and the default app would run it.
+    const target = file ? insideRoot(c.root, file) : c.root
+    if (target && existsSync(target)) shell.showItemInFolder(target)
+    return false
+  })
+  ipcMain.handle('office:discardResult', async (_e, raw: unknown) => {
+    const { r, c } = changesFor(raw)
+    if (!c.git || c.committed || c.discarded) throw new Error('Não há mudanças para descartar aqui.')
+    const n = c.files.filter((f) => f.restorable).length
+    const { response } = await dialog.showMessageBox(win!, {
+      type: 'warning',
+      buttons: ['Descartar mudanças', 'Cancelar'],
+      defaultId: 1,
+      cancelId: 1,
+      message: `Descartar as mudanças de ${n} arquivo${n === 1 ? '' : 's'}?`,
+      detail:
+        `Os arquivos voltam a ser como eram quando ${nameOf(r.agentId)} começou a tarefa, em ${c.root}. Arquivos criados pela tarefa são apagados. ` +
+        'Mudanças que você já tinha antes da tarefa ficam. Não dá para desfazer.',
+    })
+    if (response !== 0) return null
+    const done = await discardChanges(c)
+    const next = { ...c, discarded: true }
+    manager.setChanges(r.id, next)
+    if (done.skipped.length) dialog.showErrorBox('Alguns arquivos ficaram como estão', `Não deu para restaurar:\n${done.skipped.slice(0, 20).join('\n')}`)
+    return next
+  })
+  ipcMain.handle('office:commitResult', async (_e, raw: unknown, message: unknown) => {
+    const { r, c } = changesFor(raw)
+    const msg = parse(commitMessageSchema, message, 'Escreva uma mensagem de commit (até 2000 caracteres).')
+    if (!c.git || c.committed || c.discarded) throw new Error('Não há mudanças para commitar aqui.')
+    const sha = await commitChanges(c, msg)
+    const next = { ...c, committed: sha }
+    manager.setChanges(r.id, next)
+    return next
+  })
+  ipcMain.handle('office:openResultPR', async (_e, raw: unknown, title: unknown) => {
+    const { r } = changesFor(raw)
+    const wt = manager.agent(r.agentId)?.worktree
+    if (!wt) throw new Error('Só dá para abrir PR de um agente que trabalha numa cópia isolada (worktree).')
+    const t = parse(prTitleSchema, title, 'Escreva um título para o PR.')
+    const { response } = await dialog.showMessageBox(win!, {
+      type: 'question',
+      buttons: ['Enviar e abrir PR', 'Cancelar'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `Abrir um pull request do branch ${wt.branch}?`,
+      detail: `Vamos rodar git push do branch para o remoto do repositório e gh pr create com o título "${t}" e o relatório do agente como descrição.`,
+    })
+    if (response !== 0) return null
+    const body = `${r.text.slice(0, 6000)}\n\n---\nAberto pelo Agent Office (${nameOf(r.agentId)}, branch \`${wt.branch}\`).`
+    return openPullRequest(wt, t, body)
+  })
   ipcMain.handle('office:listSessions', () => recentSessions())
   ipcMain.handle('office:recall', async (_e, sessionId: unknown) => {
     if (!isSessionId(sessionId)) throw new Error('ID de sessão inválido.')
@@ -458,12 +595,20 @@ app.whenReady().then(async () => {
       throw new Error(`A pasta dessa sessão não existe mais${entry.cwd ? `: ${entry.cwd}` : '.'}`)
     }
     const { log, model } = await transcript(sessionId).catch(() => ({ log: [], model: undefined }))
-    return manager.recall(sessionId, entry.cwd, log, {
-      // keep the model the conversation was using
-      model: model ?? store.settings.defaultModel,
-      effort: defaultBrain().effort,
-      permissionMode: store.settings.defaultPermissionMode,
-    })
+    // A session that ran in an agent's worktree comes back on the project's floor, in that copy.
+    const isolated = await worktreeFromPath(entry.cwd)
+    return manager.recall(
+      sessionId,
+      isolated?.cwd ?? entry.cwd,
+      log,
+      {
+        // keep the model the conversation was using
+        model: model ?? store.settings.defaultModel,
+        effort: defaultBrain().effort,
+        permissionMode: store.settings.defaultPermissionMode,
+      },
+      isolated?.worktree,
+    )
   })
   ipcMain.handle('office:openInTerminal', async (_e, sessionId: unknown) => {
     if (!isSessionId(sessionId)) return { ok: false, message: 'ID de sessão inválido.' }
@@ -680,7 +825,7 @@ function seedAgents(manager: AgentManager, file: string): void {
   list.forEach((req, i) =>
     setTimeout(() => {
       if (!existsSync(req.cwd)) return console.error('seed: missing folder', req.cwd)
-      manager.hire({ ...req, permissionMode: req.permissionMode ?? 'default' })
+      manager.hire({ ...req, permissionMode: req.permissionMode ?? 'default' }).catch((err) => console.error('seed:', err))
     }, 2500 + i * 1500),
   )
 }

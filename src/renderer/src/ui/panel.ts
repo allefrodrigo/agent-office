@@ -385,7 +385,7 @@ export class AgentPanel {
           h(
             'div',
             { class: 'ab-id' },
-            h('div', { class: 'ab-name-row' }, name, a.source === 'terminal' ? h('span', { class: 'chip chip-term' }, 'terminal') : null, open ? null : accountChip(this.state, a), helpersChip(a, !open)),
+            h('div', { class: 'ab-name-row' }, name, a.source === 'terminal' ? h('span', { class: 'chip chip-term' }, 'terminal') : null, branchChip(a), open ? null : accountChip(this.state, a), helpersChip(a, !open)),
             open ? h('div', { class: 'ab-role' }, a.role === 'orchestrator' ? 'Orquestrador' : 'Agente', accountChip(this.state, a)) : led(false),
           ),
           office && busy ? h('button', { class: 'icon-btn', title: 'Interromper', onclick: () => window.office.interrupt(a.id) }, icon('stop', 15)) : null,
@@ -483,6 +483,7 @@ export class AgentPanel {
         'div',
         { class: 'ab-stamps' },
         h('button', { class: 'ab-stamp', title: `${a.cwd}\nMostrar no Finder`, onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 12), shortPath(a.cwd)),
+        a.worktree ? h('button', { class: 'ab-stamp', title: `Cópia isolada (worktree)\n${a.worktree.root}\nMostrar no Finder`, onclick: () => window.office.revealPath(a.worktree!.root) }, icon('branch', 12), a.worktree.branch) : null,
         a.model ? h('span', { class: 'ab-stamp', title: a.model }, icon('cpu', 12), modelLabel(a.model)) : null,
         effort ? h('span', { class: 'ab-stamp', title: 'Esforço' }, icon('gauge', 12), effort) : null,
         a.costUsd ? h('span', { class: 'ab-stamp', title: 'Gasto nesta sessão' }, icon('coin', 12), formatCost(a.costUsd)) : null,
@@ -550,8 +551,12 @@ export class AgentPanel {
   }
 
   private async fire(a: AgentSummary): Promise<void> {
-    if (!confirm(`Dispensar ${a.name}? A sessão para e o agente vai embora pelo elevador.`)) return
-    await window.office.fire(a.id)
+    // With a worktree the native dialog (keep or remove the copy) is the confirmation.
+    const asked = await window.office.prepareFire(a.id)
+    if (asked === 'cancelled') return
+    if (asked === 'plain' && !confirm(`Dispensar ${a.name}? A sessão para e o agente vai embora pelo elevador.`)) return
+    const note = await window.office.fire(a.id)
+    if (note) this.actions.toast(note, 'info')
     this.close()
   }
 
@@ -734,6 +739,17 @@ function toBase64(file: File): Promise<string> {
     r.onerror = () => reject(new Error(`Não consegui ler ${file.name}. Anexe de novo.`))
     r.readAsDataURL(file)
   })
+}
+
+/** The agent's own branch when it works in a worktree: "agent/ada-1234abcd" shows as "ada-1234abcd". */
+function branchChip(a: AgentSummary): HTMLElement | null {
+  if (!a.worktree) return null
+  return h(
+    'span',
+    { class: 'chip chip-branch', title: `Cópia isolada (worktree) no branch ${a.worktree.branch}\n${a.worktree.root}` },
+    icon('branch', 11),
+    a.worktree.branch.replace(/^agent\//, ''),
+  )
 }
 
 function shortPath(p: string): string {

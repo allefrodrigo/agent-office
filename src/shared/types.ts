@@ -98,6 +98,62 @@ export interface AgentSummary {
   squad?: string
   /** Where the cycle is, read from squads/<code>/state.json. */
   squadStep?: SquadProgress
+  /**
+   * Works in its own git worktree instead of `cwd`. `cwd` stays the project folder, so
+   * the floor, the cost book and the tickets keep counting it there.
+   */
+  worktree?: WorktreeInfo
+}
+
+/** An agent's isolated copy of the repo: `git worktree` on its own branch. */
+export interface WorktreeInfo {
+  /** Where the agent runs (the worktree, or the same subfolder inside it). */
+  path: string
+  /** Top folder of the worktree: <repo>/.agent-office/worktrees/<slug>. */
+  root: string
+  /** Top folder of the original repo. */
+  repo: string
+  /** agent/<name>-<id> */
+  branch: string
+  /** Commit the branch started from. */
+  base: string
+}
+
+/** One file a task changed, as the result card lists it. */
+export interface ChangedFile {
+  /** Relative to ResultChanges.root (absolute when it was written outside it, without git). */
+  path: string
+  status: 'added' | 'modified' | 'deleted'
+  added?: number
+  removed?: number
+  binary?: boolean
+  /** Content at the start of the task: a blob id, null = did not exist. Missing = as in HEAD at the start. */
+  start?: string | null
+  /** It already had changes before the task: the diff is against that version. */
+  preexisting?: boolean
+  /** "Descartar" can put it back. */
+  restorable?: boolean
+  /** Without git: the tool that wrote it (Edit, Write…). */
+  tool?: string
+}
+
+/** What a task changed in the folder. Without git, only what the Edit/Write tools touched. */
+export interface ResultChanges {
+  git: boolean
+  /** Repo (or worktree) top folder; the agent's folder without git. */
+  root: string
+  /** HEAD when the task started. */
+  head?: string
+  files: ChangedFile[]
+  /** More files than the card shows; `total` has the real count. */
+  truncated?: boolean
+  total?: number
+  /** Agent works in a worktree on this branch: "Abrir PR" is available. */
+  branch?: string
+  /** Committed from the card: short sha. */
+  committed?: string
+  /** Undone from the card. */
+  discarded?: boolean
 }
 
 export interface SubagentInfo {
@@ -240,6 +296,8 @@ export interface AgentResult {
   durationMs: number
   turns: number
   createdAt: number
+  /** Files the task changed; arrives a moment after the result (result:changes). */
+  changes?: ResultChanges
 }
 
 export interface HireRequest {
@@ -250,6 +308,8 @@ export interface HireRequest {
   effort?: EffortLevel
   accounts?: string[]
   permissionMode: OfficePermissionMode
+  /** Work in an isolated copy (git worktree). Missing = yes when the folder is a git repo. */
+  worktree?: boolean
   /** Looks picked in a saved template; missing = drawn from the name. */
   look?: Look
 }
@@ -451,7 +511,7 @@ export interface TicketDraft {
 export type TicketPatch = Partial<TicketDraft>
 
 /** Who takes a ticket: an office agent already here, or a new one hired for it. */
-export type DelegateTarget = { agentId: string } | { hire: { model?: string; effort?: EffortLevel; accounts?: string[]; permissionMode?: OfficePermissionMode } }
+export type DelegateTarget = { agentId: string } | { hire: { model?: string; effort?: EffortLevel; accounts?: string[]; permissionMode?: OfficePermissionMode; worktree?: boolean } }
 
 /** One plan limit window, as in /usage. */
 export interface UsageWindow {
@@ -534,6 +594,8 @@ export type OfficeEvent =
   | { type: 'permission:resolved'; requestId: string; agentId: string }
   | { type: 'result:new'; result: AgentResult }
   | { type: 'result:acked'; resultId: string; agentId: string }
+  /** The changed files of a result were worked out, or changed (committed, discarded). */
+  | { type: 'result:changes'; resultId: string; agentId: string; changes: ResultChanges }
   | { type: 'bridge:status'; status: BridgeStatus }
   | { type: 'settings'; settings: Settings }
   | { type: 'usage'; usage: PlanUsage[] }
@@ -569,7 +631,7 @@ export interface OfficeAPI {
   getLog(agentId: string): Promise<LogEntry[]>
   hire(req: HireRequest): Promise<AgentSummary>
   /** A new agent in this folder with no task yet; it waits for your first message. */
-  summon(cwd: string, permissionMode: OfficePermissionMode, brain?: AgentBrain): Promise<AgentSummary>
+  summon(cwd: string, permissionMode: OfficePermissionMode, brain?: AgentBrain, worktree?: boolean): Promise<AgentSummary>
   send(agentId: string, text: string, attachments?: AttachmentInput[]): Promise<void>
   /** Disk path of a picked or dropped file; '' for pasted data. */
   pathForFile(file: File): string
@@ -590,7 +652,25 @@ export interface OfficeAPI {
   loginAccount(id: string): Promise<{ ok: boolean; message?: string }>
   /** Accounts of a project floor, or of everything outside the floors (null). Empty = the default. */
   setAccountPool(floorId: string | null, ids: string[]): Promise<Settings>
-  fire(agentId: string): Promise<void>
+  /**
+   * Before dismissing: an agent with a worktree asks (native dialog) whether to keep or
+   * remove its copy. 'plain' = no worktree, confirm as usual; 'confirmed' = asked and ok.
+   */
+  prepareFire(agentId: string): Promise<'plain' | 'confirmed' | 'cancelled'>
+  /** Resolves a note for the toast when the agent's worktree was kept or removed. */
+  fire(agentId: string): Promise<string | void>
+  /** Whether the folder is inside a git repo (the worktree option starts on). */
+  isGitRepo(cwd: string): Promise<boolean>
+  /** Unified diff of one file listed in a result's changes. */
+  resultDiff(resultId: string, path: string): Promise<string>
+  /** Opens the result's folder (and a file of it) in Cursor or VS Code. False when neither is installed. */
+  openResultInEditor(resultId: string, path?: string): Promise<boolean>
+  /** Puts the files back as they were before the task, after a native confirmation. Null = cancelled. */
+  discardResult(resultId: string): Promise<ResultChanges | null>
+  /** Commits the listed files with this message. */
+  commitResult(resultId: string, message: string): Promise<ResultChanges>
+  /** Pushes the worktree branch and opens a PR with gh, after a native confirmation. Null = cancelled. */
+  openResultPR(resultId: string, title: string): Promise<string | null>
   /** Recent Claude Code sessions (terminal and office) for the resume center. */
   listSessions(): Promise<SessionEntry[]>
   /** Brings a saved session back to the office as an agent. */

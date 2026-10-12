@@ -220,8 +220,21 @@ export function cleanHire(raw: unknown, settings: Pick<Settings, 'accounts' | 'd
     task: task.data,
     ...cleanBrain(r, settings.accounts),
     permissionMode: mode.success ? mode.data : settings.defaultPermissionMode,
+    worktree: worktreeFlagSchema.parse(r.worktree),
   }
 }
+
+// ---------- worktrees and result cards (AO-33, AO-34) ----------
+
+/** "Trabalhar numa cópia isolada": true, false, or missing (= yes in a git repo). */
+export const worktreeFlagSchema = z.boolean().optional().catch(undefined)
+/** Agent and result ids are randomUUID()s. */
+export const uuidSchema = z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)
+/** A file of a result card: git.ts still checks it is listed and inside the repo. */
+export const changedPathSchema = z.string().min(1).max(MAX_PATH).refine((p) => !p.includes('\0'))
+export const commitMessageSchema = z.string().trim().min(1).max(2000)
+/** First line only, short enough for a PR title. */
+export const prTitleSchema = z.string().transform((s) => s.trim().split('\n')[0].slice(0, 200)).pipe(z.string().min(1))
 
 /** Who takes a ticket: an agent already here, or a new hire that never runs with "bypass". */
 export function cleanDelegateTarget(raw: unknown, accounts: Account[]): DelegateTarget {
@@ -232,6 +245,7 @@ export function cleanDelegateTarget(raw: unknown, accounts: Account[]): Delegate
     hire: {
       ...cleanBrain(hire, accounts),
       permissionMode: DELEGATE_MODES.includes(hire.permissionMode as never) ? (hire.permissionMode as OfficePermissionMode) : undefined,
+      worktree: worktreeFlagSchema.parse(hire.worktree),
     },
   }
 }

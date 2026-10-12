@@ -12,6 +12,8 @@ const REPORT_LIMIT = 8000
 export class TicketDesk {
   /** agentId -> ticket it is working on right now. */
   private working = new Map<string, string>()
+  /** Tickets whose new agent is still being hired. */
+  private hiring = new Set<string>()
 
   constructor(
     private board: TicketBoard,
@@ -27,7 +29,7 @@ export class TicketDesk {
     })
   }
 
-  delegate(ticketId: string, target: DelegateTarget, by: Actor): AgentSummary {
+  async delegate(ticketId: string, target: DelegateTarget, by: Actor): Promise<AgentSummary> {
     const t = this.board.get(ticketId)
     if (!t) throw new Error('Esse ticket não existe mais.')
     if (t.status === 'done') throw new Error('Esse ticket já está feito. Mova para outra coluna antes de delegar.')
@@ -52,7 +54,10 @@ export class TicketDesk {
       if (!t.cwd) throw new Error('Defina a pasta do projeto no ticket antes de contratar um agente para ele.')
       const s = this.settings()
       const mode = target.hire.permissionMode ?? s.defaultPermissionMode
-      agent = this.manager.hire(
+      // Making the worktree takes a moment: a second click meanwhile must not hire twice.
+      if (this.hiring.has(t.id)) throw new Error(`Já estou contratando alguém para o ${t.key}.`)
+      this.hiring.add(t.id)
+      agent = await this.manager.hire(
         {
           name: '',
           cwd: t.cwd,
@@ -60,11 +65,12 @@ export class TicketDesk {
           model: 'model' in target.hire ? target.hire.model : s.defaultModel || undefined,
           effort: 'effort' in target.hire ? target.hire.effort : s.defaultEffort || undefined,
           accounts: target.hire.accounts,
+          worktree: target.hire.worktree,
           // Tickets may come from other people or agents: never run one with "bypass".
           permissionMode: mode === 'bypassPermissions' ? 'default' : mode,
         },
         display,
-      )
+      ).finally(() => this.hiring.delete(t.id))
       this.board.assign(t.id, { kind: 'agent', name: agent.name, id: agent.id }, by)
       this.board.move(t.id, 'doing', undefined, by)
     }

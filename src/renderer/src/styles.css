@@ -2512,7 +2512,6 @@ button.ab-stamp:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  direction: rtl;
   text-align: left;
 }
 
@@ -5211,4 +5210,180 @@ button.ab-stamp:hover {
   .rep-col-bar {
     animation: none;
   }
+}
+
+/* ---------- worktrees and changed files (AO-33, AO-34) ---------- */
+
+.chip-branch {
+  gap: 4px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: rgba(62, 207, 142, 0.14);
+  color: #9ef0b8;
+  font-family: var(--mono);
+  font-weight: 500;
+}
+
+.worktree-check {
+  font-size: 12.5px;
+}
+
+.tdelegate-off {
+  display: none !important;
+}
+
+.chg {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chg-wait {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.chg-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chg-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.chg-stat,
+.chg-nums {
+  display: inline-flex;
+  gap: 6px;
+  font: 11.5px var(--mono);
+}
+
+.chg-plus {
+  color: #9ef0b8;
+}
+
+.chg-minus {
+  color: #ff9b9b;
+}
+
+.chg-done {
+  gap: 4px;
+  background: rgba(62, 207, 142, 0.16);
+  color: #9ef0b8;
+}
+
+.chg-undone {
+  gap: 4px;
+  background: rgba(239, 91, 91, 0.14);
+  color: #ffb3b3;
+}
+
+.chg-note {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.chg-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 30vh;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.chg-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--text);
+  font: 12px var(--mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.chg-file:last-child {
+  border-bottom: 0;
+}
+
+.chg-file:hover,
+.chg-file.on {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.chg-letter {
+  flex: none;
+  width: 16px;
+  font-weight: 700;
+  text-align: center;
+  color: var(--muted);
+}
+
+.chg-letter.chg-added {
+  color: #9ef0b8;
+}
+
+.chg-letter.chg-deleted {
+  color: #ff9b9b;
+}
+
+.chg-letter.chg-modified {
+  color: #ffd27a;
+}
+
+.chg-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+
+.chg-pre {
+  color: #ffd27a;
+}
+
+.chg-diff {
+  max-height: 34vh;
+  margin: 0 0 4px;
+  border-radius: 0;
+  white-space: pre;
+  overflow-x: auto;
+}
+
+.diff-hunk {
+  color: #8fb8ff;
+}
+
+.diff-ctx {
+  color: #b9b7cc;
+}
+
+.chg-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chg-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chg-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
 }

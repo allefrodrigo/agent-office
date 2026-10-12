@@ -88,6 +88,11 @@ export class State {
       case 'result:new':
         this.results.set(e.result.id, e.result)
         break
+      case 'result:changes': {
+        const r = this.results.get(e.resultId)
+        if (r) this.results.set(r.id, { ...r, changes: e.changes })
+        break
+      }
       case 'result:acked':
         this.results.delete(e.resultId)
         break

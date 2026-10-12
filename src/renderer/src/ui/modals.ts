@@ -181,7 +181,11 @@ const LAST_SUMMON_MODE = 'agent-office:summon-mode'
  * project's and cannot change; downstairs you pick one, and a folder that belongs to
  * a project floor says so, since the agent will work up there.
  */
-function folderField(state: State, project: ProjectFloor | null | undefined): { el: HTMLElement; cwd(): string; ensure(): Promise<boolean> } {
+function folderField(
+  state: State,
+  project: ProjectFloor | null | undefined,
+  onChange?: (cwd: string) => void,
+): { el: HTMLElement; cwd(): string; ensure(): Promise<boolean> } {
   if (project) {
     return {
       el: field(
@@ -201,6 +205,7 @@ function folderField(state: State, project: ProjectFloor | null | undefined): { 
     label.textContent = p
     const floor = projectFor(state.settings.projects, p)
     hint.textContent = floor ? `Essa pasta é do andar ${floor.name}: o agente vai trabalhar lá.` : ''
+    onChange?.(p)
   }
   if (cwd) set(cwd)
   const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
@@ -220,11 +225,44 @@ function folderField(state: State, project: ProjectFloor | null | undefined): { 
   }
 }
 
+/**
+ * "Trabalhar numa cópia isolada (worktree)": shown only when the folder is a git repo,
+ * and on by default there. value() is undefined while the folder is unknown, so the
+ * main process decides (yes when it is a repo).
+ */
+export function worktreeToggle(): { el: HTMLElement; set(cwd: string | undefined): void; value(): boolean | undefined } {
+  const box = h('input', { type: 'checkbox' }) as HTMLInputElement
+  box.checked = true
+  const el = h(
+    'label',
+    { class: 'check worktree-check hidden', title: 'O agente ganha um branch agent/… numa pasta própria em .agent-office/worktrees. Outros agentes no mesmo repo não mexem nos arquivos dele.' },
+    box,
+    'Trabalhar numa cópia isolada (worktree)',
+  )
+  let git: boolean | undefined
+  let asked = ''
+  return {
+    el,
+    set: (cwd) => {
+      asked = cwd ?? ''
+      git = undefined
+      el.classList.add('hidden')
+      if (!cwd) return
+      void window.office.isGitRepo(cwd).then((yes) => {
+        if (asked !== cwd) return
+        git = yes
+        el.classList.toggle('hidden', !yes)
+      })
+    },
+    value: () => (git === false ? false : git ? box.checked : box.checked ? undefined : false),
+  }
+}
+
 const LAST_NEW_AGENT_TAB = 'agent-office:new-agent-tab'
 
 type NewAgentTab = 'summon' | 'hire' | 'templates'
 
-export type NewAgentChoice = { kind: 'summon'; cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain } | { kind: 'hire' }
+export type NewAgentChoice = { kind: 'summon'; cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain; worktree?: boolean } | { kind: 'hire' }
 
 /**
  * "Novo agente": one dialog for every way of getting an agent.
@@ -247,7 +285,9 @@ export function openNewAgent(
     const { toast } = opts
     const used = new Set([...state.agents.values()].map((a) => a.name))
     const name = h('input', { class: 'input', value: AGENT_NAMES.find((n) => !used.has(n)) ?? `Agente ${used.size + 1}`, maxlength: 40 })
-    const folder = folderField(state, project)
+    const isolated = worktreeToggle()
+    const folder = folderField(state, project, (p) => isolated.set(p))
+    isolated.set(folder.cwd())
     const task = h('textarea', { class: 'input', rows: 5, placeholder: 'Ex.: Adicione testes para o módulo de pagamentos e corrija o que quebrar.' })
     const brain = brainFields({ model: state.settings.defaultModel, effort: state.settings.defaultEffort })
     const account = accountField(state, () => folder.cwd())
@@ -328,7 +368,7 @@ export function openNewAgent(
       if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
       if (!project) localStorage.setItem(LAST_CWD, folder.cwd())
       localStorage.setItem(LAST_SUMMON_MODE, mode.value)
-      finish({ kind: 'summon', cwd: folder.cwd(), permissionMode: mode.value as OfficePermissionMode, brain: { ...brain.value(), accounts: account.value() } })
+      finish({ kind: 'summon', cwd: folder.cwd(), permissionMode: mode.value as OfficePermissionMode, brain: { ...brain.value(), accounts: account.value() }, worktree: isolated.value() })
     }
     const hire = async () => {
       const cwd = folder.cwd()
@@ -346,6 +386,7 @@ export function openNewAgent(
           ...brain.value(),
           accounts: account.value(),
           permissionMode: mode.value as OfficePermissionMode,
+          worktree: isolated.value(),
         })
         toast(`${a.name} está subindo pelo elevador.`, 'ok')
         finish({ kind: 'hire' })
@@ -371,6 +412,7 @@ export function openNewAgent(
         seg,
         nameField,
         folder.el,
+        isolated.el,
         taskField,
         templates.el,
         modelField,

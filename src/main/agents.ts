@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { watch, type FSWatcher } from 'node:fs'
-import { basename } from 'node:path'
+import { existsSync, watch, type FSWatcher } from 'node:fs'
+import { basename, isAbsolute, relative } from 'node:path'
 import { query, type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type Query, type SDKMessage, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type {
   AgentBrain,
@@ -19,7 +19,9 @@ import type {
   PermissionRequest,
   SquadInfo,
   SquadProgress,
+  ResultChanges,
   SubagentInfo,
+  WorktreeInfo,
 } from '@shared/types'
 import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
 import { projectFor } from '@shared/projects'
@@ -31,6 +33,7 @@ import { sessionIdForName } from './peers'
 import { findSquad, memberAgents, orchestratorPrompt, outsideTeam, readProgress, squadDir, teamGuard, type SquadDefinition } from './squads'
 import type { CostBook } from './ledger'
 import type { Store } from './store'
+import { changesSince, createWorktree, takeSnapshot, type Snapshot } from './git'
 
 const LOG_LIMIT = 400
 const PERSISTED_LOG = 150
@@ -89,7 +92,12 @@ interface Agent {
   watcher?: FSWatcher
   /** Demo mode: simulated, never saved. */
   demo?: boolean
+  /** The task under way: the folder as it was when it started, and the files the Edit/Write tools touched. */
+  task?: { snapshot: Promise<Snapshot | null>; touched: Map<string, string> }
 }
+
+/** Tools whose file_path the card lists when the folder has no git. */
+const WRITE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
 
 interface Pending {
   request: PermissionRequest
@@ -148,12 +156,17 @@ export class AgentManager extends EventEmitter {
 
   // ---------- office agents (Claude Agent SDK) ----------
 
-  /** `display` is what the log shows when the prompt itself is long (a ticket brief). */
-  hire(req: HireRequest, display?: string): AgentSummary {
+  /**
+   * `display` is what the log shows when the prompt itself is long (a ticket brief).
+   * In a git repo the agent gets its own worktree unless `req.worktree` is false.
+   */
+  async hire(req: HireRequest, display?: string): Promise<AgentSummary> {
     const id = randomUUID()
+    const name = req.name.trim() || this.freeName()
+    const { worktree, note } = await this.isolate(req.cwd, name, id, req.worktree)
     const summary: AgentSummary = {
       id,
-      name: req.name.trim() || this.freeName(),
+      name,
       source: 'office',
       cwd: req.cwd,
       model: req.model || undefined,
@@ -167,25 +180,48 @@ export class AgentManager extends EventEmitter {
       costUsd: 0,
       createdAt: Date.now(),
       sessionId: randomUUID(),
+      ...(worktree ? { worktree } : {}),
     }
     const agent: Agent = { summary, log: [], started: false }
     this.agents.set(id, agent)
     this.upsert(agent)
     this.addLog(agent, 'user', display ?? req.task)
+    if (note) this.addLog(agent, 'system', note)
     this.run(agent, req.task)
     return summary
   }
 
+  /**
+   * The worktree for a new agent in `cwd`. `wanted` false = none; missing or true = one
+   * when `cwd` is in a git repo. A folder without git just works as before; a repo where
+   * the worktree can't be made (no commit yet…) also falls back, with a note in the log.
+   */
+  private async isolate(cwd: string, name: string, id: string, wanted: boolean | undefined): Promise<{ worktree?: WorktreeInfo; note?: string }> {
+    if (wanted === false) return {}
+    try {
+      const worktree = await createWorktree(cwd, name, id)
+      return worktree ? { worktree, note: `Trabalhando numa cópia isolada (worktree) no branch ${worktree.branch}: ${worktree.root}` } : {}
+    } catch (err) {
+      return { note: `Não deu para criar a cópia isolada (${err instanceof Error ? err.message : String(err)}). Trabalhando direto na pasta do projeto.` }
+    }
+  }
+
   /** An office agent for a saved session; it waits in the lounge until it gets an instruction. */
-  recall(sessionId: string, cwd: string, log: LogEntry[], defaults: AgentBrain & { permissionMode: OfficePermissionMode }): AgentSummary {
+  recall(sessionId: string, cwd: string, log: LogEntry[], defaults: AgentBrain & { permissionMode: OfficePermissionMode }, worktree?: WorktreeInfo): AgentSummary {
     for (const a of this.agents.values()) if (a.summary.sessionId === sessionId) return a.summary
     // started = true: the next message resumes the saved conversation.
-    return this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults)
+    return this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults, worktree)
   }
 
   /** A new agent with no task yet, like typing `claude` in a folder: it waits for your first message. */
-  summon(cwd: string, defaults: AgentBrain & { permissionMode: OfficePermissionMode }): AgentSummary {
-    return this.idleAgent(randomUUID(), cwd, [], false, 'Esperando a primeira instrução', defaults)
+  async summon(cwd: string, defaults: AgentBrain & { permissionMode: OfficePermissionMode }, wantWorktree?: boolean): Promise<AgentSummary> {
+    const sessionId = randomUUID()
+    const name = this.freeName(basename(cwd) || 'Agente')
+    const { worktree, note } = await this.isolate(cwd, name, sessionId, wantWorktree)
+    const summary = this.idleAgent(sessionId, cwd, [], false, 'Esperando a primeira instrução', defaults, worktree, name)
+    const agent = this.agents.get(summary.id)
+    if (agent && note) this.addLog(agent, 'system', note)
+    return summary
   }
 
   /**
@@ -296,11 +332,13 @@ export class AgentManager extends EventEmitter {
     started: boolean,
     activity: string,
     defaults: AgentBrain & { permissionMode: OfficePermissionMode },
+    worktree?: WorktreeInfo,
+    name?: string,
   ): AgentSummary {
     const id = randomUUID()
     const summary: AgentSummary = {
       id,
-      name: this.freeName(basename(cwd) || 'Agente'),
+      name: name ?? this.freeName(basename(cwd) || 'Agente'),
       source: 'office',
       cwd,
       model: defaults.model || undefined,
@@ -314,6 +352,7 @@ export class AgentManager extends EventEmitter {
       costUsd: 0,
       createdAt: Date.now(),
       sessionId,
+      ...(worktree ? { worktree } : {}),
     }
     const agent: Agent = { summary, log, started }
     this.agents.set(id, agent)
@@ -438,6 +477,22 @@ export class AgentManager extends EventEmitter {
       if (s.permissionMode === 'bypassPermissions') s.permissionMode = 'default'
     }
     if (this.overBudget(agent)) return
+    const wt = s.worktree
+    const workDir = wt?.path ?? s.cwd
+    if (wt && !existsSync(workDir)) {
+      this.deliver(agent, {
+        text: `A cópia isolada (worktree) deste agente não existe mais: \`${wt.root}\`.\n\nDispense o agente e contrate outro; o branch \`${wt.branch}\` continua no repositório se tiver commits.`,
+        isError: true,
+        costUsd: s.costUsd,
+        durationMs: 0,
+        turns: 0,
+      })
+      return
+    }
+    // A new task (not a failover or a /compact): remember the folder as it is now, so the
+    // card can show what this task changed. git status takes milliseconds; the CLI needs
+    // a model round trip before its first edit.
+    if (!agent.task && !agent.compacting && !agent.demo) agent.task = { snapshot: takeSnapshot(workDir).catch(() => null), touched: new Map() }
     const input = new InputQueue()
     input.push(prompt)
     agent.input = input
@@ -457,7 +512,7 @@ export class AgentManager extends EventEmitter {
     const q = query({
       prompt: input,
       options: {
-        cwd: s.cwd,
+        cwd: workDir,
         model: s.model,
         effort: s.effort,
         pathToClaudeCodeExecutable: claude,
@@ -473,6 +528,10 @@ export class AgentManager extends EventEmitter {
             `Your name in this office is ${s.name}. Your final message for each task is handed to the user in person as a report: ` +
             'open with the outcome in one or two sentences, then list the key details. Reply in the language the user wrote in. ' +
             'The office has a kanban board of tickets (keys like AO-12); use the mcp__office__ tools to read, open, comment on and move tickets when asked or when you are working on one.' +
+            (wt
+              ? `\n\nYou work in your own git worktree at ${wt.root} on branch ${wt.branch}, so other agents never touch your files. ` +
+                `Make every change here; do not edit the main checkout at ${wt.repo}. The user reviews, commits and opens the pull request from the office.`
+              : '') +
             (squad ? `\n\n${orchestratorPrompt(squad)}` : ''),
         },
         ...(squad ? { agents: memberAgents(squad), hooks: { PreToolUse: teamGuard(squad) } } : {}),
@@ -565,6 +624,8 @@ export class AgentManager extends EventEmitter {
           } else if (block.type === 'tool_use') {
             const input = (block.input ?? {}) as Record<string, unknown>
             const line = describeTool(block.name, input)
+            const file = input.file_path ?? input.notebook_path
+            if (agent.task && WRITE_TOOLS.has(block.name) && typeof file === 'string' && file.length < 4096) agent.task.touched.set(file, block.name)
             this.addLog(agent, 'tool', toolDetail(block.name, input) || line, block.name)
             this.setActivity(agent, line)
           }
@@ -871,6 +932,51 @@ export class AgentManager extends EventEmitter {
     this.addLog(agent, 'result', r.text, undefined, r.isError)
     this.setStatus(agent, r.isError ? 'error' : 'done', r.isError ? 'Deu problema' : 'Trazendo o resultado')
     this.send({ type: 'result:new', result })
+    const task = agent.task
+    agent.task = undefined
+    if (task) void this.attachChanges(agent, result, task)
+  }
+
+  /** Works out what the task changed and hangs it on the result card (a moment after it arrives). */
+  private async attachChanges(agent: Agent, result: AgentResult, task: NonNullable<Agent['task']>): Promise<void> {
+    const s = agent.summary
+    let changes: ResultChanges | null = null
+    try {
+      const snap = await task.snapshot
+      if (snap) changes = await changesSince(snap, s.worktree ? { branch: s.worktree.branch } : undefined)
+    } catch (err) {
+      this.addLog(agent, 'error', `Não consegui ler as mudanças do git: ${err instanceof Error ? err.message : String(err)}`)
+    }
+    // No git: what the Edit/Write tools wrote, as the log has it.
+    if (!changes && task.touched.size) {
+      const root = s.worktree?.path ?? s.cwd
+      changes = {
+        git: false,
+        root,
+        files: [...task.touched].map(([file, tool]) => {
+          const rel = relative(root, file)
+          return { path: rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : file, status: 'modified' as const, tool }
+        }),
+      }
+    }
+    if (changes) this.setChanges(result.id, changes)
+  }
+
+  /** The result as the main process holds it (the renderer only ever sends its id). */
+  result(resultId: string): AgentResult | undefined {
+    return this.results.find((r) => r.id === resultId)
+  }
+
+  agent(agentId: string): AgentSummary | undefined {
+    return this.agents.get(agentId)?.summary
+  }
+
+  setChanges(resultId: string, changes: ResultChanges): void {
+    const r = this.results.find((x) => x.id === resultId)
+    if (!r) return
+    r.changes = changes
+    this.store.results = this.results
+    this.send({ type: 'result:changes', resultId, agentId: r.agentId, changes })
   }
 
   // ---------- terminal agents (hook bridge) ----------
