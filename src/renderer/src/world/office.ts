@@ -1,9 +1,11 @@
 import * as THREE from 'three'
 import * as F from './furniture'
 import { box, mat } from './kit'
-import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition } from './layout'
+import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition, type Zone } from './layout'
 import { Grid } from './pathfinding'
-import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
+import { beacon, costBoard, type Beacon, type CostBoard } from './props'
+import { arcadePainter, LoopScreen, Screen } from './screens'
+import { workstation } from './workstation'
 import { floorTexture, rugTexture, WindowSky } from './textures'
 
 export interface Office {
@@ -16,6 +18,10 @@ export interface Office {
   ding(): void
   /** Lights one call button per floor on the elevator panel. */
   setFloors(n: number): void
+  /** What this floor spent this session. */
+  money: CostBoard
+  /** Spins when an account this floor runs on hit its plan limit. */
+  alarm: Beacon
 }
 
 export interface GroundFloor extends Office {
@@ -27,8 +33,6 @@ const WALL = '#aaa6d6'
 const WAINSCOT = '#8f8ac2'
 const BASEBOARD = '#5f5a8c'
 const CAP = '#c9c5ea'
-const CHAIR_COLORS = ['#3d4a6b', '#d35454', '#2f8f83', '#6c5ce7', '#e1873b']
-const DESK_EXTRAS = ['cactus', 'flower', 'lamp', 'papers', 'mug', 'laptop'] as const
 
 export function buildOffice(): GroundFloor {
   const group = new THREE.Group()
@@ -82,24 +86,15 @@ export function buildOffice(): GroundFloor {
   // ---------- team floor ----------
   const deskScreens: Screen[] = []
   for (const d of DESKS) {
-    place(F.desk(2), d.x + 1, d.z + 0.5)
-    grid.blockRect(d.x, d.z, 2, 1)
     const screen = new Screen()
     deskScreens.push(screen)
-    place(F.monitor(screen.texture, 0.95).group, d.x + 1, d.z + 0.28, 0, 0.76)
-    place(F.keyboard(), d.x + 1, d.z + 0.68, 0, 0.76)
-    const extra = DESK_EXTRAS[d.index % DESK_EXTRAS.length]
-    const ex = d.x + 1.72
-    const ez = d.z + 0.35
-    if (extra === 'cactus') place(F.plant('cactus'), ex, ez, 0, 0.76)
-    else if (extra === 'flower') place(F.plant('flower', '#74b9ff'), ex, ez, 0, 0.76)
-    else if (extra === 'lamp') place(F.deskLamp('#74b9ff'), ex, ez, -0.5, 0.76)
-    else if (extra === 'papers') place(F.paperStack(), ex, ez + 0.1, 0.3, 0.76)
-    else if (extra === 'mug') place(F.mug('#e17055'), ex, ez + 0.2, 0, 0.76)
-    else place(F.laptop(), d.x + 0.35, d.z + 0.4, 0.3, 0.76)
-    place(F.mug(['#ffffff', '#fdcb6e', '#81ecec'][d.index % 3]), d.x + 0.3, d.z + 0.62, 0, 0.76)
-    place(F.officeChair(CHAIR_COLORS[d.index % CHAIR_COLORS.length]), d.seat.x, d.seat.z - 0.05, Math.PI)
+    const ws = workstation(d.index, screen.texture)
+    loops.push(...ws.loops)
+    place(ws.group, d.x + 1, d.z + 0.5)
+    grid.blockRect(d.x, d.z, 2, 1)
   }
+  // a runner down the walkway between the two rows
+  place(F.rug(14, 1.4, rugTexture(14, 1.4, '#7f88b3', '#5d6591', '#d97757')), 19, 5.5)
   for (const x of [13, 18, 23]) place(F.wallWindow(2.2, 1.3, sky(x)), x + 0.5, 0.02, 0, 1.6)
   for (const x of [15, 20, 25]) {
     place(F.plant(x === 20 ? 'tall' : 'bush'), x + 0.5, 0.5)
@@ -129,25 +124,39 @@ export function buildOffice(): GroundFloor {
   grid.block(10, 0)
   place(F.art('mountains', 1.0, 0.75), 0.04, 9.9, Math.PI / 2, 1.6)
 
-  // ---------- meeting room ----------
-  place(F.meetingTable(5, 1.8), 4.5, 17)
-  grid.blockRect(2, 16, 5, 2)
-  for (let i = 2; i <= 6; i++) {
-    place(F.simpleChair('#6c5ce7'), i + 0.5, 15.55, 0)
-    place(F.simpleChair('#6c5ce7'), i + 0.5, 18.45, Math.PI)
-  }
-  place(F.whiteboard(2.4, 1.2), 0.04, 14.5, Math.PI / 2, 1.55)
-  const dash = new LoopScreen(48, 26, dashboardPainter, 5)
-  loops.push(dash)
-  place(F.tv(dash.texture), 0.06, 20.5, Math.PI / 2, 1.6)
+  // ---------- café: counter and fridge on the side wall, tables, the spending board ----------
+  const counter = F.kitchenCounter(4)
+  place(counter, 0.35, 16, Math.PI / 2)
+  grid.blockRect(0, 14, 1, 4)
+  place(F.wallCabinets(4), 0.2, 16, Math.PI / 2)
+  place(F.coffeeMachine(), 0.4, 14.6, Math.PI / 2, 0.91)
+  place(F.microwave(), 0.4, 15.6, Math.PI / 2, 0.91)
+  place(F.mug('#e17055'), 0.5, 16.3, 0, 0.91)
+  place(F.mug('#74b9ff'), 0.45, 16.5, 0, 0.91)
+  place(F.fridge(), 0.4, 18.6, Math.PI / 2)
+  grid.blockRect(0, 18, 1, 1)
+  place(F.barTable(), 4.5, 15.5)
+  grid.block(4, 15)
+  for (const [x, z, c] of [[3.7, 15.5, '#d97757'], [5.3, 15.5, '#2f8f83'], [4.5, 14.7, '#6c5ce7']] as const) place(F.stool(c), x, z)
+  place(F.roundTable(0.55), 4.5, 20)
+  grid.block(4, 19)
+  grid.block(4, 20)
+  for (const [x, z, r] of [[3.5, 20, Math.PI / 2], [5.5, 20, -Math.PI / 2], [4.5, 21, Math.PI]] as const) place(F.simpleChair('#f4a259'), x, z, r)
+  // the skeleton stands here by the boss office (added by the game)
+  grid.block(2, 12)
   place(F.plant('tall'), 0.5, 11.5)
   grid.block(0, 11)
   place(F.plant('fern'), 8.5, 23.5)
   grid.block(8, 23)
   place(F.plant('bush'), 0.5, 23.5)
   grid.block(0, 23)
-  place(F.cabinet(2), 4.5, 23.6)
-  grid.blockRect(3, 23, 3, 1)
+  place(F.plant('flower', '#f5f3ee'), 8.5, 11.5)
+  grid.block(8, 11)
+  // the spending board on the side wall with the alarm above it
+  const money = costBoard('Escritório inteiro', 2.2)
+  place(money.group, 0.06, 21.3, Math.PI / 2, 1.0)
+  const alarm = beacon()
+  place(alarm.group, 0.04, 19.4, Math.PI / 2, 1.85)
 
   // ---------- lounge (one big room: living area, games, chill corner) ----------
   const { sofaA, tableA, armchairs, foosball, circle, circleBags, sofaC, tableC, bagsC, pingPong } = LOUNGE
@@ -234,7 +243,11 @@ export function buildOffice(): GroundFloor {
     floor,
     deskScreens,
     tv,
+    money,
+    alarm,
     update(dt: number) {
+      money.update(dt)
+      alarm.update(dt)
       for (const s of deskScreens) s.update(dt)
       for (const l of loops) l.update(dt)
       for (const s of skies) s.update()
@@ -255,14 +268,14 @@ export function buildOffice(): GroundFloor {
   }
 }
 
-/** Floor slab and the two back walls, shared by every floor. */
-export function buildShell(group: THREE.Group): THREE.Mesh {
+/** Floor slab and the two back walls, shared by every floor; `zones` paint the floor. */
+export function buildShell(group: THREE.Group, zones?: Zone[]): THREE.Mesh {
   // ---------- floor slab ----------
   const side = mat('#4a4366')
   const floor = new THREE.Mesh(new THREE.BoxGeometry(W, 0.4, H), [
     side,
     side,
-    new THREE.MeshLambertMaterial({ map: floorTexture() }),
+    new THREE.MeshLambertMaterial({ map: floorTexture(zones) }),
     side,
     side,
     side,

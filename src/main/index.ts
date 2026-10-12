@@ -5,18 +5,20 @@ import { isAbsolute, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { floorNameFor, MAX_PROJECT_FLOORS, projectFor } from '@shared/projects'
 import { EFFORT_LEVELS } from '@shared/types'
-import type { Account, Actor, AgentBrain, DelegateTarget, HireRequest, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, ProjectFloor, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
+import type { Account, Actor, AgentBrain, DelegateTarget, HireRequest, LedgerQuery, OfficeEvent, OfficePermissionMode, OfficeState, PermissionDecision, ProjectFloor, Settings, TicketDraft, TicketPatch, TicketStatus } from '@shared/types'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { Accounts } from './accounts'
 import { AgentManager } from './agents'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { startDemo } from './demo'
-import { loadShellPath } from './env'
+import { CostBook } from './ledger'
+import { dropInheritedClaudeEnv, loadShellPath } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
 import { findSquad, isDir, loadSquads, squadInfo } from './squads'
 import { Store } from './store'
 import { SystemMonitor } from './system'
+import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
 
@@ -140,6 +142,17 @@ function cleanProjects(raw: unknown, previous: ProjectFloor[]): ProjectFloor[] {
   return out
 }
 
+/** Days as 'YYYY-MM-DD' and an absolute folder; anything else is dropped. */
+function cleanLedgerQuery(raw: unknown): LedgerQuery {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const day = (v: unknown) => (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : undefined)
+  const q: LedgerQuery = {}
+  if (day(r.from)) q.from = day(r.from)
+  if (day(r.to)) q.to = day(r.to)
+  if (typeof r.cwd === 'string' && isAbsolute(r.cwd)) q.cwd = r.cwd
+  return q
+}
+
 function notify(store: Store, title: string, body: string): void {
   if (!store.settings.notifications || !Notification.isSupported()) return
   if (win?.isFocused()) return
@@ -151,6 +164,8 @@ function notify(store: Store, title: string, body: string): void {
   n.show()
 }
 
+dropInheritedClaudeEnv()
+
 // Windows only shows notifications for apps with an AppUserModelID.
 app.setAppUserModelId('dev.allef.agentoffice')
 // Dev helper: run a second, isolated instance (own data, own bridge port in its office.json).
@@ -160,8 +175,10 @@ app.whenReady().then(async () => {
   await loadShellPath()
   const store = new Store()
   const manager = new AgentManager(store)
+  const book = new CostBook(store)
+  manager.book = book
   const board = new TicketBoard(app.getPath('userData'))
-  manager.officeTools = (agent) => board.toolsFor(agent)
+  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects)
   const desk = new TicketDesk(board, manager, () => store.settings)
   // Old tickets in "Feito" close by themselves: now, then every hour.
   board.autoClose(store.settings.ticketAutoCloseDays)
@@ -198,6 +215,7 @@ app.whenReady().then(async () => {
   })
 
   board.on('event', broadcast)
+  book.on('today', (today) => broadcast({ type: 'ledger:today', today }))
 
   const system = new SystemMonitor()
   system.on('system', (s) => broadcast({ type: 'system', system: s }))
@@ -219,6 +237,14 @@ app.whenReady().then(async () => {
   bridge.start()
   usage.start()
   system.start()
+  // Claude Code statistics: disk only (transcripts + stats.json), never an API call.
+  const stats = new StatsReader(app.getPath('userData'), {
+    accounts: () => store.settings.accounts,
+    switches: () => store.ledger.switches,
+    plan: () => usage.current(),
+  })
+  stats.on('stats', (s) => broadcast({ type: 'stats', stats: s }))
+  stats.start()
   void accounts.check()
 
   // ---------- IPC ----------
@@ -234,8 +260,12 @@ app.whenReady().then(async () => {
     accounts: accounts.statuses(),
     system: system.current(),
     squads,
+    ledgerToday: book.today(),
   }))
+  ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
+  ipcMain.handle('office:getStats', () => stats.current())
+  ipcMain.handle('office:refreshStats', () => stats.refresh())
   ipcMain.handle('office:checkAccounts', () => accounts.check())
   ipcMain.handle('office:addAccount', (_e, name: unknown) => {
     const account = accounts.create(typeof name === 'string' ? name : '')
@@ -368,7 +398,21 @@ app.whenReady().then(async () => {
     const projects = patch && 'projects' in patch ? cleanProjects(patch.projects, store.settings.projects) : store.settings.projects
     const days = patch && 'ticketAutoCloseDays' in patch ? Number(patch.ticketAutoCloseDays) : store.settings.ticketAutoCloseDays
     const ticketAutoCloseDays = Number.isInteger(days) && days >= 0 && days <= 365 ? days : store.settings.ticketAutoCloseDays
-    store.settings = { ...store.settings, ...patch, projects, accounts: accountList, defaultAccounts, ticketAutoCloseDays, bridgePort: store.settings.bridgePort }
+    const subs = patch && 'maxSubagents' in patch ? Number(patch.maxSubagents) : store.settings.maxSubagents
+    const maxSubagents = Number.isInteger(subs) && subs >= 0 && subs <= 100 ? subs : store.settings.maxSubagents
+    const cap = patch && 'agentBudgetUsd' in patch ? Number(patch.agentBudgetUsd) : store.settings.agentBudgetUsd
+    const agentBudgetUsd = Number.isFinite(cap) && cap >= 0 && cap <= 100_000 ? Math.round(cap * 100) / 100 : store.settings.agentBudgetUsd
+    store.settings = {
+      ...store.settings,
+      ...patch,
+      projects,
+      accounts: accountList,
+      defaultAccounts,
+      ticketAutoCloseDays,
+      maxSubagents,
+      agentBudgetUsd,
+      bridgePort: store.settings.bridgePort,
+    }
     broadcast({ type: 'settings', settings: store.settings })
     if (patch && 'ticketAutoCloseDays' in patch) board.autoClose(ticketAutoCloseDays)
     if (JSON.stringify(projects) !== before) {
@@ -459,8 +503,10 @@ app.whenReady().then(async () => {
   app.on('before-quit', () => {
     bridge.stop()
     usage.stop()
+    stats.stop()
     system.stop()
     manager.shutdown()
+    book.stop()
     store.flush()
     board.flush()
   })

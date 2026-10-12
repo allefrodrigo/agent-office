@@ -23,11 +23,13 @@ import type {
 } from '@shared/types'
 import { AGENT_NAMES, describePermission, describeTool, lookFromSeed } from '@shared/describe'
 import { projectFor } from '@shared/projects'
+import { MAIN_ACCOUNT } from '@shared/accounts'
 import { buildMessage } from './attachments'
 import { accountEnv, type Accounts } from './accounts'
 import { findClaude } from './claude-path'
 import { sessionIdForName } from './peers'
 import { findSquad, memberAgents, orchestratorPrompt, outsideTeam, readProgress, squadDir, teamGuard, type SquadDefinition } from './squads'
+import type { CostBook } from './ledger'
 import type { Store } from './store'
 
 const LOG_LIMIT = 400
@@ -102,6 +104,8 @@ export class AgentManager extends EventEmitter {
   officeTools?: (agent: AgentSummary) => McpSdkServerConfigWithInstance
   /** Picks the Claude account of each run; missing = the app's own login. */
   accounts?: Accounts
+  /** The cost book: every SDK result is booked there. */
+  book?: CostBook
 
   constructor(private store: Store) {
     super()
@@ -325,6 +329,7 @@ export class AgentManager extends EventEmitter {
     this.addLog(agent, 'user', display ?? text, undefined, undefined, infos.length ? infos : undefined)
     // A new instruction replaces any undelivered result.
     this.dropResults(id)
+    if (this.overBudget(agent)) return
     if (agent.input && agent.query) {
       agent.input.push(content)
       this.setStatus(agent, 'working', 'Lendo suas instruções')
@@ -390,6 +395,8 @@ export class AgentManager extends EventEmitter {
     agent.query?.close()
     agent.watcher?.close()
     this.agents.delete(id)
+    // Its spend stays in the cost book; reports show it as dismissed.
+    this.book?.dismissed(id)
     this.send({ type: 'agent:removed', agentId: id })
     this.persist()
   }
@@ -430,12 +437,21 @@ export class AgentManager extends EventEmitter {
       // Squad cycles touch real systems: never without approvals, whatever was saved.
       if (s.permissionMode === 'bypassPermissions') s.permissionMode = 'default'
     }
+    if (this.overBudget(agent)) return
     const input = new InputQueue()
     input.push(prompt)
     agent.input = input
     // Each run starts a new CLI process, so it can move to another account between turns.
+    const before = s.account
     const account = this.accounts?.pick(s)
     if (account) s.account = account.id
+    const resumed = agent.started
+    if (s.sessionId) {
+      this.book?.begin(s.sessionId, resumed, s.costUsd)
+      this.book?.switched(s, s.sessionId, s.account ?? MAIN_ACCOUNT, before, 'start')
+    }
+    const limits = this.store.settings
+    const budget = limits.agentBudgetUsd > 0 ? limits.agentBudgetUsd - (s.spentUsd ?? 0) : undefined
     this.setStatus(agent, 'starting', s.status === 'starting' ? s.activity : 'Voltando ao trabalho')
 
     const q = query({
@@ -447,6 +463,8 @@ export class AgentManager extends EventEmitter {
         pathToClaudeCodeExecutable: claude,
         permissionMode: s.permissionMode,
         allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
+        // Counts only what this query spends, so it gets what is left of the agent's cap.
+        ...(budget !== undefined ? { maxBudgetUsd: budget } : {}),
         ...(agent.started ? { resume: s.sessionId } : { sessionId: s.sessionId }),
         systemPrompt: {
           type: 'preset',
@@ -460,7 +478,12 @@ export class AgentManager extends EventEmitter {
         ...(squad ? { agents: memberAgents(squad), hooks: { PreToolUse: teamGuard(squad) } } : {}),
         ...(this.officeTools ? { mcpServers: { office: this.officeTools(s) } } : {}),
         // Lets the terminal bridge ignore hook events coming from office-managed sessions.
-        env: { ...accountEnv(account), AGENT_OFFICE_MANAGED: '1' },
+        env: {
+          ...accountEnv(account),
+          AGENT_OFFICE_MANAGED: '1',
+          // The cap the CLI enforces on subagents running at once (its default is 20).
+          ...(limits.maxSubagents > 0 ? { CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS: String(limits.maxSubagents) } : {}),
+        },
         canUseTool: (tool, toolInput, opts) => this.askPlayer(agent, tool, toolInput, opts),
         stderr: (data) => {
           if (/error/i.test(data)) this.addLog(agent, 'error', data.trim().slice(0, 500))
@@ -469,6 +492,15 @@ export class AgentManager extends EventEmitter {
     })
     agent.query = q
     agent.started = true
+    // A resumed session the book never saw starts from the total its transcript saved:
+    // read it now so that part is not booked as today's spend. Experimental API, best effort;
+    // without it the first result only sets the mark.
+    const sid = s.sessionId
+    if (resumed && sid && this.book && !this.book.isMarked(sid)) {
+      q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })
+        .then((u) => this.book?.markResumed(sid, u.session.total_cost_usd, u.session.model_usage ?? {}))
+        .catch(() => undefined)
+    }
     this.consume(agent, q)
   }
 
@@ -555,7 +587,16 @@ export class AgentManager extends EventEmitter {
         const hit = agent.limitHit
         agent.limitHit = undefined
         const isError = msg.subtype !== 'success' || msg.is_error
-        const text = msg.subtype === 'success' ? msg.result : msg.errors.join('\n') || `Parei: ${msg.subtype}`
+        if (agent.summary.sessionId && this.book) {
+          const spent = this.book.record(agent.summary, agent.summary.sessionId, agent.summary.account, msg)
+          if (spent > 0) agent.summary.spentUsd = (agent.summary.spentUsd ?? 0) + spent
+        }
+        const text =
+          msg.subtype === 'success'
+            ? msg.result
+            : msg.subtype === 'error_max_budget_usd'
+              ? this.budgetText(agent)
+              : msg.errors.join('\n') || `Parei: ${msg.subtype}`
         agent.summary.costUsd = msg.total_cost_usd
         this.readContext(agent)
         // The turn is over, so no foreground subagent can still be running (covers an interrupt that lost its notification).
@@ -593,6 +634,7 @@ export class AgentManager extends EventEmitter {
       return false
     }
     this.addLog(agent, 'system', `${accounts.name(from)} bateu o limite${renews}. Continuando em ${next.name}.`)
+    if (agent.summary.sessionId) this.book?.switched(agent.summary, agent.summary.sessionId, next.id, from, 'failover')
     // A CLI process is tied to one login: close it and resume on the next account.
     agent.input?.close()
     agent.query?.close()
@@ -682,7 +724,7 @@ export class AgentManager extends EventEmitter {
     agent: Agent,
     tool: string,
     input: Record<string, unknown>,
-    opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; decisionReason?: string },
+    opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; decisionReason?: string; agentID?: string },
   ): Promise<PermissionResult> {
     // The board is the office's own tool: no need to walk over and ask.
     if (tool.startsWith('mcp__office__')) return Promise.resolve({ behavior: 'allow', updatedInput: input })
@@ -693,6 +735,7 @@ export class AgentManager extends EventEmitter {
       return Promise.resolve(why ? { behavior: 'deny', message: why } : { behavior: 'allow', updatedInput: input })
     }
     const req = permissionFromTool(tool, input, opts.decisionReason, !!opts.suggestions?.length)
+    if (opts.agentID) req.subagent = this.subagentLabel(agent, opts.agentID)
     if (squad) req.context = this.squadContext(agent, squad, tool === 'AskUserQuestion')
     return new Promise((resolve) => {
       const id = this.requestDecision(agent.summary.id, req, (d) => {
@@ -722,6 +765,31 @@ export class AgentManager extends EventEmitter {
     if (!step?.current) return squad.name
     const who = !question && step.agent ? squad.members.find((m) => m.id === step.agent) : undefined
     return [squad.name, `Passo ${step.current}${step.total ? `/${step.total}` : ''}`, step.label, who ? `${who.icon} ${who.name}` : ''].filter(Boolean).join(' · ')
+  }
+
+  /** What the subagent behind a request is doing; '' when the id is not one we track. */
+  private subagentLabel(agent: Agent, agentID: string): string {
+    const subs = (agent.summary.subagents ?? []).filter((x) => !x.member)
+    const sub = subs.find((x) => x.id === agentID) ?? (subs.length === 1 ? subs[0] : undefined)
+    return sub ? `${sub.type ? `${sub.type}: ` : ''}${sub.description}` : ''
+  }
+
+  // ---------- spending cap ----------
+
+  /** The agent already spent its cap: hands a card saying so instead of starting. */
+  private overBudget(agent: Agent): boolean {
+    const cap = this.store.settings.agentBudgetUsd
+    if (!(cap > 0) || (agent.summary.spentUsd ?? 0) < cap) return false
+    this.deliver(agent, { text: this.budgetText(agent), isError: true, costUsd: agent.summary.costUsd, durationMs: 0, turns: 0 })
+    return true
+  }
+
+  private budgetText(agent: Agent): string {
+    const cap = this.store.settings.agentBudgetUsd
+    return (
+      `Parei: cheguei ao teto de custo por agente (${usd(cap)}). Já gastei ${usd(agent.summary.spentUsd ?? 0)} neste escritório.\n\n` +
+      'Para eu continuar, aumente o teto em Configurações › Limites dos agentes, ou deixe em 0 para tirar o limite.'
+    )
   }
 
   // ---------- decisions (shared by office and terminal agents) ----------
@@ -1003,6 +1071,11 @@ function toMs(t: number | undefined): number | undefined {
 /** 14:30 */
 function clock(ms: number): string {
   return new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+/** $0.42 */
+function usd(n: number): string {
+  return `$${n.toFixed(2)}`
 }
 
 function kTokens(n: number): string {

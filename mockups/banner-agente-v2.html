@@ -1,0 +1,343 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Banner do agente: híbridos C + D + E</title>
+<style>
+:root {
+  --page: #13141f; --card: #1a1b2b;
+  --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.14);
+  --text: #eceaf6; --muted: #9c9ab5; --dim: #6f6d8a;
+  --accent: #d97757; --green: #3ecf8e; --amber: #f5a524; --blue: #5b9cf0; --red: #ef5b5b;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+svg.i { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- page chrome ---------- */
+header.top { position: sticky; top: 0; z-index: 10; background: rgba(19,20,31,.92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line); padding: 14px 32px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+header.top h1 { font-size: 16px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.seg button { padding: 6px 12px; color: var(--muted); font-size: 12px; }
+.seg button.on { background: rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+.lbl { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 6px; }
+.tally { margin-left: auto; color: var(--muted); font-size: 12px; }
+main { padding: 28px 32px 80px; max-width: 1500px; margin: 0 auto; }
+.intro { max-width: 780px; color: var(--muted); margin-bottom: 28px; }
+.intro h2 { color: var(--text); font-size: 15px; margin: 0 0 6px; }
+.intro ul { margin: 6px 0 0; padding-left: 18px; }
+.intro b { color: var(--text); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); gap: 28px; }
+.variant { background: #171826; border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.variant.approved { border-color: rgba(62,207,142,.5); box-shadow: 0 0 0 1px rgba(62,207,142,.25); }
+.variant.rejected { opacity: .45; }
+.v-head { display: flex; align-items: baseline; gap: 10px; }
+.v-head h3 { margin: 0; font-size: 14px; }
+.v-tag { font: 600 10.5px var(--mono); color: var(--accent); background: rgba(217,119,87,.12); padding: 2px 6px; border-radius: 5px; }
+.v-tag.rec { color: #8ff0c4; background: rgba(62,207,142,.12); }
+.v-h { margin-left: auto; font: 11px var(--mono); color: var(--dim); }
+.v-desc { color: var(--muted); font-size: 12.5px; margin: 0; }
+.v-desc b { color: var(--text); font-weight: 600; }
+.mix { display: flex; gap: 6px; flex-wrap: wrap; }
+.mix span { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+.mix span b { color: var(--accent); }
+.stage { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px; border-radius: 12px;
+  background: radial-gradient(circle at 30% 20%, #2a3550 0, #1d2236 60%); }
+.cap { font-size: 11px; color: var(--dim); width: 400px; }
+.panel { width: 400px; background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 10px 40px rgba(5,5,15,.45); position: relative; }
+.feed { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.feed .bubble { height: 10px; border-radius: 5px; background: rgba(255,255,255,.06); }
+.vote { display: flex; gap: 8px; }
+.vote button { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line-strong); font-weight: 600; font-size: 12px; color: var(--muted); }
+.vote button.yes.on { background: rgba(62,207,142,.16); color: #8ff0c4; border-color: rgba(62,207,142,.4); }
+.vote button.no.on { background: rgba(239,91,91,.14); color: #ffb0b0; border-color: rgba(239,91,91,.35); }
+.summary { margin-top: 32px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); }
+.summary textarea { width: 100%; height: 56px; margin-top: 8px; background: #11121c; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px var(--mono); }
+
+/* ---------- atoms ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 8px; background: rgba(255,255,255,.05); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.btn:hover { background: rgba(255,255,255,.1); }
+.btn[disabled] { opacity: .45; pointer-events: none; }
+.btn-warn { background: var(--amber); color: #2a1a00; border-color: transparent; }
+.btn-primary { background: var(--accent); color: #fff; border-color: transparent; }
+.btn-xs { height: 24px; padding: 0 8px; font-size: 11.5px; }
+.ibtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); flex: none; }
+.ibtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.ibtn svg.i { width: 16px; height: 16px; }
+.chev { transition: transform .2s; }
+.open .chev { transform: rotate(180deg); }
+.dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.dot.working { background: var(--green); animation: glow 1.6s ease-in-out infinite; }
+.dot.waiting { background: var(--amber); animation: pulse 1.2s ease-in-out infinite; }
+.dot.idle { background: #b7b4d0; }
+.dot.error { background: var(--red); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(245,165,36,.25); } }
+@keyframes glow { 50% { box-shadow: 0 0 0 4px rgba(62,207,142,.2); } }
+@keyframes ringpulse { 50% { filter: drop-shadow(0 0 4px rgba(239,91,91,.8)); } }
+.acct { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 5px;
+  background: rgba(91,156,240,.18); color: #a9c8ff; font-size: 10.5px; font-weight: 700; white-space: nowrap; }
+.avatar { display: block; image-rendering: pixelated; flex: none; }
+.pname { font: 700 15px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
+.pname.lg { font-size: 18px; }
+
+/* anel (D) */
+.ring { position: relative; flex: none; cursor: pointer; }
+.ring svg.r { position: absolute; inset: 0; transform: rotate(-90deg); }
+.ring .avatar { position: absolute; border-radius: 50%; }
+.ring .pc { position: absolute; bottom: -5px; right: -7px; font: 700 9.5px var(--mono); padding: 0 4px; line-height: 15px; border-radius: 5px; background: #0f1018; border: 1px solid var(--line-strong); }
+.lv-warn .pc { color: #ffd38a; } .lv-full .pc { color: #ff9a9a; }
+.lv-full .ring svg.r { animation: ringpulse 1.4s ease-in-out infinite; }
+
+/* LED (C) */
+.led { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 3px 8px; border-radius: 6px; background: #0f1018;
+  font: 600 11.5px var(--mono); color: #8ff0c4; border: 1px solid rgba(62,207,142,.15); }
+.led.waiting { color: #ffd38a; border-color: rgba(245,165,36,.25); }
+.led.idle { color: var(--muted); border-color: var(--line); }
+.led.error { color: #ff9a9a; border-color: rgba(239,91,91,.25); }
+.led .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.led .el { color: var(--dim); font-weight: 500; }
+
+/* blocos de memória (C) */
+.mem { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.blocks { display: flex; gap: 3px; flex: 1; }
+.blocks i { flex: 1; height: 8px; background: rgba(255,255,255,.08); border-radius: 1px; }
+.blocks i.on { background: var(--green); }
+.lv-warn .blocks i.on { background: var(--amber); } .lv-full .blocks i.on { background: var(--red); }
+.mem .pct { font: 600 11.5px var(--mono); color: var(--text); }
+.lv-warn .mem .pct { color: #ffd38a; } .lv-full .mem .pct { color: #ff9a9a; }
+
+/* carimbos (C) */
+.stamps { display: flex; flex-wrap: wrap; gap: 6px; }
+.stamp { font: 11px var(--mono); color: var(--muted); padding: 3px 7px; border: 1px dashed var(--line-strong); border-radius: 6px; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+.stamp:hover { color: var(--text); }
+.fire { color: var(--dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 3px; }
+.fire:hover { color: #ffb0b0; }
+
+.menu { position: absolute; z-index: 5; min-width: 220px; padding: 6px; background: #22233a; border: 1px solid var(--line-strong);
+  border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.45); display: none; top: 62px; left: 10px; }
+.menu.open { display: block; }
+.menu .mh { font-size: 11px; color: var(--dim); padding: 4px 8px 6px; }
+.menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 6px; text-align: left; font-size: 12.5px; }
+.menu button:hover { background: rgba(255,255,255,.07); }
+.menu button small { margin-left: auto; color: var(--dim); font-size: 11px; }
+
+/* ---------- H1: barra com anel ---------- */
+.h1 { border-bottom: 1px solid var(--line); position: relative; }
+.h1 .bar { display: flex; align-items: center; gap: 11px; padding: 10px 8px 10px 12px; }
+.h1 .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.h1 .l1 { display: flex; align-items: center; gap: 8px; }
+.h1 .drawer { display: none; padding: 0 14px 12px; }
+.h1.open .drawer { display: flex; flex-direction: column; gap: 10px; }
+.h1 .drawer > :first-child { padding-top: 10px; border-top: 1px solid var(--line); }
+.h1 .acts { display: flex; align-items: center; gap: 6px; }
+.h1 .acts .fire { margin-left: auto; }
+.h1 .wait { display: flex; align-items: center; gap: 8px; margin: 0 12px 10px; }
+
+/* ---------- H2: crachá que abre ---------- */
+.h2 { padding: 10px; border-bottom: 1px solid var(--line); position: relative; }
+.h2 .badge { position: relative; border-radius: 12px; background: linear-gradient(180deg, #25273e, #1f2034); border: 1px solid var(--line-strong); }
+.h2 .badge::before { content: ''; position: absolute; top: -1px; left: 50%; width: 30px; height: 5px; margin-left: -15px;
+  border-radius: 0 0 4px 4px; background: #11121c; }
+.h2 .row { display: flex; align-items: center; gap: 11px; padding: 10px 6px 10px 10px; }
+.h2 .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.h2 .l1 { display: flex; align-items: center; gap: 8px; }
+.h2 .more { display: none; padding: 0 12px 12px; flex-direction: column; gap: 10px; }
+.h2.open .more { display: flex; }
+.h2.open .row { padding: 14px 6px 12px 12px; align-items: flex-start; }
+.h2 .acts { display: flex; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px dashed var(--line-strong); }
+.h2 .acts .fire { margin-left: auto; }
+.h2 .menu { top: 70px; left: 20px; }
+
+/* ---------- H3: faixa LED ---------- */
+.h3 { border-bottom: 1px solid var(--line); position: relative; }
+.h3 .bar { display: flex; align-items: center; gap: 11px; padding: 10px 8px 8px 12px; }
+.h3 .id { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.h3 .strip { margin: 0 12px 10px; display: flex; gap: 6px; align-items: center; }
+.h3 .strip .led { flex: 1; padding: 5px 9px; }
+.h3 .drawer { display: none; padding: 0 14px 12px; }
+.h3.open .drawer { display: block; }
+.h3 dl { display: grid; grid-template-columns: 70px 1fr; gap: 7px 10px; margin: 0; padding: 10px 0; border-top: 1px solid var(--line); font-size: 12px; }
+.h3 dt { color: var(--dim); }
+.h3 dd { margin: 0; font: 11.5px var(--mono); min-width: 0; display: flex; align-items: center; gap: 8px; }
+.h3 dd .mem { flex: 1; }
+.h3 dd a { color: var(--muted); font: 11.5px -apple-system, sans-serif; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; white-space: nowrap; }
+.h3 .acts { display: flex; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.h3 .acts .fire { margin-left: auto; }
+.h3 .menu { top: 58px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Banner do agente: híbridos C + D + E</h1>
+  <div><span class="lbl">Estado</span>
+    <div class="seg" id="stateSeg">
+      <button data-v="working" class="on">Trabalhando</button><button data-v="waiting">Esperando você</button>
+      <button data-v="idle">Livre</button><button data-v="error">Erro</button>
+    </div>
+  </div>
+  <div><span class="lbl">Memória</span>
+    <div class="seg" id="ctxSeg"><button data-v="28" class="on">28%</button><button data-v="72">72%</button><button data-v="93">93%</button></div>
+  </div>
+  <div class="tally" id="tally"></div>
+</header>
+
+<main>
+  <section class="intro">
+    <h2>O que cada versão pega de cada uma</h2>
+    <ul>
+      <li><b>De E:</b> barra fina por padrão e detalhes atrás da seta. A conversa fica com o espaço.</li>
+      <li><b>De D:</b> o anel em volta do avatar mostra a memória. Clique nele para Compactar ou Limpar.</li>
+      <li><b>De C:</b> nome em fonte de máquina, atividade num letreiro LED, carimbos, memória em blocos e "Demitir agente" como link discreto.</li>
+    </ul>
+    <p>Para não brigar pela cor: <b>o anel mostra só a memória</b> (verde, âmbar, vermelho) e <b>o LED mostra só o status</b>. Quando o agente espera você, o próprio LED fica âmbar e ganha o botão Responder, sem faixa extra.</p>
+  </section>
+  <div class="grid" id="grid"></div>
+  <div class="summary">Suas escolhas (cole de volta para mim):<textarea id="out" readonly></textarea></div>
+</main>
+
+<script>
+const STATES = {
+  working: { label: 'Trabalhando', activity: 'Lendo a tarefa', elapsed: '2m14s' },
+  waiting: { label: 'Esperando você', activity: 'Quer rodar npm test', elapsed: '40s' },
+  idle:    { label: 'Livre', activity: 'Terminou há 3 min', elapsed: '' },
+  error:   { label: 'Erro', activity: 'Limite de uso atingido', elapsed: '' },
+}
+const agent = { name: 'Turing', path: '…/Playground/agents-2d', folder: 'agents-2d', model: 'Opus 5.5 · 1M', effort: 'médio', cost: '$8,92', acct: 'QT - Allef' }
+let state = 'working', pct = 28
+const level = () => (pct >= 90 ? 'full' : pct >= 70 ? 'warn' : 'ok')
+const busy = () => state === 'working' || state === 'waiting'
+const st = () => STATES[state]
+
+const P = {
+  walk: '<circle cx="13" cy="4" r="2"/><path d="m9 20 3-6 3 2 2 4M6 12l3-4 4 1 2 4 3 1M12 14l-1-5"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  gauge: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/>',
+  compact: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
+  clear: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  reply: '<path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
+  play: '<path d="m6 4 14 8-14 8z"/>',
+}
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${P[n]}</svg>`
+
+const SPRITE = ['..H.HH.HH.H.', '..HHHHHHHH..', '.HHHHHHHHHH.', '.HHSSSSSSHH.', '..SSSSSSSS..', '..SESSSSES..',
+  '..SCSSSSCS..', '..SSSMMSSS..', '...SSSSSS...', '.GGGGSSGGGG.', 'GGGGGGGGGGGG', 'GGGGGGGGGGGG']
+const PAL = { H: '#b0413e', S: '#f3d2b5', E: '#3a2a2a', C: '#f0a6a0', M: '#9b5a4a', G: '#6fbf4f' }
+function avatar(size, style = '') {
+  let r = ''
+  SPRITE.forEach((row, y) => [...row].forEach((c, x) => { if (PAL[c]) r += `<rect x="${x + 2}" y="${y + 3}" width="1" height="1" fill="${PAL[c]}"/>` }))
+  return `<svg class="avatar" width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" style="background:#2f5a3c;${style}">${r}</svg>`
+}
+
+// ---------- peças ----------
+const ctxColor = () => ({ ok: 'var(--green)', warn: 'var(--amber)', full: 'var(--red)' })[level()]
+function ring(size, menuId, showPct = true) {
+  const sw = size > 50 ? 4 : 3, r = size / 2 - sw / 2 - 1, C = 2 * Math.PI * r, a = size - (sw + 3) * 2
+  return `<div class="ring" data-menu="${menuId}" title="Memória ${pct}%: clique para compactar ou limpar" style="width:${size}px;height:${size}px">
+    <svg class="r" width="${size}" height="${size}"><circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke="rgba(255,255,255,.08)" stroke-width="${sw}" fill="none"/>
+    <circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke="${ctxColor()}" stroke-width="${sw}" fill="none" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - pct / 100)}"/></svg>
+    ${avatar(a, `top:${sw + 3}px;left:${sw + 3}px;border-radius:50%;position:absolute`)}${showPct ? `<span class="pc">${pct}%</span>` : ''}</div>`
+}
+const led = (withLabel = false) => `<div class="led ${state}"><span class="dot ${state}"></span><span class="t">${withLabel ? st().label + ' · ' : ''}${st().activity}</span>${st().elapsed ? `<span class="el">${st().elapsed}</span>` : ''}</div>`
+const blocks = () => { const on = Math.round(pct / 10); return `<div class="blocks">${Array.from({ length: 10 }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div>` }
+const mem = (btns = true) => `<div class="mem">${btns ? '<span>Memória</span>' : ''}${blocks()}<span class="pct">${pct}%</span>${btns ? `<button class="btn btn-xs" ${busy() ? 'disabled' : ''}>Compactar</button><button class="btn btn-xs">Limpar</button>` : ''}</div>`
+const stamps = () => `<div class="stamps"><button class="stamp" title="${agent.path}">${ic('folder')}${agent.folder}</button><span class="stamp">${ic('cpu')}${agent.model}</span><span class="stamp">${ic('gauge')}${agent.effort}</span><span class="stamp">${ic('coin')}${agent.cost}</span></div>`
+const ringMenu = (id) => `<div class="menu" id="${id}"><div class="mh">Memória ${pct}% usada</div>
+  <button ${busy() ? 'disabled style="opacity:.45"' : ''}>${ic('compact')}Compactar<small>/compact</small></button>
+  <button>${ic('clear')}Limpar e começar do zero<small>/clear</small></button></div>`
+const cta = () => state === 'waiting' ? `<button class="btn btn-warn btn-xs">${ic('reply')}Responder</button>`
+  : state === 'working' ? `<button class="ibtn" title="Interromper">${ic('stop')}</button>` : ''
+const acts = () => `<div class="acts"><button class="btn btn-xs">${ic('walk')}Ir até</button>${state === 'idle' ? `<button class="btn btn-xs btn-primary">${ic('play')}Nova tarefa</button>` : ''}<button class="fire">Demitir agente</button></div>`
+const tail = () => `<button class="ibtn" data-toggle title="Detalhes">${ic('chev', 'chev')}</button><button class="ibtn" title="Fechar">${ic('x')}</button>`
+
+// ---------- variantes ----------
+const V = [
+  {
+    id: 'H1', title: 'Barra com anel', tag: 'H1 · recomendada', rec: true, mix: ['E: barra + gaveta', 'D: anel', 'C: LED, carimbos, blocos, link'],
+    desc: '<b>A E com o anel no lugar do avatar e o LED no lugar da linha de status.</b> Fechada ocupa 65px. A gaveta usa carimbos e blocos do crachá, e Demitir fica escondido lá dentro como link.',
+    html: (open, uid) => `<div class="h1 lv-${level()} ${open ? 'open' : ''}">
+      <div class="bar">${ring(44, uid)}
+        <div class="id"><div class="l1"><span class="pname">${agent.name}</span><span class="acct">${agent.acct}</span></div>${led()}</div>
+        ${cta()}${tail()}</div>
+      <div class="drawer">${stamps()}${mem()}${acts()}</div>${ringMenu(uid)}</div>`,
+  },
+  {
+    id: 'H2', title: 'Crachá que abre', tag: 'H2', mix: ['C: crachá inteiro', 'E: abre e fecha', 'D: anel na foto'],
+    desc: '<b>O banner é sempre um crachá.</b> Fechado, mostra só foto com anel, nome e LED. Aberto, ganha foto maior, carimbos e memória em blocos. Mais personalidade e mais pixel-art, com ~20px a mais de altura.',
+    html: (open, uid) => `<div class="h2 lv-${level()} ${open ? 'open' : ''}"><div class="badge">
+      <div class="row">${ring(open ? 62 : 44, uid)}
+        <div class="id"><div class="l1"><span class="pname ${open ? 'lg' : ''}">${agent.name}</span>${open ? '' : `<span class="acct">${agent.acct}</span>`}</div>
+          ${open ? `<div style="display:flex;gap:6px;align-items:center;font-size:11.5px;color:var(--muted)">Agente <span class="acct">${agent.acct}</span></div>` : led()}</div>
+        ${cta()}${tail()}</div>
+      <div class="more">${led(true)}${stamps()}${mem()}${acts()}</div></div>${ringMenu(uid)}</div>`,
+  },
+  {
+    id: 'H3', title: 'Faixa LED', tag: 'H3', mix: ['C: LED largo', 'D: anel', 'E: gaveta em lista'],
+    desc: '<b>O LED vira uma faixa de largura inteira</b>, como letreiro de elevador, com status, atividade e cronômetro. Cabe frase longa sem corte. A gaveta é a lista de E, com a memória em blocos.',
+    html: (open, uid) => `<div class="h3 lv-${level()} ${open ? 'open' : ''}">
+      <div class="bar">${ring(40, uid)}
+        <div class="id"><span class="pname">${agent.name}</span><span class="acct">${agent.acct}</span></div>${tail()}</div>
+      <div class="strip">${led(true)}${cta()}</div>
+      <div class="drawer"><dl>
+        <dt>Pasta</dt><dd>${agent.path}</dd><dt>Modelo</dt><dd>${agent.model} <span style="color:var(--dim)">· esforço ${agent.effort}</span></dd>
+        <dt>Gasto</dt><dd>${agent.cost} nesta sessão</dd>
+        <dt>Memória</dt><dd>${mem(false)}<a>Compactar</a><a>Limpar</a></dd></dl>${acts()}</div>${ringMenu(uid)}</div>`,
+  },
+]
+
+// ---------- render ----------
+const votes = JSON.parse(localStorage.getItem('banner-votes-v2') || '{}')
+const feed = '<div class="feed"><div class="bubble" style="width:70%"></div><div class="bubble" style="width:45%"></div><div class="bubble" style="width:60%"></div></div>'
+function measure() {
+  document.querySelectorAll('.variant').forEach((v) => {
+    v.querySelector('.v-h').textContent = 'altura ' + [...v.querySelectorAll('.hd')].map((el) => el.offsetHeight + 'px').join(' / ')
+  })
+}
+function render() {
+  document.getElementById('grid').innerHTML = V.map((v) => `
+    <article class="variant ${votes[v.id] === 'sim' ? 'approved' : votes[v.id] === 'nao' ? 'rejected' : ''}">
+      <div class="v-head"><span class="v-tag ${v.rec ? 'rec' : ''}">${v.tag}</span><h3>${v.title}</h3><span class="v-h"></span></div>
+      <p class="v-desc">${v.desc}</p>
+      <div class="mix">${v.mix.map((m) => `<span><b>${m.split(':')[0]}</b>${m.slice(m.indexOf(':'))}</span>`).join('')}</div>
+      <div class="stage">
+        <span class="cap">fechado (padrão)</span><div class="panel"><div class="hd">${v.html(false, v.id + 'a')}</div>${feed}</div>
+        <span class="cap">aberto</span><div class="panel"><div class="hd">${v.html(true, v.id + 'b')}</div>${feed}</div>
+      </div>
+      <div class="vote"><button class="yes ${votes[v.id] === 'sim' ? 'on' : ''}" data-vote="${v.id}:sim">Aprovar</button>
+        <button class="no ${votes[v.id] === 'nao' ? 'on' : ''}" data-vote="${v.id}:nao">Rejeitar</button></div>
+    </article>`).join('')
+  measure()
+  const yes = V.filter((v) => votes[v.id] === 'sim').map((v) => v.id), no = V.filter((v) => votes[v.id] === 'nao').map((v) => v.id)
+  document.getElementById('tally').textContent = `${yes.length} aprovada(s) · ${no.length} rejeitada(s)`
+  document.getElementById('out').value = `Aprovadas: ${yes.join(', ') || 'nenhuma'}\nRejeitadas: ${no.join(', ') || 'nenhuma'}`
+}
+
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button')
+  if (seg) {
+    seg.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === seg))
+    if (seg.parentElement.id === 'stateSeg') state = seg.dataset.v; else pct = +seg.dataset.v
+    return render()
+  }
+  const vb = e.target.closest('[data-vote]')
+  if (vb) { const [id, val] = vb.dataset.vote.split(':'); votes[id] = votes[id] === val ? undefined : val; localStorage.setItem('banner-votes-v2', JSON.stringify(votes)); return render() }
+  const tg = e.target.closest('[data-toggle]')
+  if (tg) { tg.closest('.h1, .h2, .h3').classList.toggle('open'); return measure() }
+  const mb = e.target.closest('[data-menu]')
+  document.querySelectorAll('.menu.open').forEach((m) => { if (!mb || m.id !== mb.dataset.menu) m.classList.remove('open') })
+  if (mb) document.getElementById(mb.dataset.menu).classList.toggle('open')
+})
+render()
+</script>
+</body>
+</html>

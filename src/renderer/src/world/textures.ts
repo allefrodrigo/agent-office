@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { H, W, ZONES, type FloorStyle } from './layout'
+import { H, W, ZONES, type FloorStyle, type Zone } from './layout'
 
 export const TILE_PX = 16
 
@@ -114,19 +114,40 @@ const diamonds =
     }
   }
 
+/** Big square tiles with a thin grout line, for the café. */
+const tiles =
+  (a: string, b: string, grout: string): Painter =>
+  (ctx, x0, z0, w, h, r) => {
+    for (let x = x0; x < x0 + w; x++) {
+      for (let z = z0; z < z0 + h; z++) {
+        const c = (x + z) % 2 ? a : b
+        ctx.fillStyle = c
+        ctx.fillRect(x * TILE_PX, z * TILE_PX, TILE_PX, TILE_PX)
+        for (let i = 0; i < 6; i++) {
+          ctx.fillStyle = shade(c, r() < 0.5 ? -6 : 6)
+          ctx.fillRect(x * TILE_PX + Math.floor(r() * TILE_PX), z * TILE_PX + Math.floor(r() * TILE_PX), 2, 1)
+        }
+        ctx.fillStyle = grout
+        ctx.fillRect(x * TILE_PX, z * TILE_PX, TILE_PX, 1)
+        ctx.fillRect(x * TILE_PX, z * TILE_PX, 1, TILE_PX)
+      }
+    }
+  }
+
 const PAINTERS: Record<FloorStyle, Painter> = {
   hall: planks('#dcb98f', '#d3ad80', '#b48c62', true),
   boss: planks('#a8734d', '#9c6844', '#7a4f33', false),
   team: carpet('#8d96bd', '#868fb6', 'rgba(60,64,100,0.18)'),
-  meeting: carpet('#7c83c6', '#767dbf', 'rgba(40,40,90,0.18)'),
   lounge: diamonds('#b7a5d8', '#ad9ad1'),
+  cafe: tiles('#eef0f3', '#dfe3ea', 'rgba(90,96,120,0.25)'),
 }
 
-export function floorTexture(): THREE.CanvasTexture {
+/** The floor of a whole storey: hall planks, then each zone's own surface. */
+export function floorTexture(zones: Zone[] = ZONES): THREE.CanvasTexture {
   const [c, ctx] = canvas(W * TILE_PX, H * TILE_PX)
   const r = rng(7)
   PAINTERS.hall(ctx, 0, 0, W, H, r)
-  for (const z of ZONES) {
+  for (const z of zones) {
     const [x0, z0, x1, z1] = z.rect
     PAINTERS[z.id](ctx, x0, z0, x1 - x0, z1 - z0, r)
     // soft border so zones read as separate areas

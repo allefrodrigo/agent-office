@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import type { AgentSummary, ProjectFloor, SquadInfo, SquadMember, SubagentInfo } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
+import { accountPool } from '@shared/accounts'
+import { projectFor } from '@shared/projects'
 import type { State } from './state'
 import { Avatar, type Uniform } from './world/avatar'
 import { brandOf, DEFAULT_BRAND } from './world/brand'
@@ -10,7 +12,9 @@ import { buildOffice, type GroundFloor, type Office } from './world/office'
 import { buildUpperFloor, type UpperFloor } from './world/upper-floor'
 import { Overlays, Tag, type BubbleKind } from './world/overlays'
 import type { ScreenMode } from './world/screens'
-import { Effects, pickupGun, sfx } from './world/weapons'
+import { money } from './world/props'
+import { Effects, sfx } from './world/effects'
+import { FACE_CAMERA, skeleton } from './world/skull'
 
 type Goal = 'desk' | 'boss' | 'hang' | 'leave' | 'chat'
 
@@ -25,7 +29,7 @@ interface Actor {
   /** Reserved lounge spot index. */
   hang: number | null
   waveUntil: number
-  /** Knocked out by the airsoft: office agents leave for good, terminal ones get back up. */
+  /** Struck by the skull: lies still until its session closes (gets back up if closing fails). */
   down: boolean
   /** A short reaction bubble ("Ai!") that overrides the status bubble until this time. */
   shoutUntil: number
@@ -51,6 +55,10 @@ interface Upper {
   boardTag: Tag | null
   /** One "Passo 3/6 · Texto" line over each Diretoria desk. */
   stepTags: Tag[]
+  /** Over the alarm, while an account of this floor is at its limit. */
+  alarmTag: Tag
+  /** Over the spending board: the exact total. */
+  moneyTag: Tag
 }
 
 /** A subagent shown as a small copy of its parent, standing by the parent's desk. */
@@ -97,13 +105,9 @@ export interface GameHooks {
   onAgentClick(agentId: string): void
   /** Player is standing next to an agent that came to deliver something. */
   onNear(agentId: string | null): void
-  /** Player picked up (true) or dropped (false) the airsoft. */
-  onGun(armed: boolean): void
-  /** An office agent was knocked out: fire it. */
-  onKill(agentId: string): void
-  /** A terminal agent was knocked out (it cannot be fired from here). */
-  onKnockout(agentId: string): void
-  /** Player clicked their own computer: call an agent. */
+  /** Player clicked the skull in the boss office: pick an agent to dismiss. */
+  onSkull(): void
+  /** Player clicked their own computer: open "Novo agente" on Conversar. */
   onComputer(): void
   /** Player clicked the board in the Diretoria of a project floor. */
   onRunSquad(project: ProjectFloor): void
@@ -113,10 +117,10 @@ export interface GameHooks {
   onTv(): void
 }
 
-const MAX_HP = 3
-const HP_REGEN_S = 12
-const GUN_HOME = { x: 3.4, y: 0.98, z: 16.35 }
-const OUCH = ['Ai!', 'Ei! Tô trabalhando!', 'Isso dói!', 'Calma, chefe!', 'Ouch!', 'Pra que isso?']
+/** Floor spot by the boss office where the skeleton stands. */
+const SKULL_HOME = { x: 2.5, y: 0, z: 12.3 }
+/** Seconds the camera gets to reach a dismissed agent before the skull drops. */
+const STRIKE_AFTER_S = 0.6
 /** An idle agent waits at its desk this long before wandering off to the lounge. */
 const LOUNGE_AFTER_MS = 3 * 60_000
 
@@ -151,6 +155,12 @@ export class Game {
   private uppersKey = ''
   private members = new Map<string, Member>()
   private pcTag: Tag
+  /** Over the ground floor alarm. */
+  private alarmTag: Tag
+  /** Over the ground floor spending board. */
+  private moneyTag: Tag
+  /** Seconds until the boards and alarms are checked again (limits expire on their own). */
+  private boardsIn = 0
   readonly overlays: Overlays
   readonly player: Avatar
   private playerTag: Tag
@@ -167,10 +177,9 @@ export class Game {
   private dragging: { x: number; y: number; moved: boolean; button: number } | null = null
   private wheelAcc = 0
   private effects: Effects
-  private gun: { root: THREE.Group; spin: THREE.Group; tag: Tag; baseY: number }
-  private armed = false
-  private aim: THREE.Vector3 | null = null
-  private hp = new Map<string, { hp: number; last: number }>()
+  private skull: { root: THREE.Group; tag: Tag; eyes: THREE.MeshBasicMaterial }
+  /** Agents picked at the skull, waiting for the camera (or the elevator) before the strike. */
+  private doomed = new Map<string, { at: number; done: () => void }>()
 
   constructor(
     container: HTMLElement,
@@ -188,7 +197,7 @@ export class Game {
       const pos: Record<string, [number, number]> = {
         boss: [4.5, 8.35],
         team: [21, 5.5],
-        meeting: [4.5, 21],
+        cafe: [4.5, 23.4],
         lounge: [17.5, 23.4],
       }
       const [x, zz] = pos[z.id] ?? [(z.rect[0] + z.rect[2]) / 2, (z.rect[1] + z.rect[3]) / 2]
@@ -213,29 +222,29 @@ export class Game {
     this.hover.visible = false
     this.engine.scene.add(this.hover)
 
-    // airsoft pistol waiting on the meeting room table
+    // the skeleton by the boss office: click it to dismiss an agent
     this.effects = new Effects(this.engine.scene)
-    const gunRoot = new THREE.Group()
-    const spin = new THREE.Group()
-    spin.add(pickupGun())
-    gunRoot.add(spin)
-    gunRoot.position.set(GUN_HOME.x, 0, GUN_HOME.z)
-    const gunAnchor = new THREE.Object3D()
-    gunAnchor.position.y = GUN_HOME.y + 0.45
-    gunRoot.add(gunAnchor)
-    // on the ground floor's group, so it hides with it
-    this.office.group.add(gunRoot)
-    const gunTag = this.overlays.add(new Tag(gunAnchor, 'Airsoft', false, () => this.fetchGun()))
-    gunTag.setDot('gun')
-    this.gun = { root: gunRoot, spin, tag: gunTag, baseY: GUN_HOME.y }
+    const sk = skeleton()
+    sk.group.position.set(SKULL_HOME.x, SKULL_HOME.y, SKULL_HOME.z)
+    sk.group.rotation.y = FACE_CAMERA
+    sk.group.scale.setScalar(1.05)
+    const skullAnchor = new THREE.Object3D()
+    skullAnchor.position.set(SKULL_HOME.x, SKULL_HOME.y + 1.85, SKULL_HOME.z)
+    // on the ground floor's group, so they hide with it
+    this.office.group.add(sk.group, skullAnchor)
+    const skullTag = this.overlays.add(new Tag(skullAnchor, 'Caveira', false, () => hooks.onSkull()))
+    skullTag.setDot('skull')
+    this.skull = { root: sk.group, tag: skullTag, eyes: sk.eyes }
 
     // the player's own computer calls a new agent
     const pc = new THREE.Object3D()
     pc.position.set(3.3, 1.35, L.BOSS_DESK.z + 0.5)
     this.engine.scene.add(pc)
-    this.pcTag = this.overlays.add(new Tag(pc, 'Chamar agente', false, () => hooks.onComputer()))
+    this.pcTag = this.overlays.add(new Tag(pc, 'Novo agente', false, () => hooks.onComputer()))
     this.pcTag.setDot('term')
 
+    this.alarmTag = this.alarmTagFor(this.office.alarm)
+    this.moneyTag = this.moneyTagFor(this.office.money)
     this.setProjects(state.settings.projects, state.squads, false)
     for (const a of state.agents.values()) this.addActor(a, false)
     state.onChange(() => this.sync())
@@ -254,13 +263,14 @@ export class Game {
     }
     this.syncHelpers()
     this.syncMembers()
+    this.syncBoards()
     this.playerTag.setName(this.state.settings.playerName)
     if (this.player.look !== this.state.settings.playerLook) this.player.setLook(this.state.settings.playerLook)
   }
 
   private addActor(a: AgentSummary, animate: boolean): void {
     const avatar = new Avatar(a.look, a.id)
-    const tag = this.overlays.add(new Tag(avatar.anchor, a.name, false, () => (this.armed ? this.shootAt(a.id, null) : this.hooks.onAgentClick(a.id))))
+    const tag = this.overlays.add(new Tag(avatar.anchor, a.name, false, () => this.hooks.onAgentClick(a.id)))
     const actor: Actor = { id: a.id, avatar, tag, goal: null, arrived: false, spot: null, hang: null, waveUntil: 0, down: false, shoutUntil: 0, shout: '', shoutKind: 'error', chatUntil: 0, restSince: null, trip: 0, riding: false, seat: seatKey(a) }
     // agents already idle when the office opens (restored sessions) start in the lounge
     if (!animate && this.resting(a)) actor.restSince = 0
@@ -302,7 +312,6 @@ export class Game {
         this.engine.scene.remove(actor.avatar.root)
         this.overlays.remove(actor.tag)
         this.actors.delete(actor.id)
-        this.hp.delete(actor.id)
         return
       }
       actor.avatar.root.scale.setScalar(Math.min(1, k))
@@ -1179,7 +1188,7 @@ export class Game {
       if (Math.abs(dx) > 0.1) tryMove(Math.sign(dx), 0)
       if (Math.abs(dz) > 0.1) tryMove(0, Math.sign(dz))
     }
-    if (!this.armed) p.face(Math.atan2(dx, dz))
+    p.face(Math.atan2(dx, dz))
     p.phaseStep(dt)
   }
 
@@ -1193,8 +1202,6 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if (isTyping() || e.metaKey || e.ctrlKey) return
       const k = e.key.toLowerCase()
-      if (k === 'e' && !this.armed && this.player.floor === 0 && this.gun.root.visible && this.distToGun() < 1.8) this.pickUpGun()
-      if (k === 'q' && this.armed) this.dropGun()
       if (['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
         this.keys.add(k)
         e.preventDefault()
@@ -1244,11 +1251,11 @@ export class Game {
     )
   }
 
-  /** Helpers answer with their parent's id; they are not targets for the airsoft. */
-  private agentAt(x: number, y: number, withHelpers = true): string | null {
+  /** Helpers answer with their parent's id. */
+  private agentAt(x: number, y: number): string | null {
     const view = this.player.floor
     const roots = [...this.actors.values()].filter((a) => a.goal !== 'leave' && !a.down && a.avatar.floor === view).map((a) => a.avatar.root)
-    if (withHelpers) for (const h of this.helpers.values()) if (!h.gone && h.avatar.floor === view) roots.push(h.avatar.root)
+    for (const h of this.helpers.values()) if (!h.gone && h.avatar.floor === view) roots.push(h.avatar.root)
     for (const hit of this.engine.pick(x, y, roots)) {
       const id = hit.object.userData.avatarId as string | undefined
       if (id) return id
@@ -1257,12 +1264,8 @@ export class Game {
   }
 
   private click(x: number, y: number): void {
-    if (this.armed) {
-      this.shootAt(this.agentAt(x, y, false), this.engine.pickFloor(x, y))
-      return
-    }
-    if (this.player.floor === 0 && this.gun.root.visible && this.engine.pick(x, y, [this.gun.root]).length) {
-      this.fetchGun()
+    if (this.onSkull(x, y)) {
+      this.hooks.onSkull()
       return
     }
     if (this.onTv(x, y)) {
@@ -1290,6 +1293,10 @@ export class Game {
     return this.player.floor === 0 && this.engine.pick(x, y, [this.office.tv.group]).length > 0
   }
 
+  private onSkull(x: number, y: number): boolean {
+    return this.player.floor === 0 && this.engine.pick(x, y, [this.skull.root]).length > 0
+  }
+
   setTvOn(on: boolean): void {
     this.office.tv.setOn(on)
   }
@@ -1308,18 +1315,12 @@ export class Game {
   private updateHover(x: number, y: number): void {
     const p = this.engine.pickFloor(x, y)
     const grid = this.floorOf(this.player.floor).grid
-    if (this.armed) {
-      this.aim = p
-      this.hover.visible = false
-      document.body.style.cursor = 'crosshair'
-      return
-    }
     if (!p || !grid.inside(Math.floor(p.x), Math.floor(p.z)) || this.agentAt(x, y)) {
       this.hover.visible = false
       document.body.style.cursor = this.agentAt(x, y) ? 'pointer' : ''
       return
     }
-    if (this.onTv(x, y)) {
+    if (this.onTv(x, y) || this.onSkull(x, y)) {
       this.hover.visible = false
       document.body.style.cursor = 'pointer'
       return
@@ -1349,8 +1350,10 @@ export class Game {
     this.updateMembers(dt)
     this.office.update(dt)
     for (const u of this.uppers) u.scene.update(dt)
+    this.boardsIn -= dt
+    if (this.boardsIn <= 0) this.syncBoards()
     this.showFloor()
-    this.updateGun(dt)
+    this.updateSkull()
     this.effects.update(dt)
 
     this.recheck -= dt
@@ -1430,69 +1433,48 @@ export class Game {
     }
   }
 
-  // ---------- airsoft ----------
+  // ---------- the skull ----------
 
-  private distToGun(): number {
-    const g = this.gun.root.position
-    return Math.hypot(g.x - this.player.position.x, g.z - this.player.position.z)
-  }
-
-  /** Walks to the gun and picks it up on arrival. */
-  private fetchGun(): void {
-    if (this.armed || !this.gun.root.visible) return
-    if (this.distToGun() < 1.8) return this.pickUpGun()
-    const g = this.gun.root.position
-    const tile = this.office.grid.nearestWalkable(Math.floor(g.x), Math.floor(g.z))
-    if (!tile) return
-    this.follow = true
-    this.route(this.player, tile, null, () => {
-      if (this.distToGun() < 1.8) this.pickUpGun()
-    })
-  }
-
-  private pickUpGun(): void {
-    this.armed = true
-    this.gun.root.visible = false
-    this.gun.tag.hidden = true
-    this.player.pose = 'stand'
-    this.player.seatY = 0
-    this.player.setProp('gun')
-    sfx.pickup()
-    this.hooks.onGun(true)
-  }
-
-  dropGun(): void {
-    if (!this.armed) return
-    this.armed = false
-    this.aim = null
-    this.player.setProp('none')
-    const p = this.player.position
-    // The gun lives on the ground floor; dropped upstairs, it goes back to the meeting table.
-    if (this.player.floor === 0) {
-      this.gun.root.position.set(p.x, 0, p.z)
-      this.gun.baseY = 0.3
-    } else {
-      this.gun.root.position.set(GUN_HOME.x, 0, GUN_HOME.z)
-      this.gun.baseY = GUN_HOME.y
+  /**
+   * Sends the camera to an agent (on any floor, waiting out an elevator ride) and
+   * strikes it with the skull. `done` runs once the animation ends, or right away when
+   * the agent is not in the office to strike; the caller ends the session then.
+   * False when the agent is already on its way out.
+   */
+  dismiss(agentId: string, done: () => void): boolean {
+    const actor = this.actors.get(agentId)
+    if (!actor) {
+      done()
+      return true
     }
-    this.gun.root.visible = true
-    this.gun.tag.hidden = false
-    document.body.style.cursor = ''
-    sfx.drop()
-    this.hooks.onGun(false)
+    if (actor.goal === 'leave' || actor.down || this.doomed.has(agentId)) return false
+    this.focusAgent(agentId)
+    this.doomed.set(agentId, { at: this.time + STRIKE_AFTER_S, done })
+    return true
   }
 
-  get isArmed(): boolean {
-    return this.armed
-  }
-
-  private updateGun(dt: number): void {
-    if (this.gun.root.visible) {
-      this.gun.spin.rotation.y += dt * 1.6
-      this.gun.spin.position.y = this.gun.baseY + Math.sin(this.time * 2.4) * 0.04
-      this.gun.tag.setName(this.player.floor === 0 && this.distToGun() < 1.8 ? 'Airsoft · E para pegar' : 'Airsoft')
+  private updateSkull(): void {
+    // the eyes smoulder, and blaze (with the skull rattling) while a strike is coming
+    const busy = this.doomed.size > 0
+    const k = busy ? 1 : 0.6 + 0.4 * Math.sin(this.time * 2.2)
+    this.skull.eyes.color.setRGB(k, 0.23 * k, 0.36 * k)
+    this.skull.root.rotation.z = busy ? Math.sin(this.time * 40) * 0.05 : 0
+    for (const [id, d] of this.doomed) {
+      const actor = this.actors.get(id)
+      // left on its own before the strike: nothing to animate
+      if (!actor || actor.goal === 'leave') {
+        this.doomed.delete(id)
+        d.done()
+        continue
+      }
+      // in the elevator: the camera gets its time again once the doors open
+      if (actor.riding) d.at = this.time + STRIKE_AFTER_S
+      if (this.time < d.at) continue
+      this.doomed.delete(id)
+      // again, in case the player took the camera back meanwhile
+      this.focusAgent(id)
+      this.strike(actor, d.done)
     }
-    if (this.armed && this.aim && !this.player.isWalking) this.player.faceTowards(this.aim.x, this.aim.z, false)
     for (const actor of this.actors.values()) {
       if (actor.shoutUntil && this.time >= actor.shoutUntil) {
         actor.shoutUntil = 0
@@ -1500,79 +1482,37 @@ export class Game {
         if (a && !actor.down) this.bubble(actor, a)
       }
     }
-    for (const [id, rec] of this.hp) {
-      if (this.time - rec.last > HP_REGEN_S) {
-        this.hp.delete(id)
-        this.actors.get(id)?.tag.setHearts(null)
-      }
-    }
   }
 
-  /** Fires a BB at an agent (homing on its chest) or at a floor point. */
-  private shootAt(agentId: string | null, floor: THREE.Vector3 | null): void {
-    if (!this.armed) return
-    const actor = agentId ? this.actors.get(agentId) : undefined
-    const aimAt = actor ? actor.avatar.position : floor
-    if (!aimAt) return
-    this.player.stop()
-    this.player.faceTowards(aimAt.x, aimAt.z, false, true)
-    this.player.kick()
-    sfx.shot()
-    const muzzle = this.player.muzzle()
-    if (actor && !actor.down) {
-      const chest = () =>
-        this.actors.has(actor.id) && !actor.down ? actor.avatar.position.clone().add(new THREE.Vector3(0, 0.65, 0)) : null
-      this.effects.fire(muzzle, chest, chest() ?? muzzle, () => this.hit(actor))
-    } else if (floor) {
-      this.effects.fire(muzzle, () => null, floor.clone().setY(0.05))
-    }
-  }
-
-  private hit(actor: Actor): void {
-    const a = this.state.agents.get(actor.id)
-    if (!a || actor.down) return
-    sfx.hit()
-    actor.avatar.hitReact()
-    const rec = this.hp.get(actor.id) ?? { hp: MAX_HP, last: 0 }
-    rec.hp -= 1
-    rec.last = this.time
-    this.hp.set(actor.id, rec)
-    actor.tag.setHearts(rec.hp, MAX_HP)
-    if (rec.hp > 0) {
-      actor.shout = OUCH[Math.floor(Math.random() * OUCH.length)]
-      actor.shoutKind = 'error'
-      actor.shoutUntil = this.time + 1.4
-      this.bubble(actor, a)
-      return
-    }
-
-    // knocked out
+  /** The skull drops over the agent and knocks it out; then a ghost rises and `done` runs. */
+  private strike(actor: Actor, done: () => void): void {
     actor.down = true
     actor.spot = null
     actor.hang = null
+    actor.chatUntil = 0
+    actor.avatar.stop()
+    actor.avatar.pose = 'stand'
+    actor.avatar.seatY = 0
     actor.avatar.setProp('none')
-    actor.avatar.knockDown()
-    actor.tag.setBubble('x_x', 'error')
-    sfx.ko()
-    if (a.source === 'office') {
+    actor.tag.setBubble('!?', 'error')
+    setTimeout(() => actor.avatar.hitReact(), 800)
+    this.effects.strike(actor.avatar.position, () => {
+      actor.avatar.knockDown()
+      actor.tag.setBubble('x_x', 'error')
+      sfx.ko()
       setTimeout(() => this.effects.ghost(actor.avatar.position), 600)
-      setTimeout(() => this.hooks.onKill(actor.id), 1700)
-    } else {
-      // Terminal sessions stay down until the player decides whether to close them.
-      setTimeout(() => this.hooks.onKnockout(actor.id), 700)
-    }
+      setTimeout(done, 1700)
+    })
   }
 
-  /** A knocked-out terminal agent was spared: it gets back up. */
+  /** A struck agent whose session did not close gets back up. */
   revive(agentId: string): void {
     const actor = this.actors.get(agentId)
     if (!actor || !actor.down) return
     actor.avatar.getUp()
     actor.down = false
     actor.goal = null
-    this.hp.delete(actor.id)
-    actor.tag.setHearts(null)
-    actor.shout = 'Ufa! Valeu, chefe!'
+    actor.shout = 'Ufa! Escapei.'
     actor.shoutKind = 'error'
     actor.shoutUntil = this.time + 2.5
     this.reconcile(actor)
@@ -1601,6 +1541,8 @@ export class Game {
       this.engine.scene.remove(u.scene.group)
       this.overlays.clearLabels(i + 1)
       if (u.boardTag) this.overlays.remove(u.boardTag)
+      this.overlays.remove(u.alarmTag)
+      this.overlays.remove(u.moneyTag)
       for (const t of u.stepTags) this.overlays.remove(t)
     })
     this.uppers = projects.map((project, i) => {
@@ -1623,7 +1565,7 @@ export class Game {
         tag.el.classList.add('tag-step')
         return tag
       })
-      return { project, scene, boardTag, stepTags }
+      return { project, scene, boardTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money) }
     })
     this.office.setFloors(projects.length + 1)
     for (const u of this.uppers) u.scene.setFloors(projects.length + 1)
@@ -1650,6 +1592,7 @@ export class Game {
       const a = this.state.agents.get(h.parentId)
       if (a) h.avatar.setUniform(this.uniformFor(a))
     }
+    this.syncBoards()
     if (notify) this.hooks.onFloor(this.player.floor)
   }
 
@@ -1659,6 +1602,71 @@ export class Game {
 
   get currentFloor(): number {
     return this.player.floor
+  }
+
+  // ---------- spending boards and limit alarms ----------
+
+  private alarmTagFor(alarm: { anchor: THREE.Object3D }): Tag {
+    const tag = this.overlays.add(new Tag(alarm.anchor, ''))
+    tag.el.classList.add('tag-alarm')
+    tag.setDot('error')
+    tag.hidden = true
+    return tag
+  }
+
+  private moneyTagFor(board: { anchor: THREE.Object3D }): Tag {
+    const tag = this.overlays.add(new Tag(board.anchor, ''))
+    tag.el.classList.add('tag-money')
+    tag.setDot('money')
+    tag.hidden = true
+    return tag
+  }
+
+  /** Accounts at a plan limit, with when they come back (if known). */
+  private limitedAccounts(): Map<string, number | undefined> {
+    const now = Date.now()
+    const out = new Map<string, number | undefined>()
+    for (const st of this.state.accounts) if (st.limitedUntil && st.limitedUntil > now) out.set(st.id, st.limitedUntil)
+    for (const u of this.state.usage) {
+      const full = u.windows.find((w) => w.percent >= 100 && (!w.resetsAt || w.resetsAt > now))
+      if (full && !out.has(u.accountId)) out.set(u.accountId, full.resetsAt)
+    }
+    return out
+  }
+
+  /**
+   * Each floor's board adds up what was spent today in its folder (the ground floor: every folder);
+   * its alarm goes off while an account it runs on is at its limit (the ground floor: any).
+   */
+  private syncBoards(): void {
+    this.boardsIn = 5
+    const limited = this.limitedAccounts()
+    const floors: [Office, Tag, Tag, ProjectFloor | null][] = [
+      [this.office, this.alarmTag, this.moneyTag, null],
+      ...this.uppers.map((u): [UpperFloor, Tag, Tag, ProjectFloor] => [u.scene, u.alarmTag, u.moneyTag, u.project]),
+    ]
+    // Today's spend from the cost book: dismissing an agent keeps it, midnight zeroes it.
+    const today = this.state.ledgerToday
+    const floorOfCwd = (cwd: string) => {
+      const id = projectFor(this.state.settings.projects, cwd)?.id
+      return id ? this.uppers.findIndex((u) => u.project.id === id) + 1 : 0
+    }
+    const spenders = Object.values(today.agents)
+    floors.forEach(([scene, tag, moneyTag, project], n) => {
+      const total = Object.entries(today.costByCwd).reduce((sum, [cwd, usd]) => (n === 0 || floorOfCwd(cwd) === n ? sum + usd : sum), 0)
+      const top = spenders.filter((a) => n === 0 || floorOfCwd(a.cwd) === n).sort((a, b) => b.usd - a.usd).slice(0, 8)
+      scene.money.set(total, top.map((a) => ({ name: a.name, usd: a.usd })))
+      moneyTag.setName(`${money(total)} hoje`)
+      moneyTag.el.title = top.filter((a) => a.usd >= 0.005).map((a) => `${a.name}: ${money(a.usd)}`).join('\n') || 'Ninguém gastou nada hoje'
+      const pool = project ? accountPool(this.state.settings, project.cwd) : [...limited.keys()]
+      const hit = pool.filter((id) => limited.has(id))
+      scene.alarm.setOn(hit.length > 0)
+      if (!hit.length) return
+      const names = hit.map((id) => this.state.account(id)?.name ?? id).join(', ')
+      const back = hit.map((id) => limited.get(id)).filter((t): t is number => !!t).sort((a, b) => a - b)[0]
+      const clock = back ? ` · volta ${new Date(back).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''
+      tag.setName(`${hit.length > 1 ? 'Contas' : 'Conta'} ${names} no limite${clock}`)
+    })
   }
 
   /** The project of the floor the player is on; null on the ground floor. */
@@ -1709,8 +1717,14 @@ export class Game {
       const seated = here ? this.directorsOn(i + 1) : null
       u.stepTags.forEach((t, d) => (t.hidden = !seated?.has(d)))
     })
-    this.gun.tag.hidden = !this.gun.root.visible || view !== 0
+    this.skull.tag.hidden = view !== 0
     this.pcTag.hidden = view !== 0
+    this.alarmTag.hidden = view !== 0 || !this.office.alarm.on
+    this.moneyTag.hidden = view !== 0
+    this.uppers.forEach((u, i) => {
+      u.alarmTag.hidden = view !== i + 1 || !u.scene.alarm.on
+      u.moneyTag.hidden = view !== i + 1
+    })
   }
 
   setPixelSize(n: number): void {

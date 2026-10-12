@@ -1,5 +1,6 @@
+import { projectFor } from '@shared/projects'
 import { labelOf, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
-import type { Actor, AgentSummary, OfficePermissionMode, Ticket, TicketPatch, TicketPriority, TicketStatus, TicketType } from '@shared/types'
+import type { Actor, AgentSummary, OfficePermissionMode, ProjectFloor, Ticket, TicketPatch, TicketPriority, TicketStatus, TicketType } from '@shared/types'
 import type { State } from '../state'
 import { h, icon, timeAgo } from './dom'
 import { STATUS_LABEL } from './hud'
@@ -9,10 +10,15 @@ import { portrait } from './portrait'
 
 export interface BoardActions {
   openAgent(id: string): void
+  /** Project of the floor the player is on; null on the ground floor. */
+  currentProject(): ProjectFloor | null
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
 }
 
 type Who = 'all' | 'me' | 'agents' | 'none'
+
+/** Floor filter value for tickets outside every project folder. */
+const GROUND = 'ground'
 
 /** "Sem pedir nada" is left out on purpose: a ticket may come from someone else. */
 const DELEGATE_MODES: { value: OfficePermissionMode; label: string }[] = [
@@ -45,6 +51,8 @@ export class Board {
   private typeFilter: HTMLSelectElement
   private prioFilter: HTMLSelectElement
   private whoFilter: HTMLSelectElement
+  /** '' = every floor, GROUND, or a project id. Set to the player's floor each time the board opens. */
+  private floorFilter: HTMLSelectElement
   private selected: string | null = null
   private dragging: string | null = null
   /** Something changed while the user was dragging or typing; render when they stop. */
@@ -67,7 +75,8 @@ export class Board {
       { value: 'agents', label: 'Com agentes' },
       { value: 'none', label: 'Sem responsável' },
     ])
-    for (const c of [this.search, this.typeFilter, this.prioFilter, this.whoFilter]) c.addEventListener('input', () => this.renderColumns())
+    this.floorFilter = h('select', { class: 'input board-filter board-floor', title: 'Cada andar tem o seu quadro: os tickets cuja pasta fica no projeto do andar' })
+    for (const c of [this.search, this.typeFilter, this.prioFilter, this.whoFilter, this.floorFilter]) c.addEventListener('input', () => this.renderColumns())
 
     this.cols = h('div', { class: 'board-cols' })
     this.detail = h('div', { class: 'tdetail hidden' })
@@ -85,6 +94,7 @@ export class Board {
         'div',
         { class: 'board-head' },
         h('div', { class: 'board-title' }, icon('kanban', 18), 'Quadro de tickets', this.count),
+        this.floorFilter,
         this.search,
         this.typeFilter,
         this.prioFilter,
@@ -112,7 +122,14 @@ export class Board {
   }
 
   open(ticketId?: string): void {
+    const wasOpen = this.isOpen
     this.el.classList.remove('hidden')
+    this.syncFloors()
+    // A linked ticket shows on its own floor; otherwise the board follows the player.
+    const linked = ticketId ? this.state.tickets.get(ticketId) : undefined
+    if (linked) {
+      if (this.floorFilter.value) this.floorFilter.value = this.floorOf(linked)
+    } else if (!wasOpen) this.floorFilter.value = this.actions.currentProject()?.id ?? GROUND
     if (ticketId) this.selected = ticketId
     this.render()
     this.el.focus()
@@ -160,12 +177,33 @@ export class Board {
 
   // ---------- columns ----------
 
+  /** The floor a ticket belongs to: the project holding its folder, or the ground floor. */
+  private floorOf(t: Ticket): string {
+    return projectFor(this.state.settings.projects, t.cwd)?.id ?? GROUND
+  }
+
+  /** Floor options follow the projects; the choice survives when its floor still exists. */
+  private syncFloors(): void {
+    const projects = this.state.settings.projects
+    const keep = this.floorFilter.value
+    const options = [{ value: '', label: 'Todos os andares' }, { value: GROUND, label: 'Térreo' }, ...projects.map((p) => ({ value: p.id, label: p.name }))]
+    if (this.floorFilter.options.length !== options.length || options.some((o, i) => this.floorFilter.options[i].value !== o.value || this.floorFilter.options[i].text !== o.label)) {
+      this.floorFilter.replaceChildren(...options.map((o) => h('option', { value: o.value }, o.label)))
+    }
+    this.floorFilter.value = options.some((o) => o.value === keep) ? keep : ''
+  }
+
+  private onFloor(): Ticket[] {
+    const floor = this.floorFilter.value
+    return [...this.state.tickets.values()].filter((t) => !floor || this.floorOf(t) === floor)
+  }
+
   private visible(): Ticket[] {
     const q = this.search.value.trim().toLowerCase()
     const type = this.typeFilter.value
     const prio = this.prioFilter.value
     const who = this.whoFilter.value as Who | ''
-    return [...this.state.tickets.values()].filter((t) => {
+    return this.onFloor().filter((t) => {
       if (type && t.type !== type) return false
       if (prio && t.priority !== prio) return false
       if (who === 'me' && t.assignee?.kind !== 'player') return false
@@ -176,8 +214,9 @@ export class Board {
   }
 
   private renderColumns(): void {
+    this.syncFloors()
     const shown = this.visible()
-    const total = this.state.tickets.size
+    const total = this.onFloor().length
     this.count.textContent = shown.length === total ? String(total) : `${shown.length} de ${total}`
     this.cols.replaceChildren(
       ...STATUSES.map((s) => {
@@ -245,6 +284,7 @@ export class Board {
         { class: 'tcard-top' },
         h('span', { class: 'tkey' }, t.key),
         h('span', { class: `ttype ttype-${t.type}` }, labelOf(TYPES, t.type)),
+        this.floorFilter.value ? null : this.floorTag(t),
         h('span', { class: `tprio tprio-${t.priority}`, title: `Prioridade ${labelOf(PRIORITIES, t.priority).toLowerCase()}` }),
       ),
       h('div', { class: 'tcard-title' }, t.title),
@@ -838,6 +878,12 @@ export class Board {
 
   // ---------- create ----------
 
+  /** On "Todos os andares": which floor a card belongs to. */
+  private floorTag(t: Ticket): HTMLElement {
+    const p = projectFor(this.state.settings.projects, t.cwd)
+    return h('span', { class: 'tfloor', style: p?.brandColor ? `--floor:${p.brandColor}` : '', title: p ? `Andar ${p.name}` : 'Térreo' }, p?.name ?? 'Térreo')
+  }
+
   create(status: TicketStatus = 'todo'): void {
     const title = h('input', { class: 'input', maxlength: 160, placeholder: 'Ex.: Corrigir FITID duplicado na importação OFX' }) as HTMLInputElement
     const type = select(TYPES, 'task', () => undefined)
@@ -847,7 +893,10 @@ export class Board {
       status === 'backlog' ? 'backlog' : 'todo',
       () => undefined,
     )
-    let cwd = localStorage.getItem(LAST_CWD) ?? ''
+    // New tickets land on the floor being shown: its project folder, or the last folder used outside the projects.
+    const floor = this.state.settings.projects.find((p) => p.id === this.floorFilter.value)
+    const last = localStorage.getItem(LAST_CWD) ?? ''
+    let cwd = floor ? floor.cwd : this.floorFilter.value === GROUND && projectFor(this.state.settings.projects, last) ? '' : last
     const cwdLabel = h('span', { class: 'path-label' }, cwd || 'Nenhuma pasta')
     const pick = h('button', { class: 'btn', type: 'button' }, icon('folder', 15), 'Escolher…')
     pick.addEventListener('click', async () => {

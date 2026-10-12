@@ -80,7 +80,10 @@ export interface AgentSummary {
   activity: string
   desk: number
   look: Look
+  /** Running total of the current Claude Code session, as the SDK reports it (a resumed session includes earlier turns). */
   costUsd: number
+  /** What this agent spent while in the office: the sum of its entries in the cost book. Missing = nothing yet. */
+  spentUsd?: number
   createdAt: number
   sessionId?: string
   /** How full the conversation is, as in /context. Unknown until the first turn ends. */
@@ -214,6 +217,8 @@ export interface PermissionRequest {
   reason?: string
   /** Where the request comes from, e.g. "Ciclo de Produto · Passo 1 · Foco da semana". */
   context?: string
+  /** Set when a subagent (Agent tool) of this agent asked, not the agent itself: what that subagent is doing, or '' when unknown. */
+  subagent?: string
   canAlwaysAllow: boolean
   createdAt: number
 }
@@ -283,6 +288,10 @@ export interface Settings {
   defaultAccounts: string[]
   /** Tickets in "Feito" close by themselves after this many days; 0 = only by hand. */
   ticketAutoCloseDays: number
+  /** Subagents (Agent tool) an office agent may run at the same time; 0 = Claude Code's own limit. */
+  maxSubagents: number
+  /** Most an office agent may spend, in USD, counted from the cost book; 0 = no cap. */
+  agentBudgetUsd: number
 }
 
 /**
@@ -292,7 +301,7 @@ export interface Settings {
  */
 export interface ProjectFloor {
   id: string
-  /** Shown in the elevator and on the lobby sign. */
+  /** Shown in the elevator and on the Diretoria sign. */
   name: string
   cwd: string
   /** Accounts its agents run on (Account.id); two or more take turns. Missing or empty = Settings.defaultAccounts. */
@@ -435,6 +444,8 @@ export interface OfficeState {
   system: SystemStats | null
   /** Squads of every project floor; each one's cwd is its project folder. */
   squads: SquadInfo[]
+  /** Today's spend per folder, from the cost book. */
+  ledgerToday: LedgerToday
 }
 
 export type OfficeEvent =
@@ -457,6 +468,10 @@ export type OfficeEvent =
   | { type: 'squads'; squads: SquadInfo[] }
   /** A squad member (subagent) finished; failures carry what went wrong. */
   | { type: 'member:ended'; agentId: string; taskId: string; member: string; status: 'completed' | 'failed' | 'stopped'; summary?: string }
+  /** The cost book changed, or a new local day began (then costByCwd starts empty). */
+  | { type: 'ledger:today'; today: LedgerToday }
+  /** Claude Code statistics were read again from disk. */
+  | { type: 'stats'; stats: ClaudeStats }
 
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
@@ -523,5 +538,170 @@ export interface OfficeAPI {
   listSquads(cwd: string): Promise<SquadInfo[]>
   /** An orchestrator that runs one cycle of the squad with its own team only. */
   runSquad(cwd: string, code: string, permissionMode: OfficePermissionMode, note?: string): Promise<AgentSummary>
+  /** The cost book, cut to the days and folder asked for (all of it when empty). */
+  getLedger(query?: LedgerQuery): Promise<Ledger>
+  /** Claude Code statistics as last read from disk (no API call). A stale copy starts a background read. */
+  getStats(): Promise<ClaudeStats>
+  /** Reads the new bytes of the transcripts now (disk only, no API call). */
+  refreshStats(): Promise<ClaudeStats>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
+
+// ---------- cost book (livro-caixa) ----------
+
+/** Totals of a slice of the cost book. */
+export interface LedgerTotals {
+  costUsd: number
+  /** Replies the agents finished (SDK results, errors and /compact included). */
+  results: number
+  /** Model turns of those replies (num_turns of each result). */
+  turns: number
+  /** Wall time of those replies. */
+  durationMs: number
+}
+
+/** Spend of one model. Tokens are summed deltas of the SDK's modelUsage. */
+export interface LedgerModel {
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  cacheReadTokens: number
+  cacheWriteTokens: number
+}
+
+/** One agent on one day in one folder. */
+export interface LedgerAgentDay extends LedgerTotals {
+  /** model id -> USD */
+  models: Record<string, number>
+  /** Account.id -> USD */
+  accounts: Record<string, number>
+}
+
+/** One project folder (an agent's cwd) on one local day. */
+export interface LedgerDay extends LedgerTotals {
+  /** Agent id -> its share; names live in Ledger.agents. */
+  agents: Record<string, LedgerAgentDay>
+  /** model id -> spend */
+  models: Record<string, LedgerModel>
+  /** Account.id the turns ran on -> totals. */
+  accounts: Record<string, LedgerTotals>
+}
+
+/** Who an agent id of the book was. Kept after the agent is dismissed. */
+export interface LedgerAgent {
+  id: string
+  name: string
+  cwd: string
+  look?: Look
+  role?: 'orchestrator'
+  squad?: string
+  /** First and last entry, ms. */
+  firstAt: number
+  lastAt: number
+  /** When it left the office; missing = still there. */
+  dismissedAt?: number
+}
+
+/** A session starting on an account or moving to another one when a plan limit hit. */
+export interface LedgerSwitch {
+  t: number
+  agentId: string
+  sessionId: string
+  cwd: string
+  /** Account.id before; missing on a start. */
+  from?: string
+  to: string
+  reason: 'start' | 'failover'
+}
+
+/**
+ * The office's own record of spend, kept in office.json. It never shrinks when an
+ * agent leaves, and it does not depend on Claude Code transcripts (deleted after a while).
+ * Days are local dates, 'YYYY-MM-DD'.
+ */
+export interface Ledger {
+  /** Folder -> day -> totals. */
+  days: Record<string, Record<string, LedgerDay>>
+  agents: Record<string, LedgerAgent>
+  /** Account changes, oldest first (the last few thousand). */
+  switches: LedgerSwitch[]
+}
+
+/** Days are inclusive 'YYYY-MM-DD'; cwd keeps that folder and the ones inside it. */
+export interface LedgerQuery {
+  from?: string
+  to?: string
+  cwd?: string
+}
+
+/** What the scoreboards need: today's spend per folder and per agent (dismissed ones included). */
+export interface LedgerToday {
+  day: string
+  costByCwd: Record<string, number>
+  /** Agent id -> today's spend, across folders. */
+  agents: Record<string, { name: string; cwd: string; usd: number }>
+}
+
+// ---------- Claude Code statistics (from the transcripts on disk) ----------
+
+/** Tokens of one model. costUsd is the API-price equivalent; missing = no price for this model. */
+export interface ModelTokens {
+  input: number
+  output: number
+  cacheRead: number
+  cacheWrite5m: number
+  cacheWrite1h: number
+  webSearch: number
+  /** Model responses (deduplicated API messages). */
+  messages: number
+  costUsd?: number
+}
+
+export interface DayStats {
+  /** 'YYYY-MM-DD', local time. */
+  date: string
+  /** Model responses. */
+  messages: number
+  sessions: number
+  toolCalls: number
+  /** Input + output + cache tokens. */
+  tokens: number
+  byModel: Record<string, ModelTokens>
+  costUsd: number
+  /** From ~/.claude/stats-cache.json (days before the app started reading): totals only. */
+  legacy?: boolean
+}
+
+/** One account, the terminal (sessions with no account on record) or everything. */
+export interface StatsBucket {
+  /** Account.id, 'terminal' or 'all'. */
+  accountId: string
+  label: string
+  color: string
+  /** Oldest first; only days with activity. */
+  days: DayStats[]
+  byModel: Record<string, ModelTokens>
+  totals: { sessions: number; messages: number; toolCalls: number; tokens: number; costUsd: number; activeDays: number }
+  streak: { current: number; longest: number }
+  /** Model responses per local hour. */
+  hourCounts: number[]
+  longestSession?: { sessionId: string; durationMs: number; messages: number }
+}
+
+export interface ClaudeStats {
+  generatedAt: number
+  /** 'all' first, then one per account with data, then 'terminal'. */
+  buckets: StatsBucket[]
+  /** UsageMonitor's last numbers, from memory. */
+  plan: PlanUsage[]
+  /** Models with no price in the local table: tokens only. */
+  unpricedModels: string[]
+  /** First day read from the transcripts; older days come from stats-cache.json. */
+  since?: string
+  /** A read is running in the background. */
+  reading: boolean
+  /** Last read's numbers: files, bytes, time. */
+  lastRead?: { at: number; files: number; bytes: number; ms: number }
+  error?: string
+}
+

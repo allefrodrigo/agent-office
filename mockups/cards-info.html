@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Cards de info: propostas</title>
+<style>
+:root {
+  --page: #13141f; --card: rgba(24,25,40,.92);
+  --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.14);
+  --text: #eceaf6; --muted: #9c9ab5; --dim: #6f6d8a;
+  --accent: #d97757; --green: #3ecf8e; --amber: #f5a524; --blue: #5b9cf0; --red: #ef5b5b;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+svg.i { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+header.top { position: sticky; top: 0; z-index: 10; background: rgba(19,20,31,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  padding: 14px 32px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+header.top h1 { font-size: 16px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.seg button { padding: 6px 12px; color: var(--muted); font-size: 12px; }
+.seg button.on { background: rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+.lbl { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 6px; }
+.tally { margin-left: auto; color: var(--muted); font-size: 12px; }
+main { padding: 28px 32px 80px; max-width: 1500px; margin: 0 auto; }
+.intro { max-width: 800px; color: var(--muted); margin-bottom: 28px; }
+.intro h2 { color: var(--text); font-size: 15px; margin: 0 0 6px; }
+.intro ul { margin: 6px 0 0; padding-left: 18px; }
+.intro b { color: var(--text); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); gap: 28px; }
+.variant { background: #171826; border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.variant.approved { border-color: rgba(62,207,142,.5); box-shadow: 0 0 0 1px rgba(62,207,142,.25); }
+.variant.rejected { opacity: .45; }
+.v-head { display: flex; align-items: baseline; gap: 10px; }
+.v-head h3 { margin: 0; font-size: 14px; }
+.v-tag { font: 600 10.5px var(--mono); color: var(--accent); background: rgba(217,119,87,.12); padding: 2px 6px; border-radius: 5px; }
+.v-tag.rec { color: #8ff0c4; background: rgba(62,207,142,.12); }
+.v-h { margin-left: auto; font: 11px var(--mono); color: var(--dim); }
+.v-desc { color: var(--muted); font-size: 12.5px; margin: 0; }
+.v-desc b { color: var(--text); font-weight: 600; }
+/* fundo imitando o piso do escritório */
+.stage { display: flex; gap: 18px; justify-content: center; align-items: flex-start; flex-wrap: wrap; padding: 22px 16px; border-radius: 12px; min-height: 200px;
+  background-color: #b98a5a;
+  background-image: linear-gradient(45deg, rgba(0,0,0,.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.08) 75%),
+    linear-gradient(45deg, rgba(0,0,0,.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.08) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.col { display: flex; flex-direction: column; gap: 10px; width: 280px; }
+.cap { font-size: 11px; color: rgba(0,0,0,.6); font-weight: 600; }
+.vote { display: flex; gap: 8px; }
+.vote button { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line-strong); font-weight: 600; font-size: 12px; color: var(--muted); }
+.vote button.yes.on { background: rgba(62,207,142,.16); color: #8ff0c4; border-color: rgba(62,207,142,.4); }
+.vote button.no.on { background: rgba(239,91,91,.14); color: #ffb0b0; border-color: rgba(239,91,91,.35); }
+.summary { margin-top: 32px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); }
+.summary textarea { width: 100%; height: 56px; margin-top: 8px; background: #11121c; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px var(--mono); }
+
+/* ---------- átomos do card ---------- */
+.card { width: 280px; background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px; box-shadow: 0 10px 40px rgba(5,5,15,.45), 0 2px 8px rgba(5,5,15,.3);
+  backdrop-filter: blur(6px); padding: 12px 14px; position: relative; }
+.head { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.head .sp { flex: 1; }
+.ibtn { width: 24px; height: 24px; display: inline-grid; place-items: center; border-radius: 6px; color: var(--muted); }
+.ibtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.stale { font: 600 10px -apple-system, sans-serif; letter-spacing: 0; text-transform: none; color: #ffd38a; background: rgba(245,165,36,.14); padding: 1px 6px; border-radius: 5px; margin-left: 6px; }
+.bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; flex: 1; }
+.bar i { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.warn .bar i, .bar.warn i { background: var(--amber); } .full .bar i, .bar.full i { background: var(--red); }
+.num { font: 600 11.5px var(--mono); text-align: right; }
+.warn .num, .num.warn { color: #ffd38a; } .full .num, .num.full { color: #ff9a9a; }
+.dim { color: var(--dim); } .muted { color: var(--muted); }
+.adot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.mono { font-family: var(--mono); }
+.agents { font: 600 10px var(--mono); color: var(--muted); background: rgba(255,255,255,.07); padding: 0 5px; border-radius: 4px; line-height: 15px; }
+.agents.on { color: #8ff0c4; background: rgba(62,207,142,.14); }
+.pill-out { font-size: 10.5px; font-weight: 600; color: #ffb0b0; background: rgba(239,91,91,.14); padding: 1px 6px; border-radius: 5px; white-space: nowrap; }
+.pill-login { font-size: 10.5px; font-weight: 600; color: #ffd38a; background: rgba(245,165,36,.14); padding: 1px 6px; border-radius: 5px; white-space: nowrap; }
+.sep { height: 1px; background: var(--line); margin: 10px 0; }
+
+/* ---------- 0: atual ---------- */
+.v0 .acc { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13px; margin: 8px 0 2px; }
+.v0 .row { display: grid; grid-template-columns: 44px 1fr 40px 80px; align-items: center; gap: 8px; height: 26px; font-weight: 600; }
+.v0 .row .r { text-align: right; color: var(--dim); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.v0 .line { display: flex; justify-content: space-between; color: var(--muted); height: 22px; }
+
+/* ---------- A: tabela ---------- */
+.vA table { width: 100%; border-collapse: collapse; }
+.vA th { font-size: 10.5px; color: var(--dim); font-weight: 600; text-align: left; padding: 0 0 4px; }
+.vA td { padding: 5px 0; vertical-align: middle; border-top: 1px solid var(--line); }
+.vA .nm { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12.5px; white-space: nowrap; }
+.vA .cell { display: flex; align-items: center; gap: 6px; padding-left: 8px; }
+.vA .cell .num { width: 30px; }
+.vA .cell small, .vA td > small { display: block; white-space: nowrap; font-size: 10px; color: var(--dim); text-align: right; padding-left: 8px; margin-top: 1px; }
+.vA .zero { color: var(--dim); font: 11px var(--mono); padding-left: 8px; }
+.vA .foot { margin-top: 6px; font-size: 11px; color: var(--dim); }
+.vA .sys2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.vA .sys2 .k { display: flex; justify-content: space-between; font-size: 11.5px; font-weight: 600; margin-bottom: 4px; }
+.vA .procs { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+
+/* ---------- B: anéis ---------- */
+.vB .rings { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.vB .rc { display: flex; flex-direction: column; align-items: center; gap: 3px; text-align: center; min-width: 0; padding: 4px 0; border-radius: 10px; }
+.vB .rc.out { background: rgba(239,91,91,.07); }
+.vB .ring { position: relative; width: 62px; height: 62px; }
+.vB .ring svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.vB .ring .c { position: absolute; inset: 0; display: grid; place-items: center; font: 700 13px var(--mono); }
+.vB .ring .c small { display: block; font: 500 9px -apple-system, sans-serif; color: var(--dim); margin-top: -3px; }
+.vB .rn { display: flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; max-width: 100%; }
+.vB .rn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vB .rs { font-size: 10.5px; color: var(--dim); }
+.vB .wk { margin-top: 8px; display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--muted); }
+.vB .gauges { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.vB .g { display: flex; flex-direction: column; align-items: center; }
+.vB .g svg { display: block; }
+.vB .g .gv { font: 700 15px var(--mono); margin-top: -26px; }
+.vB .g .gl { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.vB .procs { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+
+/* ---------- C: HUD pixel ---------- */
+.vC.card { background: rgba(16,17,27,.94); border: 2px solid #2d2f4a; border-radius: 8px; box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.4); }
+.vC .head { font-family: var(--mono); color: #c9c6e8; letter-spacing: .12em; }
+.vC .acc { margin-top: 8px; }
+.vC .an { display: flex; align-items: center; gap: 7px; font: 700 11.5px var(--mono); text-transform: uppercase; letter-spacing: .05em; }
+.vC .an .px { width: 8px; height: 8px; flex: none; }
+.vC .an .tag { margin-left: auto; font: 600 10px var(--mono); color: var(--dim); letter-spacing: 0; text-transform: none; }
+.vC .an .tag.on { color: #8ff0c4; }
+.vC .r { display: grid; grid-template-columns: 38px 1fr 34px 56px; align-items: center; gap: 7px; margin-top: 4px; font: 11px var(--mono); }
+.vC .r .l { color: var(--muted); }
+.vC .blocks { display: flex; gap: 2px; }
+.vC .blocks i { flex: 1; height: 9px; background: rgba(255,255,255,.07); }
+.vC .blocks i.on { background: var(--green); }
+.vC .warn .blocks i.on { background: var(--amber); } .vC .full .blocks i.on { background: var(--red); }
+.vC .r .t { color: var(--dim); text-align: right; font-size: 10.5px; }
+.vC .led { margin-top: 10px; padding: 4px 8px; background: #0b0c13; border: 1px solid rgba(62,207,142,.15); border-radius: 4px; font: 600 11px var(--mono); color: #8ff0c4; display: flex; gap: 7px; align-items: center; }
+.vC .led.warn { color: #ffd38a; border-color: rgba(245,165,36,.25); } .vC .led.full { color: #ff9a9a; border-color: rgba(239,91,91,.25); }
+.vC .led .d { width: 6px; height: 6px; background: currentColor; flex: none; }
+.vC .procs { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-top: 10px; font: 11px var(--mono); color: var(--muted); }
+.vC .procs b { color: var(--text); font-weight: 600; text-align: right; }
+
+/* ---------- D: fita recolhida ---------- */
+.vD.card { padding: 0; overflow: hidden; }
+.vD .strip { display: flex; align-items: center; gap: 8px; padding: 9px 8px 9px 12px; cursor: pointer; }
+.vD .strip:hover { background: rgba(255,255,255,.03); }
+.vD .chips { display: flex; gap: 5px; flex: 1; min-width: 0; }
+.vD .chip { display: inline-flex; align-items: center; gap: 5px; padding: 3px 7px; border-radius: 7px; background: rgba(255,255,255,.06); font: 600 11px var(--mono); white-space: nowrap; }
+.vD .chip .mbar { width: 18px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.1); overflow: hidden; }
+.vD .chip .mbar i { display: block; height: 100%; background: var(--green); }
+.vD .chip.warn .mbar i { background: var(--amber); } .vD .chip.full .mbar i { background: var(--red); }
+.vD .chip.warn { color: #ffd38a; } .vD .chip.full { color: #ff9a9a; background: rgba(239,91,91,.12); }
+.vD .chev { transition: transform .2s; color: var(--muted); }
+.vD.open .chev { transform: rotate(180deg); }
+.vD .body { display: none; padding: 2px 14px 12px; border-top: 1px solid var(--line); }
+.vD.open .body { display: block; }
+.vD .sec { margin-top: 10px; font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; }
+.vD .sec .sp { flex: 1; }
+.vD .acc { display: grid; grid-template-columns: 8px 1fr auto; gap: 4px 8px; align-items: center; margin-top: 8px; }
+.vD .acc .nm { font-weight: 600; font-size: 12.5px; display: flex; gap: 6px; align-items: center; }
+.vD .acc .rr { grid-column: 2 / 4; display: flex; align-items: center; gap: 8px; }
+.vD .acc .rr .num { width: 32px; }
+.vD .acc .rr small { color: var(--dim); font-size: 11px; width: 74px; text-align: right; white-space: nowrap; }
+.vD .zero { margin-top: 8px; font-size: 11.5px; color: var(--dim); padding: 6px 8px; border-radius: 7px; background: rgba(255,255,255,.03); }
+.vD .sr { display: grid; grid-template-columns: 34px 1fr 34px 76px; gap: 8px; align-items: center; margin-top: 7px; font-size: 12px; font-weight: 600; }
+.vD .sr small { color: var(--dim); font-weight: 400; font-size: 11px; text-align: right; white-space: nowrap; }
+.vD .procs { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+
+/* ---------- E: por risco ---------- */
+.vE .alert { display: flex; gap: 8px; align-items: flex-start; padding: 8px 10px; border-radius: 9px; margin-bottom: 10px; font-size: 12px; line-height: 1.35;
+  background: rgba(245,165,36,.12); color: #ffd38a; }
+.vE .alert.full { background: rgba(239,91,91,.12); color: #ffb0b0; }
+.vE .alert.ok { background: rgba(62,207,142,.1); color: #8ff0c4; }
+.vE .alert b { color: inherit; }
+.vE .hero { padding: 10px; border-radius: 10px; background: rgba(255,255,255,.04); border: 1px solid var(--line); }
+.vE .hero .t { display: flex; align-items: center; gap: 7px; font-weight: 700; }
+.vE .hero .t .k { margin-left: auto; font-size: 10.5px; color: var(--dim); font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
+.vE .hero .big { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 6px; }
+.vE .hero .big b { font: 700 24px var(--mono); }
+.vE .hero .big span { color: var(--muted); font-size: 12px; }
+.vE .rest { margin-top: 8px; }
+.vE .rr { display: grid; grid-template-columns: 8px 1fr 70px 34px; gap: 8px; align-items: center; height: 24px; font-size: 12px; }
+.vE .rr .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; gap: 6px; align-items: center; }
+.vE .wk { font-size: 11px; color: var(--dim); margin-top: 6px; }
+.vE .spark { display: grid; grid-template-columns: 34px 1fr 34px; gap: 8px; align-items: center; margin-top: 6px; font-size: 12px; font-weight: 600; }
+.vE .spark svg { width: 100%; height: 22px; display: block; }
+.vE .procs { display: flex; justify-content: space-between; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Cards de info: 5 propostas</h1>
+  <div><span class="lbl">Cenário</span>
+    <div class="seg" id="scSeg">
+      <button data-v="normal" class="on">Tranquilo</button>
+      <button data-v="tight">Apertado</button>
+      <button data-v="trouble">Com problema</button>
+      <button data-v="single">Só 1 conta</button>
+    </div>
+  </div>
+  <div class="tally" id="tally"></div>
+</header>
+
+<main>
+  <section class="intro">
+    <h2>O que incomoda nos cards atuais</h2>
+    <ul>
+      <li><b>Altura demais.</b> Com 3 contas, os dois cards passam de 500px e tampam boa parte do escritório.</li>
+      <li><b>Repetição.</b> "5h" e "Fable" aparecem três vezes cada, e as barras de 0% ocupam espaço sem dizer nada.</li>
+      <li><b>Falta o que importa.</b> Não diz qual conta os agentes estão usando, qual está perto do limite nem quanto falta para renovar ("19:00" exige fazer conta de cabeça).</li>
+      <li><b>Sistema sem contexto.</b> CPU e RAM aparecem, mas sem destaque quando apertam, e a linha "Escritório / Agentes" parece um rodapé solto.</li>
+    </ul>
+    <p>Troque o cenário no topo: <b>Apertado</b> põe uma conta perto do limite e outra sem espaço; <b>Com problema</b> mostra conta sem login e dados desatualizados. Os cards ficam sobre um piso parecido com o do jogo para avaliar quanto tampam.</p>
+  </section>
+  <div class="grid" id="grid"></div>
+  <div class="summary">Suas escolhas (cole de volta para mim):<textarea id="out" readonly></textarea></div>
+</main>
+
+<script>
+// ---------- cenários ----------
+const ACC = (name, color, agents, w5, wk, extra = {}) => ({ name, color, agents, w5, wk, ...extra })
+const W = (p, at, left) => ({ p, at, left })
+const SC = {
+  normal: {
+    accounts: [
+      ACC('Principal', '#d97757', 0, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+      ACC('QT - Allef', '#5b9cf0', 1, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+      ACC('MKT - Allef', '#3ecf8e', 0, W(8, '19:29', '1h41'), W(0, 'sex 13:00', '4 dias')),
+    ],
+    sys: { cpu: 20, ram: 58, used: '9,3 GB', total: '16 GB', app: '1% · 705 MB', agentsN: 1, agents: '0% · 42 MB', cpuHist: [18, 22, 19, 25, 21, 20, 17, 23, 20, 20], ramHist: [55, 56, 56, 57, 57, 58, 58, 58, 58, 58] },
+  },
+  tight: {
+    accounts: [
+      ACC('Principal', '#d97757', 1, W(67, '19:00', '1h12'), W(41, 'amanhã 00:00', '6h12')),
+      ACC('QT - Allef', '#5b9cf0', 3, W(91, '19:00', '1h12'), W(78, 'amanhã 00:00', '6h12')),
+      ACC('MKT - Allef', '#3ecf8e', 0, W(100, '19:29', '1h41'), W(12, 'sex 13:00', '4 dias'), { out: '19:29' }),
+    ],
+    sys: { cpu: 78, ram: 88, used: '14,1 GB', total: '16 GB', app: '4% · 812 MB', agentsN: 4, agents: '61% · 2,1 GB', cpuHist: [30, 42, 55, 61, 70, 66, 74, 80, 77, 78], ramHist: [70, 72, 75, 79, 82, 84, 86, 87, 88, 88] },
+  },
+  trouble: {
+    stale: true,
+    accounts: [
+      ACC('Principal', '#d97757', 0, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+      ACC('QT - Allef', '#5b9cf0', 1, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+      ACC('MKT - Allef', '#3ecf8e', 0, W(0, '', ''), W(0, '', ''), { nologin: true }),
+    ],
+    sys: { cpu: 20, ram: 58, used: '9,3 GB', total: '16 GB', app: '1% · 705 MB', agentsN: 1, agents: '0% · 42 MB', cpuHist: [18, 22, 19, 25, 21, 20, 17, 23, 20, 20], ramHist: [55, 56, 56, 57, 57, 58, 58, 58, 58, 58] },
+  },
+  single: {
+    accounts: [ACC('Principal', '#d97757', 2, W(34, '19:00', '1h12'), W(9, 'amanhã 00:00', '6h12'))],
+    sys: { cpu: 31, ram: 61, used: '9,8 GB', total: '16 GB', app: '2% · 720 MB', agentsN: 2, agents: '12% · 380 MB', cpuHist: [25, 28, 30, 33, 29, 31, 35, 30, 31, 31], ramHist: [58, 59, 60, 60, 61, 61, 61, 61, 61, 61] },
+  },
+}
+let sc = 'normal'
+const S = () => SC[sc]
+const lv = (p) => (p >= 85 ? 'full' : p >= 60 ? 'warn' : 'ok')
+const many = () => S().accounts.length > 1
+const colorOf = (p) => ({ ok: 'var(--green)', warn: 'var(--amber)', full: 'var(--red)' })[lv(p)]
+
+const P = {
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  bot: '<rect x="4" y="8" width="16" height="12" rx="2"/><path d="M12 8V4M8 14h.01M16 14h.01"/>',
+}
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${P[n]}</svg>`
+const head = (title, tools = true) => `<div class="head">${title}${S().stale ? '<span class="stale">desatualizado</span>' : ''}<span class="sp"></span>${tools ? `<button class="ibtn" title="Contas">${ic('users')}</button><button class="ibtn" title="Atualizar">${ic('history')}</button>` : ''}</div>`
+const bar = (p) => `<div class="bar ${lv(p)}"><i style="width:${Math.min(100, p)}%"></i></div>`
+const agentsTag = (n) => (n ? `<span class="agents on" title="${n} agente(s) usando">${n}</span>` : '')
+const status = (a) => (a.nologin ? '<span class="pill-login">sem login</span>' : a.out ? `<span class="pill-out">cheia até ${a.out}</span>` : '')
+
+// ---------- variantes ----------
+const V = [
+  {
+    id: 'atual', title: 'Atual', tag: 'referência',
+    desc: 'Como está hoje, para comparar.',
+    cards: () => {
+      const s = S().sys
+      return [`<div class="card v0">${head('Limites do plano')}
+        ${S().accounts.map((a) => `${many() ? `<div class="acc"><span class="adot" style="background:${a.color}"></span>${a.name} ${status(a)}</div>` : ''}
+          ${a.nologin ? '' : [['5h', a.w5], ['Fable', a.wk]].map(([l, w]) => `<div class="row ${lv(w.p)}"><span>${l}</span>${bar(w.p)}<span class="num">${w.p}%</span><span class="r">${w.at}</span></div>`).join('')}`).join('')}</div>`,
+        `<div class="card v0">${head('Sistema', false)}
+          <div class="row ${lv(s.cpu)}"><span>CPU</span>${bar(s.cpu)}<span class="num">${s.cpu}%</span><span class="r"></span></div>
+          <div class="row ${lv(s.ram)}"><span>RAM</span>${bar(s.ram)}<span class="num">${s.ram}%</span><span class="r">${s.used}/${s.total}</span></div>
+          <div class="sep"></div><div class="line"><span>Escritório</span><span class="mono">${s.app}</span></div><div class="line"><span>Agentes (${s.agentsN})</span><span class="mono">${s.agents}</span></div></div>`]
+    },
+  },
+  {
+    id: 'A', title: 'Tabela compacta', tag: 'A',
+    desc: '<b>Contas viram linhas, janelas viram colunas.</b> "5h" e "Fable" aparecem uma vez só. Embaixo de cada barra, quanto falta para renovar (↻ 1h12). O selo verde mostra quantos agentes usam a conta. Sistema em duas colunas.',
+    cards: () => {
+      const s = S().sys
+      return [`<div class="card vA">${head('Limites do plano')}
+        <table><tr><th></th><th style="padding-left:8px">5h</th><th style="padding-left:8px">Fable</th></tr>
+        ${S().accounts.map((a) => `<tr><td><div class="nm"><span class="adot" style="background:${a.color}"></span>${a.name}${agentsTag(a.agents)}</div></td>
+          ${a.nologin ? `<td colspan="2" style="padding-left:8px">${status(a)}</td>` : [a.w5, a.wk].map((w) => w.p === 0 ? `<td><div class="zero">0%</div></td>` :
+            `<td class="${lv(w.p)}"><div class="cell">${bar(w.p)}<span class="num">${w.p}%</span></div><small>${a.out && w === a.w5 ? 'até ' + a.out : '↻ ' + w.left}</small></td>`).join('')}</tr>`).join('')}
+        </table></div>`,
+        `<div class="card vA">${head('Sistema', false)}
+          <div class="sys2"><div class="${lv(s.cpu)}"><div class="k"><span>CPU</span><span class="num">${s.cpu}%</span></div>${bar(s.cpu)}</div>
+          <div class="${lv(s.ram)}"><div class="k"><span>RAM</span><span class="num">${s.ram}%</span></div>${bar(s.ram)}</div></div>
+          <div class="procs"><span>Escritório <b class="mono" style="color:var(--text);font-weight:500">${s.app.split(' · ')[1]}</b></span><span>Agentes (${s.agentsN}) <b class="mono" style="color:var(--text);font-weight:500">${s.agents.split(' · ')[1]}</b></span></div></div>`]
+    },
+  },
+  {
+    id: 'B', title: 'Anéis por conta', tag: 'B',
+    desc: '<b>Cada conta vira um anel da janela de 5h</b>, lado a lado, com o tempo para renovar embaixo. A janela semanal (Fable) vira uma linha só para todas. Sistema com dois mostradores tipo velocímetro.',
+    cards: () => {
+      const s = S().sys
+      const ring = (a) => {
+        const r = 26, C = 2 * Math.PI * r, p = a.nologin ? 0 : a.w5.p
+        return `<div class="rc ${a.out ? 'out' : ''}"><div class="ring"><svg width="62" height="62"><circle cx="31" cy="31" r="${r}" stroke="rgba(255,255,255,.08)" stroke-width="5" fill="none"/>
+          <circle cx="31" cy="31" r="${r}" stroke="${colorOf(p)}" stroke-width="5" fill="none" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p / 100)}"/></svg>
+          <div class="c"><div>${a.nologin ? '–' : p + '%'}<small>5h</small></div></div></div>
+          <div class="rn"><span class="adot" style="background:${a.color}"></span><span>${a.name}</span></div>
+          <div class="rs">${a.agents ? agentsTag(a.agents) + ' ' : ''}${a.nologin ? status(a) : a.out ? `<span class="pill-out">até ${a.out}</span>` : 'renova ' + a.w5.left}</div></div>`
+      }
+      const wkMax = Math.max(...S().accounts.filter((a) => !a.nologin).map((a) => a.wk.p))
+      const gauge = (label, p, sub) => {
+        const r = 30, C = Math.PI * r
+        return `<div class="g"><svg width="80" height="46"><path d="M10 40 A30 30 0 0 1 70 40" stroke="rgba(255,255,255,.08)" stroke-width="7" fill="none" stroke-linecap="round"/>
+          <path d="M10 40 A30 30 0 0 1 70 40" stroke="${colorOf(p)}" stroke-width="7" fill="none" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - p / 100)}"/></svg>
+          <div class="gv">${p}%</div><div class="gl">${label}${sub ? ` <span class="dim">${sub}</span>` : ''}</div></div>`
+      }
+      return [`<div class="card vB">${head('Limites do plano')}<div class="rings" style="grid-template-columns:repeat(${S().accounts.length},1fr)">${S().accounts.map(ring).join('')}</div>
+          <div class="wk ${lv(wkMax)}"><span>Fable</span>${bar(wkMax)}<span class="num">${wkMax}%</span><span class="dim" style="font-size:11px">${many() ? 'na mais usada' : ''}</span></div></div>`,
+        `<div class="card vB">${head('Sistema', false)}<div class="gauges">${gauge('CPU', s.cpu)}${gauge('RAM', s.ram, s.used)}</div>
+          <div class="procs"><span>Escritório <span class="mono" style="color:var(--text)">${s.app}</span></span><span>Agentes ${s.agentsN} <span class="mono" style="color:var(--text)">${s.agents.split(' · ')[1]}</span></span></div></div>`]
+    },
+  },
+  {
+    id: 'C', title: 'HUD pixel', tag: 'C',
+    desc: '<b>Mesma linguagem do crachá novo</b>: fonte de máquina, barras em blocos, bordas retas e um letreiro LED com o resumo ("tudo tranquilo", "QT perto do limite"). Parece parte do jogo, não um painel de sistema.',
+    cards: () => {
+      const s = S().sys
+      const blocks = (p) => `<div class="blocks">${Array.from({ length: 10 }, (_, i) => `<i class="${i < Math.round(p / 10) ? 'on' : ''}"></i>`).join('')}</div>`
+      const worst = S().accounts.filter((a) => !a.nologin).sort((a, b) => b.w5.p - a.w5.p)[0]
+      const msg = S().accounts.find((a) => a.out) ? `${S().accounts.find((a) => a.out).name} cheia · volta ${S().accounts.find((a) => a.out).out}` : lv(worst.w5.p) !== 'ok' ? `${worst.name} perto do limite` : S().accounts.find((a) => a.nologin) ? `${S().accounts.find((a) => a.nologin).name} sem login` : 'Tudo tranquilo'
+      const msgLv = S().accounts.find((a) => a.out) ? 'full' : lv(worst.w5.p) !== 'ok' || S().accounts.find((a) => a.nologin) ? 'warn' : ''
+      const sysLv = lv(Math.max(s.cpu, s.ram))
+      return [`<div class="card vC">${head('Limites do plano')}
+        ${S().accounts.map((a) => `<div class="acc"><div class="an"><span class="px" style="background:${a.color}"></span>${a.name}<span class="tag ${a.agents ? 'on' : ''}">${a.nologin ? 'SEM LOGIN' : a.agents ? '▸ ' + a.agents + ' agente' + (a.agents > 1 ? 's' : '') : 'livre'}</span></div>
+          ${a.nologin ? '' : [['5h', a.w5], ['Fable', a.wk]].map(([l, w]) => `<div class="r ${lv(w.p)}"><span class="l">${l}</span>${blocks(w.p)}<span class="num">${w.p}%</span><span class="t">${a.out && l === '5h' ? a.out : w.left}</span></div>`).join('')}</div>`).join('')}
+        <div class="led ${msgLv}"><span class="d"></span>${msg}</div></div>`,
+        `<div class="card vC">${head('Sistema', false)}
+          <div class="r ${lv(s.cpu)}"><span class="l">CPU</span>${blocks(s.cpu)}<span class="num">${s.cpu}%</span><span class="t"></span></div>
+          <div class="r ${lv(s.ram)}"><span class="l">RAM</span>${blocks(s.ram)}<span class="num">${s.ram}%</span><span class="t">${s.used}</span></div>
+          <div class="procs"><span>Escritório</span><b>${s.app}</b><span>Agentes (${s.agentsN})</span><b>${s.agents}</b></div>
+          ${sysLv !== 'ok' ? `<div class="led ${sysLv}"><span class="d"></span>Mac apertado: feche algo</div>` : ''}</div>`]
+    },
+  },
+  {
+    id: 'D', title: 'Fita recolhida', tag: 'D · recomendada', rec: true,
+    desc: '<b>Um card só, de ~42px, com um chip por conta e CPU/RAM.</b> O escritório fica livre. Clique para abrir o detalhe: contas com barra e "renova em", as janelas zeradas resumidas numa linha, e o sistema embaixo. Um chip fica vermelho quando a conta enche.',
+    split: true,
+    cards: (open) => {
+      const s = S().sys
+      const chips = S().accounts.map((a) => {
+        const p = a.nologin ? 0 : a.w5.p
+        return `<span class="chip ${a.nologin ? 'warn' : lv(p)}" title="${a.name}: 5h ${p}%"><span class="adot" style="background:${a.color};width:6px;height:6px"></span>${a.nologin ? '!' : p + '%'}</span>`
+      }).join('')
+      const sysChip = `<span class="chip ${lv(Math.max(s.cpu, s.ram))}" title="CPU ${s.cpu}% · RAM ${s.ram}%">Mac ${Math.max(s.cpu, s.ram)}%</span>`
+      const zeros = S().accounts.filter((a) => !a.nologin && a.wk.p === 0)
+      const nonZeroWk = S().accounts.filter((a) => !a.nologin && a.wk.p > 0)
+      return `<div class="card vD ${open ? 'open' : ''}">
+        <div class="strip" data-toggle><div class="chips">${chips}${sysChip}</div>${S().stale ? '<span class="stale" style="margin:0">!</span>' : ''}${ic('chev', 'chev')}</div>
+        <div class="body">
+          <div class="sec">Janela de 5h<span class="sp"></span><button class="ibtn">${ic('users')}</button><button class="ibtn">${ic('history')}</button></div>
+          ${S().accounts.map((a) => `<div class="acc ${a.nologin ? '' : lv(a.w5.p)}"><span class="adot" style="background:${a.color}"></span><span class="nm">${a.name}${agentsTag(a.agents)}</span><span>${status(a)}</span>
+            ${a.nologin ? '' : `<div class="rr">${bar(a.w5.p)}<span class="num">${a.w5.p}%</span><small>${a.out ? 'até ' + a.out : 'renova ' + a.w5.left}</small></div>`}</div>`).join('')}
+          <div class="sec">Fable (semana)</div>
+          ${nonZeroWk.map((a) => `<div class="acc ${lv(a.wk.p)}"><span class="adot" style="background:${a.color}"></span><span class="nm">${a.name}</span><span></span><div class="rr">${bar(a.wk.p)}<span class="num">${a.wk.p}%</span><small>${a.wk.at}</small></div></div>`).join('')}
+          ${zeros.length ? `<div class="zero">0% ${zeros.length === S().accounts.length ? (many() ? 'nas ' + zeros.length + ' contas' : '') : 'em ' + zeros.map((a) => a.name).join(', ')}</div>` : ''}
+          <div class="sec">Sistema</div>
+          <div class="sr ${lv(s.cpu)}"><span>CPU</span>${bar(s.cpu)}<span class="num">${s.cpu}%</span><small></small></div>
+          <div class="sr ${lv(s.ram)}"><span>RAM</span>${bar(s.ram)}<span class="num">${s.ram}%</span><small>${s.used}/${s.total}</small></div>
+          <div class="procs"><span>Escritório <span class="mono" style="color:var(--text)">${s.app.split(' · ')[1]}</span></span><span>Agentes (${s.agentsN}) <span class="mono" style="color:var(--text)">${s.agents.split(' · ')[1]}</span></span></div>
+        </div></div>`
+    },
+  },
+  {
+    id: 'E', title: 'Por risco', tag: 'E',
+    desc: '<b>Responde "posso mandar mais trabalho?"</b>. Um aviso no topo diz o que fazer. A conta mais usada fica em destaque com o tempo até renovar; as outras vêm ordenadas embaixo. Sistema com um minigráfico dos últimos minutos (exige guardar o histórico).',
+    cards: () => {
+      const s = S().sys
+      const list = [...S().accounts].sort((a, b) => (b.nologin ? -1 : b.w5.p) - (a.nologin ? -1 : a.w5.p))
+      const top = list[0]
+      const out = S().accounts.find((a) => a.out), nolog = S().accounts.find((a) => a.nologin)
+      const alert = out ? `<div class="alert full">${ic('alert')}<span><b>${out.name}</b> está cheia até ${out.out}. Agentes novos vão para as outras contas.</span></div>`
+        : lv(top.w5.p) !== 'ok' ? `<div class="alert">${ic('alert')}<span><b>${top.name}</b> chega no limite antes de renovar. Mande tarefas novas para outra conta.</span></div>`
+        : nolog ? `<div class="alert">${ic('alert')}<span><b>${nolog.name}</b> está sem login. Entre de novo em Contas.</span></div>`
+        : `<div class="alert ok">${ic('check')}<span>Folga em todas as contas. Pode mandar trabalho.</span></div>`
+      const spark = (hist, p) => {
+        const pts = hist.map((v, i) => `${(i / (hist.length - 1)) * 100},${22 - (v / 100) * 20}`).join(' ')
+        return `<svg viewBox="0 0 100 22" preserveAspectRatio="none"><polyline points="0,22 ${pts} 100,22" fill="${colorOf(p)}" fill-opacity=".15" stroke="none"/><polyline points="${pts}" fill="none" stroke="${colorOf(p)}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`
+      }
+      const wk = S().accounts.filter((a) => !a.nologin)
+      const wkMax = Math.max(...wk.map((a) => a.wk.p))
+      return [`<div class="card vE">${head('Limites do plano')}${alert}
+        <div class="hero ${lv(top.w5.p)}"><div class="t"><span class="adot" style="background:${top.color}"></span>${top.name}${agentsTag(top.agents)}<span class="k">mais usada</span></div>
+          <div class="big"><b class="num ${lv(top.w5.p)}">${top.w5.p}%</b><span>da janela de 5h · ${top.out ? 'volta às ' + top.out : 'renova em ' + top.w5.left}</span></div>${bar(top.w5.p)}</div>
+        ${list.length > 1 ? `<div class="rest">${list.slice(1).map((a) => `<div class="rr ${a.nologin ? '' : lv(a.w5.p)}"><span class="adot" style="background:${a.color}"></span><span class="n">${a.name}${agentsTag(a.agents)}</span>${a.nologin ? `<span style="grid-column:3/5;text-align:right">${status(a)}</span>` : `${bar(a.w5.p)}<span class="num">${a.w5.p}%</span>`}</div>`).join('')}</div>` : ''}
+        <div class="wk">Fable na semana: ${wkMax === 0 ? 'nada usado ainda' : `até ${wkMax}%`}</div></div>`,
+        `<div class="card vE">${head('Sistema', false)}
+          <div class="spark"><span>CPU</span>${spark(s.cpuHist, s.cpu)}<span class="num ${lv(s.cpu)}">${s.cpu}%</span></div>
+          <div class="spark"><span>RAM</span>${spark(s.ramHist, s.ram)}<span class="num ${lv(s.ram)}">${s.ram}%</span></div>
+          <div class="procs"><span>Escritório <span class="mono" style="color:var(--text)">${s.app}</span></span><span>Agentes (${s.agentsN}) <span class="mono" style="color:var(--text)">${s.agents.split(' · ')[1]}</span></span></div></div>`]
+    },
+  },
+]
+
+// ---------- render ----------
+const votes = JSON.parse(localStorage.getItem('cards-votes') || '{}')
+function measure() {
+  document.querySelectorAll('.variant').forEach((v) => {
+    const hs = [...v.querySelectorAll('.col')].map((c) => c.getBoundingClientRect().height)
+    v.querySelector('.v-h').textContent = 'altura ' + hs.map((h) => Math.round(h) + 'px').join(' / ')
+  })
+}
+function render() {
+  document.getElementById('grid').innerHTML = V.map((v) => {
+    const stage = v.split
+      ? `<div class="col">${v.cards(false)}</div><div class="col">${v.cards(true)}</div>`
+      : `<div class="col">${v.cards().join('')}</div>`
+    return `<article class="variant ${votes[v.id] === 'sim' ? 'approved' : votes[v.id] === 'nao' ? 'rejected' : ''}">
+      <div class="v-head"><span class="v-tag ${v.rec ? 'rec' : ''}">${v.tag}</span><h3>${v.title}</h3><span class="v-h"></span></div>
+      <p class="v-desc">${v.desc}</p><div class="stage">${stage}</div>
+      ${v.id === 'atual' ? '' : `<div class="vote"><button class="yes ${votes[v.id] === 'sim' ? 'on' : ''}" data-vote="${v.id}:sim">Aprovar</button><button class="no ${votes[v.id] === 'nao' ? 'on' : ''}" data-vote="${v.id}:nao">Rejeitar</button></div>`}
+    </article>`
+  }).join('')
+  measure()
+  const yes = V.filter((v) => votes[v.id] === 'sim').map((v) => v.id), no = V.filter((v) => votes[v.id] === 'nao').map((v) => v.id)
+  document.getElementById('tally').textContent = `${yes.length} aprovada(s) · ${no.length} rejeitada(s)`
+  document.getElementById('out').value = `Aprovadas: ${yes.join(', ') || 'nenhuma'}\nRejeitadas: ${no.join(', ') || 'nenhuma'}`
+}
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button')
+  if (seg) { seg.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === seg)); sc = seg.dataset.v; return render() }
+  const vb = e.target.closest('[data-vote]')
+  if (vb) { const [id, val] = vb.dataset.vote.split(':'); votes[id] = votes[id] === val ? undefined : val; localStorage.setItem('cards-votes', JSON.stringify(votes)); return render() }
+  const tg = e.target.closest('[data-toggle]')
+  if (tg) { tg.closest('.vD').classList.toggle('open'); measure() }
+})
+render()
+</script>
+</body>
+</html>

@@ -3,10 +3,9 @@ import type { Look } from '@shared/types'
 import { patchTexture } from './brand'
 import { blob, box, mat, panel } from './kit'
 import { shadeHex } from './furniture'
-import { heldGun } from './weapons'
 
 export type Pose = 'stand' | 'sit' | 'type' | 'wave' | 'talk' | 'relax' | 'play'
-export type Prop = 'none' | 'paper' | 'redPaper' | 'mug' | 'gun'
+export type Prop = 'none' | 'paper' | 'redPaper' | 'mug'
 
 const HIP = 0.46
 const SHOULDER = 0.8
@@ -48,9 +47,6 @@ export class Avatar {
   private shinL = new THREE.Group()
   private shinR = new THREE.Group()
   private propGroup = new THREE.Group()
-  /** Lives on the right arm so the gun points wherever the arm points. */
-  private gunGroup = new THREE.Group()
-  private recoil = 0
   private hurt = 0
   /** Seconds since being knocked down, or -1 when standing. */
   private downT = -1
@@ -137,7 +133,6 @@ export class Avatar {
       box(arm, 0.1, 0.13, 0.12, L.skin, 0, -0.33, 0)
       this.body.add(arm)
     }
-    this.armR.add(this.gunGroup)
 
     // head
     this.headGroup.clear()
@@ -253,11 +248,7 @@ export class Avatar {
     if (prop === this.prop && !force) return
     this.prop = prop
     this.propGroup.clear()
-    this.gunGroup.clear()
-    if (prop === 'gun') {
-      this.gunGroup.add(heldGun())
-      this.gunGroup.traverse((o) => (o.userData.avatarId = this.id))
-    } else if (prop === 'paper' || prop === 'redPaper') {
+    if (prop === 'paper' || prop === 'redPaper') {
       const p = new THREE.Group()
       box(p, 0.26, 0.32, 0.03, prop === 'paper' ? '#fbfbf8' : '#ffecec', 0, 0, 0)
       box(p, 0.27, 0.06, 0.035, prop === 'paper' ? '#20a464' : '#e5484d', 0, 0.26, 0)
@@ -284,16 +275,6 @@ export class Avatar {
 
   get isDown(): boolean {
     return this.downT >= 0
-  }
-
-  /** World position of the gun's muzzle. */
-  muzzle(): THREE.Vector3 {
-    this.root.updateMatrixWorld(true)
-    return this.gunGroup.localToWorld(new THREE.Vector3(0, -0.57, 0))
-  }
-
-  kick(): void {
-    this.recoil = 0.12
   }
 
   /** Flinch after being hit. */
@@ -389,7 +370,6 @@ export class Avatar {
     }
 
     this.steer = Math.max(0, this.steer - dt)
-    this.recoil = Math.max(0, this.recoil - dt)
     this.hurt = Math.max(0, this.hurt - dt)
     if (this.downT >= 0) this.downT += dt
 
@@ -424,7 +404,6 @@ export class Avatar {
       return
     }
     this.animatePose()
-    if (this.prop === 'gun') this.armR.rotation.set(-Math.PI / 2 - this.recoil * 3, 0, 0)
     if (this.hurt > 0) {
       const k = this.hurt / 0.3
       this.body.rotation.x = -0.35 * k

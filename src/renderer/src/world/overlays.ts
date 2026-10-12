@@ -9,7 +9,6 @@ export class Tag {
   private nameEl: HTMLSpanElement
   private dotEl: HTMLSpanElement
   private bubbleEl: HTMLDivElement
-  private heartsEl: HTMLSpanElement
   private helpersEl: HTMLSpanElement
   private accountEl: HTMLSpanElement
   private bubbleText = ''
@@ -32,13 +31,11 @@ export class Tag {
     this.dotEl.className = 'dot'
     this.nameEl = document.createElement('span')
     this.nameEl.textContent = name
-    this.heartsEl = document.createElement('span')
-    this.heartsEl.className = 'hearts hidden'
     this.helpersEl = document.createElement('span')
     this.helpersEl.className = 'helpers hidden'
     this.accountEl = document.createElement('span')
     this.accountEl.className = 'tag-account hidden'
-    pill.append(this.dotEl, this.nameEl, this.accountEl, this.helpersEl, this.heartsEl)
+    pill.append(this.dotEl, this.nameEl, this.accountEl, this.helpersEl)
     this.el.append(this.bubbleEl, pill)
     if (onClick) {
       pill.addEventListener('click', onClick)
@@ -48,16 +45,6 @@ export class Tag {
 
   setName(name: string): void {
     if (this.nameEl.textContent !== name) this.nameEl.textContent = name
-  }
-
-  /** Health shown after the agent gets hit; null hides it. */
-  setHearts(hp: number | null, max = 3): void {
-    if (hp === null) {
-      this.heartsEl.className = 'hearts hidden'
-      return
-    }
-    this.heartsEl.className = 'hearts'
-    this.heartsEl.textContent = '♥'.repeat(Math.max(0, hp)) + '♡'.repeat(Math.max(0, max - hp))
   }
 
   /** Subagents working for this agent; 0 hides the counter. */

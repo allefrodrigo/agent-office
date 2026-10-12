@@ -119,23 +119,3 @@ export function brandSign(b: Brand, width = 2.6): THREE.Group {
   panel(g, width, h, tex, 0, h / 2, 0.025)
   return g
 }
-
-/** A square logo plaque for walls; null when the company has no logo. */
-export function logoPlaque(b: Brand, size = 0.9): THREE.Group | null {
-  if (!b.logo) return null
-  const g = new THREE.Group()
-  const c = document.createElement('canvas')
-  c.width = c.height = 128
-  const ctx = c.getContext('2d')!
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  const img = logoImage(b.logo)
-  drawWhenReady(img, tex, () => {
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, 128, 128)
-    fit(ctx, img, 12, 12, 104, 104)
-  })
-  box(g, size + 0.1, size + 0.1, 0.04, b.color, 0, -0.05, 0, false)
-  panel(g, size, size, tex, 0, size / 2, 0.025)
-  return g
-}

@@ -4,3 +4,9 @@ dist/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Rascunhos locais e sobras de build
+/index.html
+/notas.txt
+/quem-sou-eu.txt
+.agent-office/

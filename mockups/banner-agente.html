@@ -1,0 +1,466 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Banner do agente: variações</title>
+<style>
+:root {
+  --bg: #1c1d2e; --page: #13141f; --card: #1a1b2b;
+  --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.14);
+  --text: #eceaf6; --muted: #9c9ab5; --dim: #6f6d8a;
+  --accent: #d97757; --accent-hi: #e8896a;
+  --green: #3ecf8e; --amber: #f5a524; --blue: #5b9cf0; --red: #ef5b5b;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text);
+  font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+svg.i { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- page chrome ---------- */
+header.top { position: sticky; top: 0; z-index: 10; background: rgba(19,20,31,.92); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--line); padding: 14px 32px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+header.top h1 { font-size: 16px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.seg button { padding: 6px 12px; color: var(--muted); font-size: 12px; }
+.seg button.on { background: rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+.lbl { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 6px; }
+.tally { margin-left: auto; color: var(--muted); font-size: 12px; }
+main { padding: 28px 32px 80px; max-width: 1400px; margin: 0 auto; }
+.intro { max-width: 760px; color: var(--muted); margin-bottom: 28px; }
+.intro h2 { color: var(--text); font-size: 15px; margin: 0 0 6px; }
+.intro ul { margin: 6px 0 0; padding-left: 18px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 28px; }
+.variant { background: #171826; border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.variant.approved { border-color: rgba(62,207,142,.5); box-shadow: 0 0 0 1px rgba(62,207,142,.25); }
+.variant.rejected { opacity: .45; }
+.v-head { display: flex; align-items: baseline; gap: 10px; }
+.v-head h3 { margin: 0; font-size: 14px; }
+.v-tag { font: 600 10.5px var(--mono); color: var(--accent-hi); background: rgba(217,119,87,.12); padding: 2px 6px; border-radius: 5px; }
+.v-tag.rec { color: #8ff0c4; background: rgba(62,207,142,.12); }
+.v-h { margin-left: auto; font: 11px var(--mono); color: var(--dim); }
+.v-desc { color: var(--muted); font-size: 12.5px; margin: 0; }
+.v-desc b { color: var(--text); font-weight: 600; }
+.stage { display: flex; justify-content: center; padding: 18px; border-radius: 12px;
+  background: radial-gradient(circle at 30% 20%, #2a3550 0, #1d2236 60%); }
+.panel { width: 400px; background: var(--card); border: 1px solid var(--line-strong); border-radius: 14px;
+  box-shadow: 0 10px 40px rgba(5,5,15,.45); position: relative; }
+.feed { padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.feed .bubble { height: 10px; border-radius: 5px; background: rgba(255,255,255,.06); }
+.vote { display: flex; gap: 8px; }
+.vote button { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line-strong); font-weight: 600; font-size: 12px; color: var(--muted); }
+.vote button.yes.on { background: rgba(62,207,142,.16); color: #8ff0c4; border-color: rgba(62,207,142,.4); }
+.vote button.no.on { background: rgba(239,91,91,.14); color: #ffb0b0; border-color: rgba(239,91,91,.35); }
+.summary { margin-top: 32px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); }
+.summary textarea { width: 100%; height: 70px; margin-top: 8px; background: #11121c; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px var(--mono); }
+
+/* ---------- shared atoms ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 28px; padding: 0 10px;
+  border: 1px solid var(--line-strong); border-radius: 8px; background: rgba(255,255,255,.05); font-weight: 600; font-size: 12px; white-space: nowrap; }
+.btn:hover { background: rgba(255,255,255,.1); }
+.btn[disabled] { opacity: .45; pointer-events: none; }
+.btn-danger { color: #ffb0b0; }
+.btn-warn { background: var(--amber); color: #2a1a00; border-color: transparent; }
+.btn-primary { background: var(--accent); color: #fff; border-color: transparent; }
+.ibtn { width: 30px; height: 30px; display: inline-grid; place-items: center; border-radius: 8px; color: var(--muted); }
+.ibtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.ibtn svg.i { width: 16px; height: 16px; }
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.dot.working { background: var(--green); box-shadow: 0 0 0 2px rgba(62,207,142,.25); animation: glow 1.6s ease-in-out infinite; }
+.dot.waiting { background: var(--amber); animation: pulse 1.2s ease-in-out infinite; }
+.dot.idle { background: #b7b4d0; }
+.dot.error { background: var(--red); }
+@keyframes pulse { 50% { box-shadow: 0 0 0 5px rgba(245,165,36,.25); } }
+@keyframes glow { 50% { box-shadow: 0 0 0 4px rgba(62,207,142,.18); } }
+.acct { display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 6px;
+  background: rgba(91,156,240,.18); color: #a9c8ff; font-size: 11px; font-weight: 700; white-space: nowrap; }
+.avatar { display: block; border-radius: 10px; image-rendering: pixelated; flex: none; }
+.name { font-size: 16px; font-weight: 700; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }
+.bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+.bar > i { display: block; height: 100%; border-radius: inherit; background: var(--green); }
+.lv-warn .bar > i { background: var(--amber); } .lv-full .bar > i { background: var(--red); }
+.lv-warn .pct { color: #ffd38a; } .lv-full .pct { color: #ff9a9a; }
+.menu { position: absolute; z-index: 5; min-width: 210px; padding: 6px; background: #22233a; border: 1px solid var(--line-strong);
+  border-radius: 10px; box-shadow: 0 12px 30px rgba(0,0,0,.45); display: none; }
+.menu.open { display: block; }
+.menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 8px; border-radius: 6px; text-align: left; font-size: 12.5px; }
+.menu button:hover { background: rgba(255,255,255,.07); }
+.menu button small { margin-left: auto; color: var(--dim); font-size: 11px; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 2px; }
+.menu .danger { color: #ffb0b0; }
+.menu .danger:hover { background: rgba(239,91,91,.14); }
+
+/* ---------- 0: atual ---------- */
+.v0 { padding: 14px 14px 10px; border-bottom: 1px solid var(--line); }
+.v0 .row { display: flex; align-items: center; gap: 12px; }
+.v0 .st { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 12px; }
+.v0 .meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.v0 .chip { height: 22px; padding: 0 8px; border-radius: 6px; background: rgba(255,255,255,.06); color: var(--muted); font: 11.5px var(--mono); display: inline-flex; align-items: center; gap: 5px; }
+.v0 .ctx { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.v0 .ctx .bar { flex: 1; }
+.v0 .acts { display: flex; gap: 6px; margin-top: 10px; }
+
+/* ---------- A: compacto ---------- */
+.vA { padding: 12px 10px 0 14px; border-bottom: 1px solid var(--line); position: relative; }
+.vA .row { display: flex; align-items: center; gap: 11px; }
+.vA .id { flex: 1; min-width: 0; }
+.vA .st { display: flex; gap: 6px; align-items: center; font-size: 12.5px; white-space: nowrap; overflow: hidden; }
+.vA .st b { font-weight: 600; }
+.vA .tools { display: flex; gap: 2px; align-self: flex-start; }
+.vA .meta { display: flex; align-items: center; gap: 6px; margin: 9px 4px 10px 0; color: var(--dim); font-size: 11.5px; white-space: nowrap; }
+.vA .meta .sep { opacity: .6; }
+.vA .meta .pct { margin-left: auto; font: 600 11px var(--mono); color: var(--muted); }
+.vA .meta button:hover { color: var(--text); }
+.vA .line { position: absolute; left: 0; right: 0; bottom: -1px; height: 3px; border-radius: 0; background: transparent; }
+.vA .menu { right: 10px; top: 46px; }
+
+/* ---------- B: atividade ---------- */
+.vB { padding: 14px; border-bottom: 1px solid var(--line); }
+.vB .row { display: flex; align-items: center; gap: 12px; }
+.vB .id { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.vB .live { margin-top: 12px; display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; border-radius: 10px;
+  background: rgba(62,207,142,.09); border: 1px solid rgba(62,207,142,.2); }
+.vB .live.waiting { background: rgba(245,165,36,.1); border-color: rgba(245,165,36,.3); }
+.vB .live.idle { background: rgba(255,255,255,.04); border-color: var(--line); }
+.vB .live.error { background: rgba(239,91,91,.1); border-color: rgba(239,91,91,.3); }
+.vB .live .txt { flex: 1; min-width: 0; }
+.vB .live .k { font-size: 11px; color: var(--muted); }
+.vB .live .v { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vB .kv { display: grid; grid-template-columns: 1.2fr 1.5fr .8fr .8fr; gap: 1px; margin-top: 12px; border-radius: 10px; overflow: hidden; background: var(--line); }
+.vB .kv div { background: var(--card); padding: 7px 9px; min-width: 0; }
+.vB .kv span { display: block; font-size: 10.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; }
+.vB .kv b { display: block; font: 500 12px var(--mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vB .ctx { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 12px; }
+.vB .ctx .bar { flex: 1; }
+.vB .ctx a { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; cursor: pointer; font-size: 12px; }
+.vB .ctx a:hover { color: var(--text); }
+.vB .hint { margin-top: 6px; font-size: 11.5px; color: #ffb0b0; }
+
+/* ---------- C: crachá ---------- */
+.vC { padding: 34px 14px 12px; border-bottom: 1px solid var(--line); position: relative; }
+.vC .badge { display: flex; gap: 14px; padding: 12px; border-radius: 12px; background: linear-gradient(180deg, #24263c, #1f2034);
+  border: 1px solid var(--line-strong); position: relative; }
+.vC .badge::before { content: ''; position: absolute; top: -9px; left: 50%; width: 34px; height: 8px; margin-left: -17px;
+  border-radius: 4px 4px 0 0; background: #2d2f4a; border: 1px solid var(--line-strong); border-bottom: 0; }
+.vC .photo { position: relative; padding: 4px; border-radius: 10px; background: #11121c; border: 2px solid var(--green); }
+.vC .photo.waiting { border-color: var(--amber); } .vC .photo.idle { border-color: #55536b; } .vC .photo.error { border-color: var(--red); }
+.vC .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.vC .pname { font: 700 18px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+.vC .role { font-size: 11.5px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.vC .led { display: inline-flex; align-items: center; gap: 7px; margin-top: 2px; padding: 4px 8px; border-radius: 6px; background: #0f1018;
+  font: 600 11.5px var(--mono); color: #8ff0c4; width: fit-content; max-width: 100%; white-space: nowrap; overflow: hidden; }
+.vC .led.waiting { color: #ffd38a; } .vC .led.idle { color: var(--muted); } .vC .led.error { color: #ff9a9a; }
+.vC .stamps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.vC .stamp { font: 11px var(--mono); color: var(--muted); padding: 3px 7px; border: 1px dashed var(--line-strong); border-radius: 6px; display: inline-flex; gap: 5px; align-items: center; }
+.vC .px { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-size: 11.5px; color: var(--muted); }
+.vC .blocks { display: flex; gap: 3px; flex: 1; }
+.vC .blocks i { flex: 1; height: 8px; background: rgba(255,255,255,.08); border-radius: 1px; }
+.vC .blocks i.on { background: var(--green); }
+.vC.lv-warn .blocks i.on { background: var(--amber); } .vC.lv-full .blocks i.on { background: var(--red); }
+.vC .acts { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.vC .acts .fire { margin-left: auto; color: var(--dim); font-size: 11.5px; text-decoration: underline; text-underline-offset: 3px; }
+.vC .acts .fire:hover { color: #ffb0b0; }
+.vC .x { position: absolute; top: 6px; right: 6px; }
+
+/* ---------- D: anel ---------- */
+.vD { padding: 14px 10px 12px 14px; border-bottom: 1px solid var(--line); position: relative; }
+.vD .row { display: flex; align-items: center; gap: 12px; }
+.vD .ring { position: relative; width: 56px; height: 56px; flex: none; cursor: pointer; }
+.vD .ring svg.r { position: absolute; inset: 0; transform: rotate(-90deg); }
+.vD .ring .avatar { position: absolute; top: 7px; left: 7px; border-radius: 50%; }
+.vD .ring .pc { position: absolute; bottom: -4px; right: -6px; font: 700 10px var(--mono); padding: 1px 4px; border-radius: 5px; background: #0f1018; border: 1px solid var(--line-strong); }
+.vD .id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.vD .st { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.vD .st b { color: var(--text); font-weight: 600; }
+.vD .tools { display: flex; align-self: flex-start; }
+.vD .meta { display: flex; gap: 14px; margin-top: 12px; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.vD .meta span { display: inline-flex; gap: 5px; align-items: center; }
+.vD .meta svg.i { color: var(--dim); width: 13px; height: 13px; }
+.vD .menu.ringm { left: 10px; top: 76px; }
+.vD .menu.more { right: 10px; top: 46px; }
+
+/* ---------- E: duas camadas ---------- */
+.vE { border-bottom: 1px solid var(--line); position: relative; }
+.vE .bar1 { display: flex; align-items: center; gap: 10px; padding: 10px 8px 10px 12px; }
+.vE .id { flex: 1; min-width: 0; }
+.vE .l1 { display: flex; align-items: center; gap: 8px; }
+.vE .l1 .name { font-size: 14.5px; }
+.vE .l2 { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.vE .l2 b { color: var(--text); font-weight: 600; }
+.vE .mini { width: 34px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.08); overflow: hidden; flex: none; }
+.vE .mini i { display: block; height: 100%; background: var(--green); }
+.vE.lv-warn .mini i { background: var(--amber); } .vE.lv-full .mini i { background: var(--red); }
+.vE .chev { transition: transform .2s; }
+.vE.open .chev { transform: rotate(180deg); }
+.vE .drawer { display: none; padding: 2px 14px 12px; }
+.vE.open .drawer { display: block; }
+.vE .dl { display: grid; grid-template-columns: 74px 1fr; gap: 6px 10px; font-size: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.vE .dl dt { color: var(--dim); }
+.vE .dl dd { margin: 0; font-family: var(--mono); font-size: 11.5px; display: flex; align-items: center; gap: 8px; min-width: 0; }
+.vE .dl dd .bar { flex: 1; }
+.vE .dl dd a { color: var(--muted); font-family: -apple-system, sans-serif; font-size: 11.5px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.vE .drow { display: flex; gap: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+.vE .drow .btn-danger { margin-left: auto; }
+.vE .notice { margin: 0 12px 10px; padding: 8px 8px 8px 12px; border-radius: 10px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 600;
+  background: rgba(245,165,36,.14); color: #ffd38a; }
+.vE .notice.full { background: rgba(239,91,91,.12); color: #ffb0b0; }
+.vE .notice span { flex: 1; }
+.stack { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.stack .cap { font-size: 11px; color: var(--dim); align-self: flex-start; margin-left: calc(50% - 200px); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Banner do agente: 5 propostas</h1>
+  <div><span class="lbl">Estado</span>
+    <div class="seg" id="stateSeg">
+      <button data-v="working" class="on">Trabalhando</button>
+      <button data-v="waiting">Esperando você</button>
+      <button data-v="idle">Livre</button>
+      <button data-v="error">Erro</button>
+    </div>
+  </div>
+  <div><span class="lbl">Contexto</span>
+    <div class="seg" id="ctxSeg">
+      <button data-v="28" class="on">28%</button>
+      <button data-v="72">72%</button>
+      <button data-v="93">93%</button>
+    </div>
+  </div>
+  <div class="tally" id="tally"></div>
+</header>
+
+<main>
+  <section class="intro">
+    <h2>O que incomoda no banner atual</h2>
+    <ul>
+      <li><b>Tudo pesa igual.</b> Pasta, modelo, esforço, custo e conta viram cinco chips iguais; o olho não sabe onde parar.</li>
+      <li><b>A informação viva some.</b> "Lendo a tarefa" é o que muda a cada segundo, mas aparece em cinza pequeno.</li>
+      <li><b>Demitir tem o mesmo peso de "Ir até".</b> Ação destrutiva colada nas do dia a dia, a um clique errado.</li>
+      <li><b>Ocupa ~200px</b> em quatro faixas, espaço que a conversa precisa.</li>
+      <li><b>Modelo cru</b> (<span class="mono">claude-opus-5-5[1m]</span>) em vez de "Opus 5.5 · 1M".</li>
+    </ul>
+    <p>Troque o estado e o contexto no topo para ver como cada versão reage. Clique em <b>⋯</b>, no anel e na seta: os menus funcionam. Aprove ou rejeite cada uma; o resumo no fim junta suas escolhas.</p>
+  </section>
+  <div class="grid" id="grid"></div>
+  <div class="summary">Suas escolhas (cole de volta para mim):
+    <textarea id="out" readonly></textarea>
+  </div>
+</main>
+
+<script>
+// ---------- dados de exemplo ----------
+const STATES = {
+  working: { label: 'Trabalhando', activity: 'Lendo a tarefa', elapsed: '2m 14s' },
+  waiting: { label: 'Esperando você', activity: 'Pediu permissão para rodar npm test', elapsed: '40s' },
+  idle:    { label: 'Livre', activity: 'Terminou há 3 min', elapsed: '' },
+  error:   { label: 'Erro', activity: 'A sessão caiu: limite de uso atingido', elapsed: '' },
+}
+const agent = { name: 'Turing', path: '…/Playground/agents-2d', folder: 'agents-2d', modelRaw: 'claude-opus-5-5[1m]', model: 'Opus 5.5 · 1M', effort: 'médio', cost: '$8,92', acct: 'QT - Allef' }
+let state = 'working', pct = 28
+const level = () => (pct >= 90 ? 'full' : pct >= 70 ? 'warn' : 'ok')
+const busy = () => state === 'working' || state === 'waiting'
+const ctxColor = () => ({ ok: 'var(--green)', warn: 'var(--amber)', full: 'var(--red)' })[level()]
+
+// ---------- ícones ----------
+const P = {
+  walk: '<circle cx="13" cy="4" r="2"/><path d="m9 20 3-6 3 2 2 4M6 12l3-4 4 1 2 4 3 1M12 14l-1-5"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+  folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  cpu: '<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/>',
+  gauge: '<path d="M12 14l4-4"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/>',
+  coin: '<circle cx="12" cy="12" r="9"/><path d="M15 9.5c-.5-1-1.6-1.5-3-1.5-1.7 0-3 .9-3 2s1.3 1.7 3 2 3 .9 3 2-1.3 2-3 2c-1.4 0-2.5-.5-3-1.5M12 6v2M12 16v2"/>',
+  fire: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M17 11h6"/>',
+  compact: '<path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>',
+  clear: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  reply: '<path d="M9 17 4 12l5-5"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>',
+  play: '<path d="m6 4 14 8-14 8z"/>',
+}
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${P[n]}</svg>`
+
+// ---------- avatar pixel-art (12x12) ----------
+const SPRITE = [
+  '..H.HH.HH.H.', '..HHHHHHHH..', '.HHHHHHHHHH.', '.HHSSSSSSHH.', '..SSSSSSSS..', '..SESSSSES..',
+  '..SCSSSSCS..', '..SSSMMSSS..', '...SSSSSS...', '.GGGGSSGGGG.', 'GGGGGGGGGGGG', 'GGGGGGGGGGGG',
+]
+const PAL = { H: '#b0413e', S: '#f3d2b5', E: '#3a2a2a', C: '#f0a6a0', M: '#9b5a4a', G: '#6fbf4f' }
+function avatar(size, round = false, bg = '#2f5a3c') {
+  let r = ''
+  SPRITE.forEach((row, y) => [...row].forEach((c, x) => { if (PAL[c]) r += `<rect x="${x + 2}" y="${y + 3}" width="1" height="1" fill="${PAL[c]}"/>` }))
+  return `<svg class="avatar" width="${size}" height="${size}" viewBox="0 0 16 16" shape-rendering="crispEdges" style="background:${bg};border-radius:${round ? '50%' : Math.round(size / 4.4) + 'px'}">${r}</svg>`
+}
+
+// ---------- variantes ----------
+const st = () => STATES[state]
+const dot = () => `<span class="dot ${state}"></span>`
+
+const V = [
+  {
+    id: 'atual', title: 'Atual', tag: 'referência',
+    desc: 'Como está hoje, para comparar altura e hierarquia.',
+    html: () => `<div class="v0 lv-${level()}">
+      <div class="row">${avatar(44)}<div style="flex:1"><div class="name">${agent.name}</div>
+        <div class="st">${dot()}${st().label}<span style="color:var(--dim)">·</span>${st().activity}</div></div>
+        <button class="ibtn">${ic('x')}</button></div>
+      <div class="meta"><span class="chip">${ic('folder')}${agent.path}</span><span class="chip">${agent.modelRaw}</span>
+        <span class="chip">esforço ${agent.effort}</span><span class="chip">${agent.cost}</span><span class="acct">${agent.acct}</span></div>
+      <div class="ctx"><span class="muted" style="font-size:11.5px">Contexto</span><div class="bar"><i style="width:${pct}%"></i></div>
+        <span class="pct mono" style="font-size:11.5px;font-weight:600">${pct}%</span>
+        <button class="btn" ${busy() ? 'disabled' : ''}>Compactar</button><button class="btn">Limpar</button></div>
+      <div class="acts"><button class="btn">${ic('walk')}Ir até</button>${busy() ? `<button class="btn">${ic('stop')}Interromper</button>` : ''}
+        <button class="btn btn-danger">${ic('fire')}Demitir</button></div></div>`,
+  },
+  {
+    id: 'A', title: 'Compacto', tag: 'A',
+    desc: '<b>Tudo numa faixa de ~90px.</b> Ações viram ícones; Compactar, Limpar e Demitir vão para o menu ⋯. O contexto vira uma linha fina na borda do cabeçalho, que muda de cor ao encher.',
+    html: () => `<div class="vA lv-${level()}">
+      <div class="row">${avatar(40)}
+        <div class="id"><div style="display:flex;gap:8px;align-items:center"><span class="name">${agent.name}</span><span class="acct">${agent.acct}</span></div>
+          <div class="st">${dot()}<b>${st().label}</b><span class="muted">· ${st().activity}</span></div></div>
+        <div class="tools"><button class="ibtn" title="Ir até">${ic('walk')}</button>
+          ${busy() ? `<button class="ibtn" title="Interromper">${ic('stop')}</button>` : ''}
+          <button class="ibtn" data-menu="mA" title="Mais">${ic('more')}</button><button class="ibtn" title="Fechar">${ic('x')}</button></div></div>
+      <div class="meta"><button>${ic('folder')} ${agent.folder}</button><span class="sep">·</span><span>${agent.model}</span><span class="sep">·</span>
+        <span>esforço ${agent.effort}</span><span class="sep">·</span><span>${agent.cost}</span><span class="pct" title="Contexto">ctx ${pct}%</span></div>
+      <div class="line"><div class="bar" style="height:3px;border-radius:0;background:rgba(255,255,255,.05)"><i style="width:${pct}%;border-radius:0"></i></div></div>
+      <div class="menu" id="mA">
+        <button ${busy() ? 'disabled style="opacity:.45"' : ''}>${ic('compact')}Compactar memória<small>/compact</small></button>
+        <button>${ic('clear')}Limpar e começar do zero<small>/clear</small></button><hr>
+        <button class="danger">${ic('fire')}Demitir ${agent.name}</button></div></div>`,
+  },
+  {
+    id: 'B', title: 'Atividade em destaque', tag: 'B',
+    desc: '<b>O que o agente está fazendo vira o protagonista</b>, com cronômetro e a ação certa para o momento: Interromper quando trabalha, Responder quando espera, Nova tarefa quando livre. Metadados viram uma tabela legível com rótulos.',
+    html: () => {
+      const cta = { working: `<button class="btn">${ic('stop')}Interromper</button>`, waiting: `<button class="btn btn-warn">${ic('reply')}Responder</button>`,
+        idle: `<button class="btn btn-primary">${ic('play')}Nova tarefa</button>`, error: `<button class="btn">${ic('clear')}Reiniciar</button>` }[state]
+      return `<div class="vB lv-${level()}">
+      <div class="row">${avatar(44)}<div class="id"><span class="name">${agent.name}</span><span><span class="acct">${agent.acct}</span></span></div>
+        <button class="ibtn" title="Ir até">${ic('walk')}</button><button class="ibtn" data-menu="mB">${ic('more')}</button><button class="ibtn">${ic('x')}</button></div>
+      <div class="live ${state}">${dot()}<div class="txt"><div class="k">${st().label}${st().elapsed ? ' há ' + st().elapsed : ''}</div><div class="v">${st().activity}</div></div>${cta}</div>
+      <div class="kv"><div><span>Pasta</span><b>${agent.folder}</b></div><div><span>Modelo</span><b>${agent.model}</b></div>
+        <div><span>Esforço</span><b>${agent.effort}</b></div><div><span>Gasto</span><b>${agent.cost}</b></div></div>
+      <div class="ctx"><span class="muted">Memória</span><div class="bar"><i style="width:${pct}%"></i></div><span class="pct mono" style="font-weight:600">${pct}%</span>
+        <a>Compactar</a><a>Limpar</a></div>
+      ${level() === 'full' ? '<div class="hint">Quase cheia. Compacte agora ou limpe antes de outra tarefa.</div>' : ''}
+      <div class="menu" id="mB" style="right:14px;top:50px"><button class="danger">${ic('fire')}Demitir ${agent.name}</button></div></div>`
+    },
+  },
+  {
+    id: 'C', title: 'Crachá', tag: 'C',
+    desc: '<b>Combina com o escritório pixel-art.</b> O agente ganha um crachá: foto com moldura na cor do status, nome em fonte de máquina, letreiro LED com a atividade, memória em blocos. Demitir vira link discreto no canto.',
+    html: () => {
+      const on = Math.round(pct / 10)
+      return `<div class="vC lv-${level()}"><button class="ibtn x">${ic('x')}</button>
+      <div class="badge"><div class="photo ${state}">${avatar(56, false, '#2f5a3c')}</div>
+        <div class="info"><div class="pname">${agent.name}</div>
+          <div class="role">Agente <span class="acct">${agent.acct}</span></div>
+          <div class="led ${state}">${dot()}${st().activity}</div></div></div>
+      <div class="stamps"><span class="stamp">${ic('folder')}${agent.folder}</span><span class="stamp">${agent.model}</span><span class="stamp">esforço ${agent.effort}</span><span class="stamp">${agent.cost}</span></div>
+      <div class="px"><span>Memória</span><div class="blocks">${Array.from({ length: 10 }, (_, i) => `<i class="${i < on ? 'on' : ''}"></i>`).join('')}</div>
+        <span class="pct mono" style="font-weight:600">${pct}%</span><button class="btn" ${busy() ? 'disabled' : ''}>Compactar</button><button class="btn">Limpar</button></div>
+      <div class="acts"><button class="btn">${ic('walk')}Ir até</button>${busy() ? `<button class="btn">${ic('stop')}Interromper</button>` : ''}<button class="fire">Demitir agente</button></div></div>`
+    },
+  },
+  {
+    id: 'D', title: 'Anel de memória', tag: 'D',
+    desc: '<b>O contexto vira um anel em volta do avatar</b>, como bateria. Clique no anel para Compactar ou Limpar. Metadados ganham ícones e perdem as caixas. Ações em ícones; Demitir no ⋯.',
+    html: () => {
+      const C = 2 * Math.PI * 25, off = C * (1 - pct / 100)
+      return `<div class="vD lv-${level()}">
+      <div class="row"><div class="ring" data-menu="mD1" title="Memória ${pct}%">
+          <svg class="r" width="56" height="56"><circle cx="28" cy="28" r="25" stroke="rgba(255,255,255,.08)" stroke-width="4" fill="none"/>
+            <circle cx="28" cy="28" r="25" stroke="${ctxColor()}" stroke-width="4" fill="none" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}"/></svg>
+          ${avatar(42, true)}<span class="pc pct">${pct}%</span></div>
+        <div class="id"><div style="display:flex;gap:8px;align-items:center"><span class="name">${agent.name}</span><span class="acct">${agent.acct}</span></div>
+          <div class="st">${dot()}<b>${st().label}</b>· ${st().activity}</div></div>
+        <div class="tools"><button class="ibtn" title="Ir até">${ic('walk')}</button>${busy() ? `<button class="ibtn" title="Interromper">${ic('stop')}</button>` : ''}
+          <button class="ibtn" data-menu="mD2">${ic('more')}</button><button class="ibtn">${ic('x')}</button></div></div>
+      <div class="meta"><span>${ic('folder')}${agent.folder}</span><span>${ic('cpu')}${agent.model}</span><span>${ic('gauge')}${agent.effort}</span><span>${ic('coin')}${agent.cost}</span></div>
+      <div class="menu ringm" id="mD1"><button ${busy() ? 'disabled style="opacity:.45"' : ''}>${ic('compact')}Compactar memória<small>${pct}% usada</small></button><button>${ic('clear')}Limpar e começar do zero</button></div>
+      <div class="menu more" id="mD2"><button class="danger">${ic('fire')}Demitir ${agent.name}</button></div></div>`
+    },
+  },
+  {
+    id: 'E', title: 'Duas camadas', tag: 'E · recomendada', rec: true,
+    desc: '<b>Uma barra de 56px por padrão; detalhes ao clicar na seta.</b> A conversa ganha ~150px. Só aparece um aviso quando pede atenção (esperando você ou memória cheia). Junta o melhor de A e B.',
+    html: () => {
+      const notice = state === 'waiting'
+        ? `<div class="notice"><span>${st().activity}</span><button class="btn btn-warn">${ic('reply')}Responder</button></div>`
+        : level() === 'full' ? `<div class="notice full"><span>Memória ${pct}% cheia</span><button class="btn">Compactar</button></div>` : ''
+      const bar = (open) => `<div class="vE lv-${level()} ${open ? 'open' : ''}">
+        <div class="bar1">${avatar(36)}
+          <div class="id"><div class="l1"><span class="name">${agent.name}</span><span class="acct">${agent.acct}</span></div>
+            <div class="l2">${dot()}<b>${st().label}</b>· ${st().activity}</div></div>
+          <span class="mini" title="Memória ${pct}%"><i style="width:${pct}%"></i></span>
+          ${busy() ? `<button class="ibtn" title="Interromper">${ic('stop')}</button>` : ''}
+          <button class="ibtn" data-toggle title="Detalhes">${ic('chev', 'chev')}</button><button class="ibtn">${ic('x')}</button></div>
+        ${notice}
+        <div class="drawer"><dl class="dl">
+          <dt>Pasta</dt><dd>${agent.path}</dd><dt>Modelo</dt><dd>${agent.model} <span class="muted">· esforço ${agent.effort}</span></dd>
+          <dt>Gasto</dt><dd>${agent.cost} nesta sessão</dd>
+          <dt>Memória</dt><dd class="lv-${level()}"><div class="bar"><i style="width:${pct}%"></i></div><span class="pct" style="font-weight:600">${pct}%</span><a>Compactar</a><a>Limpar</a></dd></dl>
+          <div class="drow"><button class="btn">${ic('walk')}Ir até</button><button class="btn btn-danger">${ic('fire')}Demitir</button></div></div></div>`
+      return { split: true, closed: bar(false), open: bar(true) }
+    },
+  },
+]
+
+// ---------- render ----------
+const votes = JSON.parse(localStorage.getItem('banner-votes') || '{}')
+function measure() {
+  document.querySelectorAll('.variant').forEach((v) => {
+    const h = [...v.querySelectorAll('.hd')].map((el) => el.offsetHeight + 'px').join(' / ')
+    v.querySelector('.v-h').textContent = 'altura ' + h
+  })
+}
+function render() {
+  const grid = document.getElementById('grid')
+  grid.innerHTML = V.map((v) => {
+    const out = v.html()
+    const feed = '<div class="feed"><div class="bubble" style="width:70%"></div><div class="bubble" style="width:45%"></div><div class="bubble" style="width:60%"></div></div>'
+    const stage = typeof out === "object"
+      ? `<div class="stack"><span class="cap">fechado (padrão)</span><div class="panel"><div class="hd">${out.closed}</div>${feed}</div>
+         <span class="cap">aberto</span><div class="panel"><div class="hd">${out.open}</div>${feed}</div></div>`
+      : `<div class="panel"><div class="hd">${out}</div>${feed}</div>`
+    const vote = v.id === 'atual' ? '' : `<div class="vote"><button class="yes ${votes[v.id] === 'sim' ? 'on' : ''}" data-vote="${v.id}:sim">Aprovar</button>
+      <button class="no ${votes[v.id] === 'nao' ? 'on' : ''}" data-vote="${v.id}:nao">Rejeitar</button></div>`
+    return `<article class="variant ${votes[v.id] === 'sim' ? 'approved' : votes[v.id] === 'nao' ? 'rejected' : ''}">
+      <div class="v-head"><span class="v-tag ${v.rec ? 'rec' : ''}">${v.tag}</span><h3>${v.title}</h3><span class="v-h"></span></div>
+      <p class="v-desc">${v.desc}</p><div class="stage">${stage}</div>${vote}</article>`
+  }).join('')
+  measure()
+  summary()
+}
+function summary() {
+  const yes = V.filter((v) => votes[v.id] === 'sim').map((v) => v.id), no = V.filter((v) => votes[v.id] === 'nao').map((v) => v.id)
+  document.getElementById('tally').textContent = `${yes.length} aprovada(s) · ${no.length} rejeitada(s)`
+  document.getElementById('out').value = `Aprovadas: ${yes.join(', ') || 'nenhuma'}\nRejeitadas: ${no.join(', ') || 'nenhuma'}`
+}
+
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button')
+  if (seg) {
+    seg.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === seg))
+    if (seg.parentElement.id === 'stateSeg') state = seg.dataset.v; else pct = +seg.dataset.v
+    return render()
+  }
+  const vb = e.target.closest('[data-vote]')
+  if (vb) { const [id, val] = vb.dataset.vote.split(':'); votes[id] = votes[id] === val ? undefined : val; localStorage.setItem('banner-votes', JSON.stringify(votes)); return render() }
+  const tg = e.target.closest('[data-toggle]')
+  if (tg) { tg.closest('.vE').classList.toggle('open'); return measure() }
+  const mb = e.target.closest('[data-menu]')
+  document.querySelectorAll('.menu.open').forEach((m) => { if (!mb || m.id !== mb.dataset.menu) m.classList.remove('open') })
+  if (mb) document.getElementById(mb.dataset.menu).classList.toggle('open')
+})
+render()
+</script>
+</body>
+</html>

@@ -8,7 +8,9 @@ import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
 import type { ProjectFloor } from '@shared/types'
 import { openAccounts } from './ui/accounts'
-import { confirmDialog, openHire, openNewFloor, openResume, openRunSquad, openSettings, openSummon } from './ui/modals'
+import { openSkull } from './ui/skull'
+import { openReports } from './ui/reports'
+import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
 async function boot(): Promise<void> {
   const state = new State(await window.office.getState())
@@ -34,20 +36,55 @@ async function boot(): Promise<void> {
     })
     if (!yes || !state.agents.has(id)) return false
     game.ghostOut(id)
+    return endTerminal(id, a.name)
+  }
+
+  /** Stops the claude process behind a terminal agent, no questions. Returns true if it closed. */
+  const endTerminal = async (id: string, name: string): Promise<boolean> => {
     const r = await window.office.closeTerminal(id)
-    if (r.ok) toast(`A sessão de ${a.name} foi encerrada.`, 'err')
+    if (r.ok) toast(`A sessão de ${name} foi encerrada.`, 'err')
     else toast(r.message ?? 'Não consegui fechar a sessão.', 'err')
     return r.ok
   }
 
   /**
-   * Pick a folder (and how free the agent is) and an agent shows up there, waiting for
-   * your first message. On a project floor the folder is the project's.
+   * Picked at the skull (already confirmed): the camera goes to the agent, the skull
+   * strikes, and then its session ends. If that fails, the agent gets back up.
    */
-  const summon = async () => {
+  const dismiss = (id: string) => {
+    const a = state.agents.get(id)
+    if (!a) return
+    dialog.close()
+    panel.close()
+    const started = game.dismiss(id, () => {
+      // it may have left on its own during the animation
+      if (!state.agents.has(id)) return
+      if (a.source === 'terminal') {
+        void endTerminal(id, a.name).then((closed) => {
+          if (!closed) game.revive(id)
+        })
+        return
+      }
+      window.office
+        .fire(id)
+        .then(() => toast(`${a.name} saiu do escritório. A sessão foi encerrada.`, 'err'))
+        .catch((err) => {
+          toast(cleanError(err), 'err')
+          game.revive(id)
+        })
+    })
+    if (!started) toast(`${a.name} já está de saída.`)
+  }
+
+  /**
+   * "Novo agente". Conversar: pick a folder (and how free the agent is) and an agent shows
+   * up there, waiting for your first message. Com tarefa and Squad finish inside the
+   * dialog. On a project floor the folder is the project's.
+   */
+  const newAgent = async (tab?: 'summon') => {
     const project = game.currentProject
-    const choice = await openSummon(ui, state, project, () => hire())
-    if (!choice) return
+    const choice = await openNewAgent(ui, state, project, { toast, tab, hireSquad: project ? () => hireSquad(project) : undefined })
+    if (choice?.kind !== 'summon') return
     try {
       const a = await window.office.summon(choice.cwd, choice.permissionMode, choice.brain)
       const floor = state.settings.projects.find((p) => p.id === a.project)
@@ -69,12 +106,6 @@ async function boot(): Promise<void> {
       panel.open(a.id)
       game.focusAgent(a.id)
     })
-
-  /** The full form: name, task, model. On a project floor the folder is the project's. */
-  const hire = () => {
-    const project = game.currentProject
-    openHire(ui, state, toast, project, project ? () => hireSquad(project) : undefined)
-  }
 
   /** A project folder becomes a floor; the player rides up to it. */
   const newFloor = async () => {
@@ -104,29 +135,11 @@ async function boot(): Promise<void> {
       const first = items.permissions[0] ?? items.results[0]
       if (first && !dismissed.has(first.id)) openItem(id, first.id)
     },
-    onGun: (armed) => {
-      hud.setArmed(armed)
-      if (armed) {
-        dialog.close()
-        panel.close()
-      }
-    },
-    onKill: (id) => {
-      const name = state.agents.get(id)?.name ?? 'O agente'
-      window.office
-        .fire(id)
-        .then(() => toast(`${name} levou o terceiro tiro e saiu do escritório. A sessão foi encerrada.`, 'err'))
-        .catch((err) => toast(String(err), 'err'))
-    },
-    onComputer: () => void summon(),
+    onSkull: () => openSkull(ui, state, dismiss),
+    onComputer: () => void newAgent('summon'),
     onRunSquad: (project) => hireSquad(project),
     onFloor: (n) => hud.setFloors(game.floors, n),
     onTv: () => void radio.toggle(),
-    onKnockout: (id) => {
-      closeTerminal(id).then((closed) => {
-        if (!closed) game.revive(id)
-      })
-    },
   })
 
   const hud = new Hud(ui, state, {
@@ -136,16 +149,14 @@ async function boot(): Promise<void> {
     },
     focusAgent: (id) => game.focusAgent(id),
     openItem: (agentId, itemId) => openItem(agentId, itemId),
-    hire: () => hire(),
-    settings: () => openSettings(ui, state, toast),
+    settings: (section) => openSettings(ui, state, toast, { section }),
     goHome: () => game.goHome(),
-    bridge: () => openSettings(ui, state, toast),
     zoom: (d) => game.zoom(d),
-    dropGun: () => game.dropGun(),
-    summon: () => void summon(),
+    newAgent: () => void newAgent(),
     goFloor: (n) => game.goFloor(n),
     newFloor: () => void newFloor(),
     accounts: () => openAccounts(ui, state, toast),
+    reports: () => openReports(ui, state, { project: game.currentProject }),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -177,6 +188,7 @@ async function boot(): Promise<void> {
   })
 
   const board = new Board(ui, state, {
+    currentProject: () => game.currentProject,
     openAgent: (id) => {
       panel.open(id)
       game.focusAgent(id)
@@ -184,11 +196,16 @@ async function boot(): Promise<void> {
     toast,
   })
 
-  // T opens the board, like a shortcut in any kanban.
+  // T opens the board, like a shortcut in any kanban; N opens "Novo agente"; R the reports.
   window.addEventListener('keydown', (e) => {
     const a = document.activeElement
     if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
+    if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject })
+    if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
+      e.preventDefault()
+      void newAgent()
+    }
   })
 
   // Remember which card the player closed without deciding.
@@ -216,10 +233,10 @@ async function boot(): Promise<void> {
   window.office.onEvent((e) => {
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
-    // Every 3 s: redraw only its card, not the whole HUD.
+    // Every 3 s: redraw only the info card (it also ticks the reset countdowns), not the whole HUD.
     if (e.type === 'system') {
       state.system = e.system
-      return hud.renderSystem()
+      return hud.renderInfo()
     }
     const before = e.type === 'ticket:upsert' ? state.tickets.get(e.ticket.id) : undefined
     state.apply(e)

@@ -16,6 +16,8 @@ export class Dialog {
   agentId: string | null = null
   /** Squad and step a request comes from, shown above the card body. */
   private context: string | undefined
+  /** Set when a subagent of the agent made the request: what it is doing, or ''. */
+  private subagent: string | undefined
 
   constructor(
     root: HTMLElement,
@@ -41,6 +43,7 @@ export class Dialog {
     const perm = itemId ? items.permissions.find((p) => p.id === itemId) : items.permissions[0]
     const result = itemId ? items.results.find((r) => r.id === itemId) : items.results[0]
     this.context = perm?.context
+    this.subagent = perm?.subagent
     if (perm) this.showPermission(agent, perm)
     else if (result && (!itemId || result.id === itemId)) this.showResult(agent, result)
     else return false
@@ -70,6 +73,11 @@ export class Dialog {
         h('button', { class: 'icon-btn', title: 'Depois (Esc)', onclick: () => this.close() }, icon('x', 18)),
       ),
       h('div', { class: this.context ? 'dialog-context' : 'hidden' }, this.context ?? ''),
+      h(
+        'div',
+        { class: this.subagent !== undefined ? 'dialog-context dialog-subagent' : 'hidden', title: 'Quem pediu foi um ajudante (Agent tool) que este agente chamou' },
+        this.subagent ? `Pedido de um subagente · ${this.subagent}` : 'Pedido de um subagente',
+      ),
       h('div', { class: 'dialog-body' }, ...body),
       h('div', { class: 'dialog-actions' }, ...buttons),
     )

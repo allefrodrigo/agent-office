@@ -43,6 +43,9 @@ const api: OfficeAPI = {
   radioVideo: () => ipcRenderer.invoke('office:radioVideo'),
   listSquads: (cwd) => ipcRenderer.invoke('office:listSquads', cwd),
   runSquad: (cwd, code, mode, note) => ipcRenderer.invoke('office:runSquad', cwd, code, mode, note),
+  getLedger: (query) => ipcRenderer.invoke('office:getLedger', query ?? {}),
+  getStats: () => ipcRenderer.invoke('office:getStats'),
+  refreshStats: () => ipcRenderer.invoke('office:refreshStats'),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

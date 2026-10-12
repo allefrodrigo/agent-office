@@ -151,7 +151,7 @@ export function field(label: string, control: HTMLElement, hint?: HTMLElement | 
 /** Styled yes/no dialog. Resolves true on confirm, false on cancel/Esc/backdrop. */
 export function confirmDialog(
   root: HTMLElement,
-  opts: { title: string; text: string; confirm: string; cancel: string; danger?: boolean },
+  opts: { title: string; text: string; confirm: string; cancel: string; danger?: boolean; warn?: string },
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false
@@ -162,7 +162,9 @@ export function confirmDialog(
       resolve(v)
     }
     const ok = h('button', { class: opts.danger ? 'btn btn-danger-solid' : 'btn btn-primary', onclick: () => finish(true) }, opts.confirm)
-    const el = modal(opts.title, [h('div', { class: 'confirm-text' }, opts.text)], [h('button', { class: 'btn', onclick: () => finish(false) }, opts.cancel), ok], () => finish(false))
+    const body = [h('div', { class: 'confirm-text' }, opts.text)]
+    if (opts.warn) body.unshift(h('div', { class: 'confirm-warn' }, icon('alert', 16), h('span', {}, opts.warn)))
+    const el = modal(opts.title, body, [h('button', { class: 'btn', onclick: () => finish(false) }, opts.cancel), ok], () => finish(false))
     el.classList.add('backdrop-confirm')
     root.append(el)
     ok.focus()
@@ -215,16 +217,38 @@ function folderField(state: State, project: ProjectFloor | null | undefined): { 
   }
 }
 
+const LAST_NEW_AGENT_TAB = 'agent-office:new-agent-tab'
+
+type NewAgentTab = 'summon' | 'hire'
+
+export type NewAgentChoice = { kind: 'summon'; cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain } | { kind: 'hire' }
+
 /**
- * "Chamar agente": just a folder and how much freedom the agent gets. On a project
- * floor the folder is the project's. Resolves the choice, or null if the player gave up.
+ * "Novo agente": one dialog for every way of getting an agent.
+ * - Conversar: folder and freedom only; resolves the choice so the caller summons the
+ *   agent and opens the panel.
+ * - Com tarefa: adds a name and a task; hires right here and resolves `{ kind: 'hire' }`.
+ * - Squad: only on a project floor with squads; closes and hands over to `hireSquad`.
+ * The fields are built once, so switching tabs keeps whatever was typed. On a project
+ * floor the folder is the project's. Resolves null if the player gave up.
  */
-export function openSummon(root: HTMLElement, state: State, project?: ProjectFloor | null, withTask?: () => void): Promise<{ cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain } | null> {
+export function openNewAgent(
+  root: HTMLElement,
+  state: State,
+  project: ProjectFloor | null | undefined,
+  opts: { toast: (t: string, k?: 'info' | 'ok' | 'err') => void; hireSquad?: () => void; tab?: NewAgentTab },
+): Promise<NewAgentChoice | null> {
   return new Promise((resolve) => {
+    const { toast } = opts
+    const used = new Set([...state.agents.values()].map((a) => a.name))
+    const name = h('input', { class: 'input', value: AGENT_NAMES.find((n) => !used.has(n)) ?? `Agente ${used.size + 1}`, maxlength: 40 })
     const folder = folderField(state, project)
+    const task = h('textarea', { class: 'input', rows: 5, placeholder: 'Ex.: Adicione testes para o módulo de pagamentos e corrija o que quebrar.' })
+    const brain = brainFields({ model: state.settings.defaultModel, effort: state.settings.defaultEffort })
+    const account = accountField(state, () => folder.cwd())
     const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
-    const saved = localStorage.getItem(LAST_SUMMON_MODE)
-    mode.value = MODES.some((m) => m.value === saved) ? saved! : state.settings.defaultPermissionMode
+    const savedMode = localStorage.getItem(LAST_SUMMON_MODE)
+    mode.value = MODES.some((m) => m.value === savedMode) ? savedMode! : state.settings.defaultPermissionMode
     const modeHint = h('span', {})
     const syncHint = () => {
       const m = MODES.find((x) => x.value === mode.value)!
@@ -233,125 +257,125 @@ export function openSummon(root: HTMLElement, state: State, project?: ProjectFlo
     }
     mode.addEventListener('change', syncHint)
     syncHint()
-    const brain = brainFields({ model: state.settings.defaultModel, effort: state.settings.defaultEffort })
-    const account = accountField(state, () => folder.cwd())
 
     let done = false
-    const finish = (v: { cwd: string; permissionMode: OfficePermissionMode; brain: AgentBrain } | null) => {
+    const finish = (v: NewAgentChoice | null) => {
       if (done) return
       done = true
       el.remove()
       resolve(v)
     }
-    const go = h('button', { class: 'btn btn-primary' }, icon('terminal', 15), 'Chamar')
-    const submit = async () => {
+
+    const savedTab = localStorage.getItem(LAST_NEW_AGENT_TAB)
+    let tab: NewAgentTab = opts.tab ?? (savedTab === 'hire' ? 'hire' : 'summon')
+    const go = h('button', { class: 'btn btn-primary' })
+    const nameField = field('Nome', name)
+    const taskField = field('Tarefa', task)
+    const tabHint = h('div', { class: 'field-hint' })
+    const send = state.platform === 'darwin' ? '⌘↩' : 'Ctrl+Enter'
+
+    const segBtn = (label: string, title: string, onclick: () => void) => h('button', { class: 'seg-btn', type: 'button', title, onclick }, label)
+    const talkBtn = segBtn('Conversar', 'Sem tarefa: ele chega e o painel abre para você digitar', () => setTab('summon', true))
+    const taskBtn = segBtn('Com tarefa', 'Nome, tarefa e modelo: ele já chega trabalhando', () => setTab('hire', true))
+    // The orchestrator is optional: plain agents work on a project floor too.
+    const squads = project ? state.squads.filter((q) => q.cwd === project.cwd).length : 0
+    const squadBtn =
+      squads && opts.hireSquad
+        ? segBtn(squads === 1 ? 'Squad' : `Squad (${squads})`, 'Um orquestrador que sobe com o squad inteiro e roda o pipeline', () => {
+            finish(null)
+            opts.hireSquad!()
+          })
+        : null
+    const seg = h('div', { class: 'seg', role: 'tablist' }, talkBtn, taskBtn, squadBtn)
+
+    // Hidden with the class, not the attribute: .field sets display and would win over [hidden].
+    const setTab = (next: NewAgentTab, remember: boolean) => {
+      tab = next
+      if (remember) localStorage.setItem(LAST_NEW_AGENT_TAB, next)
+      const hire = next === 'hire'
+      talkBtn.classList.toggle('on', !hire)
+      taskBtn.classList.toggle('on', hire)
+      nameField.classList.toggle('hidden', !hire)
+      taskField.classList.toggle('hidden', !hire)
+      go.replaceChildren(...(hire ? [icon('plus', 16), 'Contratar'] : [icon('terminal', 15), 'Chamar']))
+      tabHint.textContent = hire ? `Ele sobe pelo elevador e já começa. ${send} contrata.` : 'Sem tarefa: ele chega e o painel abre para você digitar.'
+      if (hire) task.focus()
+      else go.focus()
+    }
+
+    const summon = async () => {
       if (!(await folder.ensure())) return
       if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
       if (!project) localStorage.setItem(LAST_CWD, folder.cwd())
       localStorage.setItem(LAST_SUMMON_MODE, mode.value)
-      finish({ cwd: folder.cwd(), permissionMode: mode.value as OfficePermissionMode, brain: { ...brain.value(), accounts: account.value() } })
+      finish({ kind: 'summon', cwd: folder.cwd(), permissionMode: mode.value as OfficePermissionMode, brain: { ...brain.value(), accounts: account.value() } })
     }
-    go.addEventListener('click', () => void submit())
+    const hire = async () => {
+      const cwd = folder.cwd()
+      if (!cwd) return toast('Escolha a pasta do projeto.', 'err')
+      if (!task.value.trim()) return toast('Descreva a tarefa.', 'err')
+      if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
+      go.setAttribute('disabled', '')
+      try {
+        if (!project) localStorage.setItem(LAST_CWD, cwd)
+        localStorage.setItem(LAST_SUMMON_MODE, mode.value)
+        const a = await window.office.hire({
+          name: name.value.trim() || 'Agente',
+          cwd,
+          task: task.value.trim(),
+          ...brain.value(),
+          accounts: account.value(),
+          permissionMode: mode.value as OfficePermissionMode,
+        })
+        toast(`${a.name} está subindo pelo elevador.`, 'ok')
+        finish({ kind: 'hire' })
+      } catch (err) {
+        toast(cleanError(err), 'err')
+        go.removeAttribute('disabled')
+      }
+    }
+    const submit = () => {
+      if (go.hasAttribute('disabled')) return
+      void (tab === 'hire' ? hire() : summon())
+    }
+    go.addEventListener('click', submit)
+
     const el = modal(
-      project ? `Chamar agente · ${project.name}` : 'Chamar agente',
+      project ? `Novo agente · ${project.name}` : 'Novo agente',
       [
+        seg,
+        nameField,
         folder.el,
+        taskField,
         field('Modelo', brain.model, brain.hint),
         meterField('Esforço', brain.meter),
         ...(account.el ? [account.el] : []),
         field('Permissões', mode, modeHint),
-        h('div', { class: 'field-hint' }, 'Sem tarefa: ele chega e o painel abre para você digitar.'),
+        tabHint,
       ],
-      [
-        ...(withTask
-          ? [h('button', { class: 'btn btn-left', onclick: () => (finish(null), withTask()), title: 'Nome, tarefa e modelo: ele já chega trabalhando' }, icon('edit', 15), 'Com tarefa…')]
-          : []),
-        h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'),
-        go,
-      ],
+      [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), go],
       () => finish(null),
     )
     el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !(e.target instanceof HTMLSelectElement || e.target instanceof HTMLButtonElement)) void submit()
+      if (e.key !== 'Enter' || e.isComposing) return
+      const t = e.target
+      if (tab === 'hire') {
+        // Enter breaks lines in the task; ⌘/Ctrl+Enter sends from anywhere.
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault()
+          submit()
+        }
+      } else if (!(t instanceof HTMLSelectElement || t instanceof HTMLButtonElement || t instanceof HTMLTextAreaElement)) {
+        submit()
+      }
     })
     root.append(el)
-    go.focus()
+    setTab(tab, false)
   })
 }
 
-/**
- * "Contratar agente": a name, a task and how the agent thinks. On a project floor the
- * folder is the project's, and its squads are one click away (`hireSquad`).
- */
-export function openHire(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, project?: ProjectFloor | null, hireSquad?: () => void): void {
-  const used = new Set([...state.agents.values()].map((a) => a.name))
-  const name = h('input', { class: 'input', value: AGENT_NAMES.find((n) => !used.has(n)) ?? `Agente ${used.size + 1}`, maxlength: 40 })
-  const folder = folderField(state, project)
-  const task = h('textarea', { class: 'input', rows: 5, placeholder: 'Ex.: Adicione testes para o módulo de pagamentos e corrija o que quebrar.' })
-  const brain = brainFields({ model: state.settings.defaultModel, effort: state.settings.defaultEffort })
-  const account = accountField(state, () => folder.cwd())
-  const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
-  mode.value = state.settings.defaultPermissionMode
-  const modeHint = h('span', {})
-  const syncHint = () => {
-    const m = MODES.find((x) => x.value === mode.value)!
-    modeHint.textContent = m.hint
-    modeHint.className = m.value === 'bypassPermissions' ? 'warn' : ''
-  }
-  mode.addEventListener('change', syncHint)
-  syncHint()
-
-  const close = () => el.remove()
-  const submit = h('button', { class: 'btn btn-primary' }, icon('plus', 16), 'Contratar')
-  submit.addEventListener('click', async () => {
-    const cwd = folder.cwd()
-    if (!cwd) return toast('Escolha a pasta do projeto.', 'err')
-    if (!task.value.trim()) return toast('Descreva a tarefa.', 'err')
-    if (mode.value === 'bypassPermissions' && !confirm('Esse agente vai rodar qualquer comando sem perguntar. Continuar?')) return
-    submit.setAttribute('disabled', '')
-    try {
-      if (!project) localStorage.setItem(LAST_CWD, cwd)
-      const a = await window.office.hire({
-        name: name.value.trim() || 'Agente',
-        cwd,
-        task: task.value.trim(),
-        ...brain.value(),
-        accounts: account.value(),
-        permissionMode: mode.value as OfficePermissionMode,
-      })
-      toast(`${a.name} está subindo pelo elevador.`, 'ok')
-      close()
-    } catch (err) {
-      toast(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err), 'err')
-      submit.removeAttribute('disabled')
-    }
-  })
-
-  // The orchestrator is optional: plain agents work on a project floor too.
-  const squads = project ? state.squads.filter((q) => q.cwd === project.cwd).length : 0
-  const squadBtn =
-    squads && hireSquad
-      ? h('button', { class: 'btn btn-aside', title: 'Um orquestrador que sobe com o squad inteiro e roda o pipeline', onclick: () => (close(), hireSquad()) }, icon('users', 15), squads === 1 ? 'Contratar o squad' : `Contratar um squad (${squads})`)
-      : null
-  const el = modal(
-    project ? `Contratar agente · ${project.name}` : 'Contratar agente',
-    [
-      field('Nome', name),
-      folder.el,
-      field('Tarefa', task),
-      field('Modelo', brain.model, brain.hint),
-      meterField('Esforço', brain.meter),
-      ...(account.el ? [account.el] : []),
-      field('Permissões', mode, modeHint),
-    ],
-    [squadBtn, h('button', { class: 'btn', onclick: close }, 'Cancelar'), submit].filter((b): b is HTMLButtonElement => !!b),
-    close,
-  )
-  root.append(el)
-  task.focus()
-}
-
-export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void): void {
+/** `section: 'bridge'` opens scrolled to the terminal sessions box (the dock's gear does it when the bridge fails). */
+export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge' } = {}): void {
   const s = state.settings
   const look: Look = { ...s.playerLook }
   const name = h('input', { class: 'input', value: s.playerName, maxlength: 24 })
@@ -394,6 +418,8 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const brain = brainFields({ model: s.defaultModel, effort: s.defaultEffort })
   const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
   mode.value = s.defaultPermissionMode
+  const maxSubs = h('input', { class: 'input', type: 'number', min: 0, max: 100, step: 1, value: s.maxSubagents ?? 10 }) as HTMLInputElement
+  const budget = h('input', { class: 'input', type: 'number', min: 0, step: 0.5, value: s.agentBudgetUsd ?? 0 }) as HTMLInputElement
 
   const b = state.bridge
   const bridgeStatus = h(
@@ -458,6 +484,8 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       defaultModel: brain.model.value,
       defaultEffort: brain.value().effort ?? '',
       defaultPermissionMode: mode.value as OfficePermissionMode,
+      maxSubagents: Math.max(0, Math.round(Number(maxSubs.value) || 0)),
+      agentBudgetUsd: Math.max(0, Number(budget.value) || 0),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
     close()
@@ -499,6 +527,17 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       h(
         'div',
         { class: 'bridge-box' },
+        h('div', { class: 'bridge-title' }, icon('coin', 16), 'Limites dos agentes'),
+        h(
+          'div',
+          { class: 'field-row' },
+          field('Subagentes ao mesmo tempo', maxSubs, 'Por agente. 0 = limite do Claude Code (20).'),
+          field('Teto de custo por agente (US$)', budget, 'Ao chegar nele, o agente para e avisa. 0 = sem teto.'),
+        ),
+      ),
+      h(
+        'div',
+        { class: 'bridge-box' },
         h('div', { class: 'bridge-title' }, icon('users', 16), 'Contas do Claude'),
         h(
           'div',
@@ -509,7 +548,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       ),
       h(
         'div',
-        { class: 'bridge-box' },
+        { class: 'bridge-box bridge-terminal' },
         h('div', { class: 'bridge-title' }, icon('terminal', 16), 'Sessões do Claude Code no terminal'),
         h(
           'div',
@@ -527,6 +566,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
     close,
   )
   root.append(el)
+  if (opts.section === 'bridge') el.querySelector('.bridge-terminal')?.scrollIntoView({ block: 'start' })
 }
 
 const RECENT_MS = 2 * 60 * 1000

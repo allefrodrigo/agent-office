@@ -1,4 +1,4 @@
-import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
+import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, LedgerToday, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -17,6 +17,8 @@ export class State {
   accounts: AccountStatus[]
   system: SystemStats | null
   squads: SquadInfo[]
+  /** Today's spend from the cost book: it survives dismissals and zeroes at local midnight. */
+  ledgerToday: LedgerToday
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
 
@@ -32,6 +34,7 @@ export class State {
     this.accounts = initial.accounts
     this.system = initial.system
     this.squads = initial.squads
+    this.ledgerToday = initial.ledgerToday ?? { day: '', costByCwd: {}, agents: {} }
   }
 
   onChange(cb: Listener): () => void {
@@ -102,6 +105,9 @@ export class State {
         break
       case 'squads':
         this.squads = e.squads
+        break
+      case 'ledger:today':
+        this.ledgerToday = e.today
         break
     }
     this.changed()

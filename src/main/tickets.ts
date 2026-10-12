@@ -4,12 +4,14 @@ import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSyn
 import { join } from 'node:path'
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { projectFor } from '@shared/projects'
 import { labelOf, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
 import type {
   Actor,
   AgentSummary,
   Criterion,
   OfficeEvent,
+  ProjectFloor,
   Ticket,
   TicketDraft,
   TicketPatch,
@@ -345,8 +347,10 @@ export class TicketBoard extends EventEmitter {
    * Agents can open, read, comment and move tickets up to review; closing ("done")
    * stays with the people who review the work.
    */
-  toolsFor(agent: AgentSummary): McpSdkServerConfigWithInstance {
+  toolsFor(agent: AgentSummary, projects: () => ProjectFloor[]): McpSdkServerConfigWithInstance {
     const me: Actor = { kind: 'agent', name: agent.name, id: agent.id }
+    // Each project floor has its own board: by default an agent sees the tickets of the floor it works on.
+    const onMyFloor = (t: Ticket) => projectFor(projects(), t.cwd)?.id === agent.project
     const find = (key: string) => {
       const t = this.byKey(key)
       if (!t && this.byKey(key, true)) throw new Error(`${key} está fechado: só dá para ler (ticket_get). Peça para uma pessoa reabrir se precisar mexer.`)
@@ -367,7 +371,8 @@ export class TicketBoard extends EventEmitter {
       version: '1.0.0',
       instructions:
         'Quadro kanban do escritório (Agent Office). Colunas: backlog, todo (a fazer), doing (fazendo), review (revisão), done (feito). ' +
-        'Tickets têm chave curta como AO-12. Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
+        'Tickets têm chave curta como AO-12. Cada andar (projeto) tem o seu quadro: tickets_list mostra só os do seu andar, a não ser que peça all_floors. ' +
+        'Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
         'Um bom ticket se explica sozinho: título no imperativo, contexto com arquivos e passos de reprodução, critérios de aceite verificáveis. ' +
         'Só pessoas movem para done. Tickets fechados (arquivados depois de done) saem do quadro: consulte só quando precisar, com tickets_list closed=true ou ticket_get.',
       tools: [
@@ -379,20 +384,24 @@ export class TicketBoard extends EventEmitter {
             search: z.string().optional().describe('Texto no título, descrição ou tags'),
             mine: z.boolean().optional().describe('Só os tickets atribuídos a você'),
             closed: z.boolean().optional().describe('Busca nos tickets fechados (arquivo) em vez do quadro; combine com search'),
+            all_floors: z.boolean().optional().describe('Inclui os tickets de todos os andares; padrão: só os do seu andar'),
           },
           (args) =>
             run(() => {
+              const floor = (t: Ticket) => args.all_floors || onMyFloor(t)
+              const others = args.all_floors ? '' : ' neste andar. Use all_floors=true para ver os outros andares'
               if (args.closed) {
-                const found = this.listClosed(args.search, 50).filter((t) => !args.mine || t.assignee?.id === agent.id)
-                return found.length ? found.map((t) => `${listLine(t)} · fechado`).join('\n') : 'Nenhum ticket fechado com esses filtros.'
+                const found = this.listClosed(args.search, 50).filter((t) => floor(t) && (!args.mine || t.assignee?.id === agent.id))
+                return found.length ? found.map((t) => `${listLine(t)} · fechado`).join('\n') : `Nenhum ticket fechado com esses filtros${others}.`
               }
               const q = args.search?.toLowerCase().trim()
               const shown = this.list()
+                .filter(floor)
                 .filter((t) => (args.status?.length ? args.status.includes(t.status) : t.status !== 'done'))
                 .filter((t) => !args.mine || t.assignee?.id === agent.id)
                 .filter((t) => !q || [t.title, t.description, ...t.tags].some((v) => v.toLowerCase().includes(q)))
                 .sort((a, b) => STATUS_VALUES.indexOf(a.status) - STATUS_VALUES.indexOf(b.status) || a.order - b.order)
-              if (!shown.length) return 'Nenhum ticket com esses filtros.'
+              if (!shown.length) return `Nenhum ticket com esses filtros${others}.`
               return shown.map(listLine).join('\n')
             })(),
           { annotations: { readOnlyHint: true } },
