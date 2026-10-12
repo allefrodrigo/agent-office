@@ -114,7 +114,7 @@ function addTokens(into: Tokens, t: Tokens): void {
 }
 
 /** The part of an assistant line we use. Everything else (the conversation) is dropped right away. */
-interface Line {
+export interface Line {
   sessionId: string
   t: number
   key?: string
@@ -124,7 +124,7 @@ interface Line {
   toolCalls: number
 }
 
-function parseLine(raw: string): Line | null {
+export function parseLine(raw: string): Line | null {
   // Cheap filter before JSON.parse: most lines are user turns, tool results, metadata.
   if (!raw.includes('"type":"assistant"')) return null
   let o: Record<string, unknown>
