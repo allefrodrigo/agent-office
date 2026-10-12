@@ -287,6 +287,19 @@ describe('cleanSettings', () => {
     )
     expect(out).toEqual(before)
   })
+  it('números: null, vazio, lista e booleano mantêm o valor atual (AO-44)', () => {
+    const before = { ...settings(), ticketAutoCloseDays: 7, maxSubagents: 10, agentBudgetUsd: 5 }
+    for (const bad of [null, '', '  ', [], [3], true, false, {}, '1e3', '-1', 'abc', Number.NaN, Infinity]) {
+      const out = cleanSettings({ ticketAutoCloseDays: bad, maxSubagents: bad, agentBudgetUsd: bad }, before)
+      expect([out.ticketAutoCloseDays, out.maxSubagents, out.agentBudgetUsd], String(bad)).toEqual([7, 10, 5])
+    }
+    // 0 is a real choice (auto-close off, no subagents, no budget), and the input's string works too
+    expect(cleanSettings({ ticketAutoCloseDays: 0, maxSubagents: ' 3 ', agentBudgetUsd: '2.5' }, before)).toMatchObject({
+      ticketAutoCloseDays: 0,
+      maxSubagents: 3,
+      agentBudgetUsd: 2.5,
+    })
+  })
   it('video: aplica os campos válidos e mantém os inválidos', () => {
     const out = cleanSettings({ video: { ...QUALITY_PRESETS.saver, batterySaver: false } }, settings())
     expect(out.video).toEqual({ ...QUALITY_PRESETS.saver, batterySaver: false })

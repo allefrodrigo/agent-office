@@ -37,6 +37,19 @@ describe('TicketBoard load', () => {
     expect(JSON.parse(readFileSync(join(dir, 'tickets.json'), 'utf8')).seq).toBe(41)
   })
 
+  it('tickets that are not a list count as corrupt (AO-24)', () => {
+    writeFileSync(join(dir, 'tickets.json.bak'), JSON.stringify({ seq: 2, tickets: [ticket(2)] }))
+    writeFileSync(join(dir, 'tickets.json'), JSON.stringify({ seq: 3, tickets: { a: 1 } }))
+    writeFileSync(join(dir, 'tickets-closed.json'), JSON.stringify({ tickets: 'x' }))
+    const b = new TicketBoard(dir)
+    expect(b.list().map((t) => t.key)).toEqual(['AO-2'])
+    expect(b.listClosed()).toEqual([])
+    expect(readdirSync(dir).some((n) => n.startsWith('tickets.corrupt-'))).toBe(true)
+    expect(readdirSync(dir).some((n) => n.startsWith('tickets-closed.corrupt-'))).toBe(true)
+    // and the board works: no "filter is not a function"
+    expect(b.create({ title: 'Novo' }, { kind: 'player', name: 'Ana' }).key).toBe('AO-3')
+  })
+
   it('cut archive: moved aside, not written over by the next flush', () => {
     writeFileSync(join(dir, 'tickets.json'), JSON.stringify({ seq: 1, tickets: [] }))
     writeFileSync(join(dir, 'tickets-closed.json'), '{"tickets":[{"key":')

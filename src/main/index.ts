@@ -16,7 +16,7 @@ import { flushOnExit, setupData } from './data'
 import { dataNotices } from './fs-safe'
 import { diagnostics, guardWindow, installFatalHandlers, onFatalFlush, rendererError } from './crash'
 import { captureConsole, initLog, log, logDir, secret } from './log'
-import { dropInheritedClaudeEnv, loadShellPath } from './env'
+import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env'
 import { isSessionId, openInTerminal, recentSessions, sessionEntry, transcript } from './sessions'
 import { findSquad, isDir, loadSquads, squadInfo } from './squads'
 import { Store } from './store'
@@ -218,6 +218,16 @@ function notifyPermission(store: Store, manager: AgentManager, req: PermissionRe
 
 dropInheritedClaudeEnv()
 
+// Before anything reads or writes userData: the stress demo never opens the real office (AO-31).
+const stressError = stressDataDirError()
+if (stressError) {
+  console.error(stressError)
+  // showErrorBox works before ready and blocks until closed.
+  dialog.showErrorBox('Modo de carga sem pasta de dados', stressError)
+  // process.exit, not app.exit: nothing below may run, not even initLog.
+  process.exit(1)
+}
+
 // Windows only shows notifications for apps with an AppUserModelID.
 app.setAppUserModelId('dev.allef.agentoffice')
 // Dev helper: run a second, isolated instance (own data, own bridge port in its office.json).
@@ -249,7 +259,8 @@ app.whenReady().then(async () => {
   const defaultBrain = (): AgentBrain => ({ model: store.settings.defaultModel || undefined, effort: store.settings.defaultEffort || undefined })
 
   const broadcast = (e: OfficeEvent) => {
-    if (win && !win.isDestroyed()) win.webContents.send('office:event', e)
+    // A crashed page reloads by itself and gets the state again; sending now only makes noise (AO-27).
+    if (win && !win.isDestroyed() && !win.webContents.isCrashed()) win.webContents.send('office:event', e)
   }
 
   const updateBadge = () => {
@@ -373,7 +384,10 @@ app.whenReady().then(async () => {
     if (e.sender === win?.webContents) rendererError(payload)
   })
   ipcMain.handle('office:openLogs', async () => {
-    const err = await shell.openPath(logDir())
+    const dir = logDir()
+    // openPath('') would open nothing useful (AO-27).
+    if (!dir) throw new Error('A pasta de logs não pôde ser criada, então não há log para abrir. Confira a permissão da pasta de dados do app.')
+    const err = await shell.openPath(dir)
     if (err) throw new Error(`Não consegui abrir a pasta de logs: ${err}`)
   })
   // Copied here, not in the page: the page's clipboard needs focus, and the text never passes through it.

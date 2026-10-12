@@ -1,8 +1,8 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { bakPath, loadJson, noticeFor, writeJsonAtomic } from '../src/main/fs-safe'
+import { bakPath, loadJson, noticeFor, writeFileAtomic, writeJsonAtomic } from '../src/main/fs-safe'
 
 let dir: string
 let file: string
@@ -19,6 +19,13 @@ describe('writeJsonAtomic', () => {
   it('writes the JSON and leaves no tmp file', () => {
     writeJsonAtomic(file, { a: 1 })
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ a: 1 })
+    expect(existsSync(`${file}.tmp`)).toBe(false)
+  })
+
+  it('a failed write leaves no tmp file behind (AO-26)', () => {
+    // a non-empty folder under the name: the rename fails on every OS
+    mkdirSync(join(file, 'x'), { recursive: true })
+    expect(() => writeFileAtomic(file, '{}')).toThrow()
     expect(existsSync(`${file}.tmp`)).toBe(false)
   })
 
@@ -76,6 +83,12 @@ describe('loadJson', () => {
     expect(loadJson(file).status).toBe('lost')
     writeFileSync(file, '[]')
     expect(loadJson(file).status).toBe('lost')
+  })
+
+  it('a UTF-8 BOM is not corruption (AO-24)', () => {
+    writeFileSync(file, '\uFEFF{"seq":3}')
+    expect(loadJson(file)).toEqual({ status: 'ok', data: { seq: 3 } })
+    expect(corrupts()).toEqual([])
   })
 
   it('a broken .bak falls through to the next copy', () => {

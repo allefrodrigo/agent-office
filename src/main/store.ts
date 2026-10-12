@@ -9,7 +9,7 @@ import { DEFAULT_VIDEO } from '@shared/video'
 import { mainAccount } from './accounts'
 import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
-import { backupCopies } from './backups'
+import { backupCopies, shapeOf } from './backups'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 import { cleanVideo } from './validate'
 
@@ -87,7 +87,7 @@ export class Store {
 
   private load(): Data {
     // A broken office.json is moved aside and the last good copy loads instead (AO-24).
-    const r = loadJson<Partial<Data>>(this.file, { fallbacks: backupCopies(this.dir, 'office.json') })
+    const r = loadJson<Partial<Data>>(this.file, { valid: shapeOf('office.json'), fallbacks: backupCopies(this.dir, 'office.json') })
     reportLoad(this.file, r)
     const raw: Partial<Data> = r.status === 'ok' || r.status === 'restored' ? r.data : {}
     return {

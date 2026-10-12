@@ -51,3 +51,13 @@ const INHERITED_CLAUDE_ENV = [
 export function dropInheritedClaudeEnv(): void {
   for (const name of INHERITED_CLAUDE_ENV) delete process.env[name]
 }
+
+/**
+ * AGENT_OFFICE_DEMO=stress fills the office with 50 fake agents and three floors. Without
+ * its own AGENT_OFFICE_DATA_DIR it would open the user's real office instead (AO-31), so
+ * the app refuses to start. Returns the message to show, or null when it may go on.
+ */
+export function stressDataDirError(env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.AGENT_OFFICE_DEMO !== 'stress' || env.AGENT_OFFICE_DATA_DIR?.trim()) return null
+  return 'O modo de carga (AGENT_OFFICE_DEMO=stress) precisa de uma pasta de dados só dele, para não abrir nem mexer no seu escritório. Rode de novo com AGENT_OFFICE_DATA_DIR=$(mktemp -d) na mesma linha.'
+}

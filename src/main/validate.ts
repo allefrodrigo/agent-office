@@ -270,6 +270,13 @@ const lookSchema = z.object({
 })
 
 /**
+ * A number, or a string of digits (an input's value). Not z.coerce: null, '', [] and
+ * false would become 0 and true 1, and saving {ticketAutoCloseDays: null} would turn
+ * auto-close off. Anything else keeps the current value (AO-44).
+ */
+const numberField = z.union([z.number(), z.string().trim().regex(/^\d+(\.\d+)?$/).transform(Number)])
+
+/**
  * One schema per field the settings form may change. bridgePort and the lists
  * (projects, accounts, defaultAccounts) have their own rules in cleanSettings.
  */
@@ -281,13 +288,10 @@ const settingsFields = {
   defaultEffort: z.union([z.literal(''), z.enum(EFFORT_LEVELS as [EffortLevel, ...EffortLevel[]])]),
   defaultPermissionMode: permissionModeSchema,
   notifications: z.boolean(),
-  ticketAutoCloseDays: z.coerce.number().int().min(0).max(365),
-  maxSubagents: z.coerce.number().int().min(0).max(100),
-  agentBudgetUsd: z.coerce
-    .number()
-    .finite()
-    .min(0)
-    .max(100_000)
+  ticketAutoCloseDays: numberField.pipe(z.number().int().min(0).max(365)),
+  maxSubagents: numberField.pipe(z.number().int().min(0).max(100)),
+  agentBudgetUsd: numberField
+    .pipe(z.number().finite().min(0).max(100_000))
     .transform((n) => Math.round(n * 100) / 100),
   updateChannel: z.enum(['stable', 'beta']),
 } satisfies { [K in keyof Settings]?: z.ZodType<unknown> }

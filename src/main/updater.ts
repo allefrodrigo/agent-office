@@ -74,8 +74,20 @@ export class Updater {
     this.deps.flush()
     log.info(`Reiniciando para instalar a versão ${this.status.version}${force ? ' (confirmado com agentes ocupados)' : ''}`)
     const u = this.updater
-    setImmediate(() => (u ? u.quitAndInstall() : app.quit()))
+    setImmediate(() => this.quitAndInstall(u))
     return { ok: true }
+  }
+
+  /** A throw here would be an uncaught exception; the player sees the error instead (AO-39). */
+  private quitAndInstall(u: AppUpdater | null): void {
+    try {
+      if (u) u.quitAndInstall()
+      else app.quit()
+    } catch (err) {
+      log.error('Falha ao reiniciar para instalar a atualização:', err)
+      const first = (err instanceof Error ? err.message : String(err)).split('\n')[0].trim().slice(0, 200)
+      this.set({ state: 'error', message: `a instalação falhou (${first}). Feche e abra o app para instalar.`, checkedAt: Date.now() })
+    }
   }
 
   private async load(): Promise<AppUpdater> {
@@ -119,7 +131,7 @@ export class Updater {
     // Keep the first line: electron-updater appends whole HTTP bodies and stacks.
     const first = text.split('\n')[0].trim()
     // The releases feed answers 404 when the repo is private or has no release yet.
-    const message = /^404\b/.test(first) || /No published versions/i.test(first) ? 'nenhuma versão publicada no GitHub.' : first.slice(0, 200)
+    const message = /^(?:HttpError:\s*)?404\b/.test(first) || /No published versions/i.test(first) ? 'nenhuma versão publicada no GitHub.' : first.slice(0, 200)
     this.set({ state: 'error', message, checkedAt: Date.now() })
   }
 

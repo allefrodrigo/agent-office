@@ -111,3 +111,18 @@ describe('Store: gravação', () => {
     expect(JSON.parse(readFileSync(join(dir, 'office.json'), 'utf8')).settings.playerName).toBe('Você')
   })
 })
+
+describe('Store: forma do office.json (AO-24)', () => {
+  it('agentes que não são lista contam como corrompido; o .bak carrega', () => {
+    writeFileSync(join(dir, 'office.json.bak'), JSON.stringify({ settings: { playerName: 'Bak' }, agents: [] }))
+    write({ settings: { playerName: 'Ruim' }, agents: { a: 1 } })
+    const s = new Store()
+    expect(s.settings.playerName).toBe('Bak')
+    expect(s.agents).toEqual([])
+  })
+
+  it('aceita office.json com BOM', () => {
+    write('\uFEFF' + JSON.stringify({ settings: { playerName: 'Ana' } }))
+    expect(new Store().settings.playerName).toBe('Ana')
+  })
+})
