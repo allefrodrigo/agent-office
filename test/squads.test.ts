@@ -128,6 +128,42 @@ describe('squad.yaml com path traversal falha de forma segura', () => {
     expect(codes).not.toContain('y')
   })
 
+  it('symlink de diretório intermediário para fora não é seguido (AO-41)', () => {
+    put('squads/m/squad.yaml', 'code: m\nagents:\n  - id: a\n    file: dentro/a.agent.md')
+    const fora = mkdtempSync(join(tmpdir(), 'ao-squads-dir-'))
+    writeFileSync(join(fora, 'a.agent.md'), 'NÃO PODE VAZAR')
+    symlinkSync(fora, join(cwd, 'squads/m/dentro'))
+    expect(findSquad(cwd, 'm')!.prompts.a).not.toContain('NÃO PODE VAZAR')
+  })
+
+  it('symlink de arquivo, mesmo apontando para dentro, não é lido (AO-41)', () => {
+    put('squads/k/squad.yaml', 'code: k\nagents:\n  - id: a')
+    put('squads/k/real.md', 'DE OUTRO ARQUIVO')
+    mkdirSync(join(cwd, 'squads/k/agents'), { recursive: true })
+    symlinkSync(join(cwd, 'squads/k/real.md'), join(cwd, 'squads/k/agents/a.agent.md'))
+    expect(findSquad(cwd, 'k')!.prompts.a).not.toContain('DE OUTRO ARQUIVO')
+  })
+
+  it('prefixo irmão (squads/a vs squads/a-evil) não passa (AO-41)', () => {
+    put('squads/a-evil/agents/x.agent.md', 'NÃO PODE VAZAR')
+    put('squads/a/squad.yaml', 'code: a\nagents:\n  - id: x\n    file: ../a-evil/agents/x.agent.md')
+    expect(findSquad(cwd, 'a')!.prompts.x).not.toContain('NÃO PODE VAZAR')
+  })
+
+  it.each(['../hostil', 'a/../hostil', '..\\hostil', 'a\\b', '.oculto', 'a\0b'])('code e id inválidos: %j (AO-41)', (bad) => {
+    put('squads/v/squad.yaml', `code: ${JSON.stringify(bad)}\nagents:\n  - id: ${JSON.stringify(bad)}\n  - id: ok`)
+    const s = findSquad(cwd, 'v')!
+    expect(s.code).toBe('v')
+    expect(s.members.map((m) => m.id)).toEqual(['ok'])
+    expect(findSquad(cwd, bad)).toBeUndefined()
+  })
+
+  it('arquivo de membro grande demais não é lido (AO-41)', () => {
+    put('squads/g/squad.yaml', 'code: g\nagents:\n  - id: a')
+    put('squads/g/agents/a.agent.md', 'GRANDE' + 'x'.repeat(600 * 1024))
+    expect(findSquad(cwd, 'g')!.prompts.a).not.toContain('GRANDE')
+  })
+
   it('findSquad não acha códigos com ..', () => {
     expect(findSquad(cwd, '../../../etc')).toBeUndefined()
     expect(findSquad(cwd, 'hostil')?.code).toBe('hostil')
