@@ -318,7 +318,7 @@ export function openNewAgent(
 
     const savedTab = localStorage.getItem(LAST_NEW_AGENT_TAB)
     let tab: NewAgentTab = opts.tab ?? (savedTab === 'hire' || savedTab === 'templates' ? savedTab : 'summon')
-    const templates = templatesTab(root, state, project, { toast, cwd: () => folder.cwd(), ensureFolder: () => folder.ensure(), accounts: () => account.value() })
+    const templates = templatesTab(root, state, project, { toast, cwd: () => folder.cwd(), ensureFolder: () => folder.ensure(), accounts: () => account.value(), worktree: () => isolated.value() })
     const go = h('button', { class: 'btn btn-primary' })
     const nameField = field('Nome', name)
     const taskField = field('Tarefa', task)

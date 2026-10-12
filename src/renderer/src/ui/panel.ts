@@ -69,6 +69,10 @@ export class AgentPanel {
   private searchTimer: ReturnType<typeof setTimeout> | null = null
   /** Última ferramenta do log: ganha a categoria "erro" quando a saída dela falha. */
   private lastTool: HTMLElement | null = null
+  /** O log inteiro do agente aberto (o mesmo array do State, que cresce ao vivo). */
+  private log: LogEntry[] = []
+  /** Índice em `log` da primeira entrada no feed: as anteriores não estão no DOM. */
+  private from = 0
 
   constructor(
     private root: HTMLElement,
@@ -172,6 +176,8 @@ export class AgentPanel {
     window.addEventListener('keydown', (e) => {
       // ⌘F (Ctrl+F fora do Mac) busca no log do agente aberto.
       if (this.agentId && e.key.toLowerCase() === 'f' && (e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey) {
+        // Um modal ou o quadro por cima: a busca do painel ficaria escondida atrás dele.
+        if (document.querySelector('.backdrop, .board:not(.hidden)')) return
         e.preventDefault()
         this.openSearch()
         return
@@ -205,7 +211,9 @@ export class AgentPanel {
       if (this.agentId !== agentId || this.helper !== helper) return
       this.feed.replaceChildren()
       this.lastTool = null
-      for (const e of log) this.append(e, false)
+      this.log = log
+      this.from = Math.max(0, log.length - FEED_MAX)
+      for (const e of log.slice(this.from)) this.append(e, false)
       this.feed.scrollTop = this.feed.scrollHeight
       this.stickToBottom = true
       if (this.searching) this.runSearch(true)
@@ -217,6 +225,8 @@ export class AgentPanel {
     this.helper = null
     this.memMenuOpen = false
     this.closeSearch()
+    this.log = []
+    this.from = 0
     this.el.classList.add('hidden')
   }
 
@@ -263,7 +273,43 @@ export class AgentPanel {
     this.searchBar.classList.add('hidden')
     this.clearMatches()
     this.searchCount.textContent = ''
+    this.searchCount.title = ''
     if (document.activeElement === this.searchInput) this.searchInput.blur()
+    this.trim()
+  }
+
+  /** Volta o feed às últimas FEED_MAX entradas (a busca pode ter carregado mais antigas). */
+  private trim(): void {
+    while (this.feed.childElementCount > FEED_MAX) {
+      this.feed.firstElementChild?.remove()
+      this.from++
+    }
+  }
+
+  /** Entrada antes do feed mais próxima dele que tem o termo e passa no filtro; -1 se nenhuma. */
+  private olderMatch(term: string): number {
+    for (let i = this.from - 1; i >= 0; i--) {
+      const e = this.log[i]
+      if (passesFilter(entryCategory(e), this.filter) && entryText(e).includes(term)) return i
+    }
+    return -1
+  }
+
+  /** Põe no topo do feed as entradas de `log[index]` até a primeira que já estava lá. */
+  private loadOlder(index: number): void {
+    if (index < 0 || index >= this.from) return
+    const views: HTMLElement[] = []
+    // a saída com erro marca a ferramenta que veio antes dela, como em append()
+    let tool: HTMLElement | null = null
+    for (const e of this.log.slice(index, this.from)) {
+      const view = entryView(e)
+      view.dataset.cat = entryCategory(e)
+      if (e.kind === 'tool') tool = view
+      else if (e.kind === 'tool_result' && e.isError && tool) tool.dataset.cat += ' err'
+      views.push(view)
+    }
+    this.feed.prepend(...views)
+    this.from = index
   }
 
   private clearMatches(): void {
@@ -282,10 +328,30 @@ export class AgentPanel {
     const term = this.searchInput.value.trim().toLowerCase()
     const keep = this.current
     this.clearMatches()
+    this.searchCount.title = ''
     if (!term) {
       this.searchCount.textContent = ''
       return
     }
+    this.collect(term)
+    const older = this.olderMatch(term)
+    if (!this.matches.length && older >= 0) {
+      // nada no que está no feed: carrega até a ocorrência mais recente das antigas
+      this.loadOlder(older)
+      this.collect(term)
+      jump = true
+    }
+    if (!this.matches.length) {
+      this.searchCount.textContent = 'nada'
+      return
+    }
+    CSS.highlights?.set('log-search', new Highlight(...this.matches))
+    this.goTo(jump || keep < 0 ? this.matches.length - 1 : Math.min(keep, this.matches.length - 1), jump)
+  }
+
+  /** Junta em `matches` as ocorrências do termo nas entradas visíveis do feed. */
+  private collect(term: string): void {
+    this.matches = []
     for (const entry of this.feed.children) {
       if (!(entry instanceof HTMLElement) || !entry.classList.contains('entry') || entry.offsetParent === null) continue
       const walker = document.createTreeWalker(entry, NodeFilter.SHOW_TEXT)
@@ -299,16 +365,22 @@ export class AgentPanel {
         }
       }
     }
-    if (!this.matches.length) {
-      this.searchCount.textContent = 'nada'
-      return
-    }
-    CSS.highlights?.set('log-search', new Highlight(...this.matches))
-    this.goTo(jump || keep < 0 ? this.matches.length - 1 : Math.min(keep, this.matches.length - 1), jump)
   }
 
   private step(d: 1 | -1): void {
     if (!this.matches.length) return this.runSearch(true)
+    const term = this.searchInput.value.trim().toLowerCase()
+    if (d === -1 && this.current === 0 && term) {
+      // antes da primeira do feed: carrega até a anterior no log completo, se houver
+      const older = this.olderMatch(term)
+      if (older >= 0) {
+        const before = this.matches.length
+        this.loadOlder(older)
+        this.collect(term)
+        CSS.highlights?.set('log-search', new Highlight(...this.matches))
+        return this.goTo(Math.max(0, this.matches.length - before - 1), true)
+      }
+    }
     this.goTo((this.current + d + this.matches.length) % this.matches.length, true)
   }
 
@@ -316,7 +388,10 @@ export class AgentPanel {
     this.current = i
     const r = this.matches[i]
     CSS.highlights?.set('log-search-current', new Highlight(r))
-    this.searchCount.textContent = `${i + 1}/${this.matches.length}`
+    const term = this.searchInput.value.trim().toLowerCase()
+    const more = term !== '' && this.olderMatch(term) >= 0
+    this.searchCount.textContent = `${i + 1}/${this.matches.length}${more ? '+' : ''}`
+    this.searchCount.title = more ? 'Há ocorrências mais antigas no log: volte da primeira (↑) para carregá-las' : ''
     if (!scroll) return
     const el = r.startContainer.parentElement
     // Saída de ferramenta recolhida abre para mostrar o termo.
@@ -661,10 +736,30 @@ export class AgentPanel {
     if (e.kind === 'tool') this.lastTool = view
     else if (e.kind === 'tool_result' && e.isError && this.lastTool) this.lastTool.dataset.cat += ' err'
     this.feed.append(view)
-    while (this.feed.childElementCount > 400) this.feed.firstElementChild?.remove()
+    // Durante a busca o feed não encolhe: as ocorrências carregadas continuam no DOM.
+    if (!this.searching) this.trim()
     if (scroll && this.stickToBottom) this.feed.scrollTop = this.feed.scrollHeight
     if (scroll) this.scheduleSearch()
   }
+}
+
+/** Entradas que o feed mantém no DOM; a busca alcança o log inteiro (AO-36). */
+const FEED_MAX = 400
+
+/** Mesma regra do CSS de .panel-feed[data-filter]: "Tudo" mostra todas. */
+function passesFilter(cat: string, filter: LogFilter): boolean {
+  return filter === 'all' || cat.split(' ').includes(filter)
+}
+
+/** Texto que a entrada mostra no feed, em minúsculas (guardado: o log não muda). */
+const texts = new WeakMap<LogEntry, string>()
+function entryText(e: LogEntry): string {
+  let t = texts.get(e)
+  if (t === undefined) {
+    t = (entryView(e).textContent ?? '').toLowerCase()
+    texts.set(e, t)
+  }
+  return t
 }
 
 /** msg = conversa; tool = ferramentas e decisões; err = erros; other = sistema e raciocínio (só em "Tudo"). */

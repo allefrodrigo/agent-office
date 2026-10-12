@@ -92,11 +92,12 @@ export class Avatar {
   private build(): void {
     const U = this.uniform
     const L = U ? { ...this.look, shirt: U.color } : this.look
+    // the old body's own pieces (hair blobs, logo patch plane) leave the GPU; shared ones stay.
+    // Dispose first: once the body is cleared, disposeTree has no children left to find (AO-28).
+    disposeTree(this.body)
     this.body.clear()
     this.shirtMeshes = []
     const shirtDark = shadeHex(L.shirt, -30)
-    // the old body's own pieces (hair blobs, logo patch plane) leave the GPU; shared ones stay
-    disposeTree(this.body)
 
     // legs: thigh pivots at the hip, shin pivots at the knee
     for (const [thigh, shin, x] of [

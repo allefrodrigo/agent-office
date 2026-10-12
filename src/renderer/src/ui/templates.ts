@@ -216,7 +216,14 @@ export function templatesTab(
   root: HTMLElement,
   state: State,
   project: ProjectFloor | null | undefined,
-  ctx: { toast: Toast; cwd(): string; ensureFolder(): Promise<boolean>; accounts(): string[] | undefined },
+  ctx: {
+    toast: Toast
+    cwd(): string
+    ensureFolder(): Promise<boolean>
+    accounts(): string[] | undefined
+    /** The dialog's "cópia isolada (worktree)" toggle; undefined lets the main process decide. */
+    worktree(): boolean | undefined
+  },
 ): TemplatesTab {
   const { toast } = ctx
   let selected = localStorage.getItem(LAST_TEMPLATE) ?? ''
@@ -376,6 +383,7 @@ export function templatesTab(
           accounts: ctx.accounts(),
           permissionMode: t.permissionMode,
           look: t.look,
+          worktree: ctx.worktree(),
         })
         toast(`${a.name} está subindo pelo elevador.`, 'ok')
         return true

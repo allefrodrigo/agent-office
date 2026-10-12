@@ -281,7 +281,6 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
     body.replaceChildren(...parts)
   }
 
-  /** "Nothing yet" says since when the book counts. */
   /** O relatório na tela (período e projeto escolhidos) em Markdown. */
   const exportReport = () => {
     if (!ledger) return
