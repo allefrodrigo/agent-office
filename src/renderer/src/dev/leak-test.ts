@@ -6,7 +6,7 @@ import type { State } from '../state'
 
 /**
  * Dev only (AO-28): adds and removes a floor 20 times, hires and dismisses 30 agents
- * and uses the skull 10 times, reading renderer.info.memory after each round. Agents
+ * uses the skull 10 times and dresses the player 30 times, reading renderer.info.memory after each round. Agents
  * are fake summaries pushed through the same agent:upsert / agent:removed events the
  * main process sends, so nothing reaches Claude or the store.
  *
@@ -24,6 +24,8 @@ interface Snapshot {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const FLOOR_ID = 'leak-test-floor'
+/** Uniform colors for the dressing round (shadeHex needs hex). */
+const SHIRTS = ['#2f8f83', '#6c5ce7', '#e17055', '#0984e3', '#fdcb6e']
 
 /** A tiny PNG logo whose color changes every round, so each rebuild draws a new one. */
 function logo(i: number): string {
@@ -137,7 +139,23 @@ export async function leakTest(game: Game, state: State): Promise<{ snapshots: S
     game.goFloor(0)
     await snap(`caveira ${i + 1}/10`)
   }
-  const end = snapshots.at(-1)!
+  const afterSkull = snapshots.at(-1)!
+
+  // ---------- 4. the player dressed 30 times: uniform with logo, own clothes, new look ----------
+  // build() used to clear the body before disposing it, so every change leaked the old one.
+  // One logo for all rounds: its patch is cached on purpose and released with the floor.
+  const patch = logo(7)
+  const ownLook = game.player.look
+  for (let i = 0; i < 30; i++) {
+    game.player.setUniform(i % 2 ? null : { color: SHIRTS[i % SHIRTS.length], logo: patch })
+    game.player.setLook(lookFromSeed(`leak-look-${i}`))
+    // one frame at least, so each body is uploaded before the next replaces it
+    await sleep(120)
+    if ((i + 1) % 10 === 0) await snap(`roupa ${i + 1}/30`)
+  }
+  game.player.setUniform(null)
+  game.player.setLook(ownLook)
+  const end = await snap('roupa original')
 
   const delta = (a: Snapshot, b: Snapshot) => ({ geometries: b.geometries - a.geometries, textures: b.textures - a.textures })
   return {
@@ -146,7 +164,8 @@ export async function leakTest(game: Game, state: State): Promise<{ snapshots: S
       início: { geometries: start.geometries, textures: start.textures },
       andares: delta(start, afterFloors),
       agentes: delta(afterFloors, afterAgents),
-      caveira: delta(afterAgents, end),
+      caveira: delta(afterAgents, afterSkull),
+      roupa: delta(afterSkull, end),
       fim: { geometries: end.geometries, textures: end.textures },
     },
   }
