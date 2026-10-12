@@ -145,8 +145,12 @@ function notifyPermission(store: Store, manager: AgentManager, req: PermissionRe
   const target = { agentId: req.agentId, itemId: req.id }
   n.on('click', () => openFromNotice(target))
   n.on('action', (details, index) => {
-    // Checked again here: the button exists only when allow is true.
+    // Checked again at the click: a path swapped since the notice (e.g. a new symlink) loses the button.
     if (!notice.allow || (details.actionIndex ?? index) !== 0) return
+    if (!permissionNotice(req, agentName, process.platform, { cwd, realpath: realPathOf }).allow) {
+      openFromNotice(target)
+      return
+    }
     manager.respond({ requestId: req.id, behavior: 'allow' })
   })
   n.on('reply', (details, reply) => {

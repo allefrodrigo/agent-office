@@ -1,4 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, sep } from 'node:path'
 import type { WorktreeInfo } from '@shared/types'
 import { headOf, insideRoot, repoRoot } from './repo'
@@ -110,11 +111,16 @@ export interface WorktreeState {
   ignored: number
   /** Commits on the branch since it was made. */
   ahead: number
+  /**
+   * Which files those are, with size and modification time: confirming a loss covers
+   * exactly this set, so a file swapped or edited after the dialog keeps the copy.
+   */
+  fingerprint: string
 }
 
 export async function worktreeState(wt: WorktreeInfo): Promise<WorktreeState> {
   checkWorktree(wt)
-  if (!existsSync(wt.root)) return { exists: false, dirty: 0, ignored: 0, ahead: 0 }
+  if (!existsSync(wt.root)) return { exists: false, dirty: 0, ignored: 0, ahead: 0, fingerprint: '' }
   // One status for both: `!! ` entries are ignored (a fully ignored folder is one entry).
   const status = zsplit(await git(wt.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignored=traditional']))
   const entries = status.filter((e) => e.length > 3)
@@ -122,7 +128,23 @@ export async function worktreeState(wt: WorktreeInfo): Promise<WorktreeState> {
   const dirty = entries.length - ignored
   let ahead = 0
   if (SHA_RE.test(wt.base)) ahead = Number((await git(wt.root, ['rev-list', '--count', `${wt.base}..HEAD`])).trim()) || 0
-  return { exists: true, dirty, ignored, ahead }
+  return { exists: true, dirty, ignored, ahead, fingerprint: fingerprintOf(wt.root, entries) }
+}
+
+/** Hash of the status entries plus each path's size and mtime (missing paths count as such). */
+function fingerprintOf(root: string, entries: string[]): string {
+  const h = createHash('sha256')
+  for (const e of [...entries].sort()) {
+    let stamp = 'missing'
+    try {
+      const st = lstatSync(join(root, e.slice(3)))
+      stamp = `${st.size}:${st.mtimeMs}`
+    } catch {
+      /* deleted or unreadable: the entry alone still counts */
+    }
+    h.update(`${e}\0${stamp}\0`)
+  }
+  return h.digest('hex')
 }
 
 /** What removing the copy would delete without git being able to bring it back. */

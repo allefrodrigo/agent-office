@@ -102,7 +102,9 @@ export function toolRisk(tool: string, input: Record<string, unknown> = {}, scop
     if (r.why) return r.why
     return WRITE_TOOLS.has(tool) ? writeRisk(r.rels) : ''
   }
-  if (tool === 'Glob' || tool === 'Grep') {
+  // Grep lê o conteúdo dos arquivos (inclusive ocultos, como .env): só pelo app.
+  if (tool === 'Grep') return 'busca no conteúdo dos arquivos'
+  if (tool === 'Glob') {
     // Sem path = a pasta do agente. O padrão do Glob não pode subir de pasta.
     if (input.path !== undefined && input.path !== null) {
       const why = pathRisk(input.path, scope)
@@ -112,10 +114,8 @@ export function toolRisk(tool: string, input: Record<string, unknown> = {}, scop
       const v = input[k]
       if (v === undefined) continue
       if (typeof v !== 'string') return 'padrão estranho'
-      if (tool === 'Glob' || k === 'glob') {
-        if (v.startsWith('/') || v.startsWith('~') || v.split('/').includes('..')) return 'padrão fora da pasta'
-        if (sensitivePath(v)) return 'arquivo sensível'
-      }
+      if (v.startsWith('/') || v.startsWith('~') || v.split('/').includes('..')) return 'padrão fora da pasta'
+      if (sensitivePath(v)) return 'arquivo sensível'
     }
     return ''
   }
@@ -246,6 +246,8 @@ const EXEC_DIRS = /^(node_modules|bin|scripts?|hooks?|vendor)$/i
 
 /** Nomes de arquivo (sem a pasta), sem diferenciar maiúsculas. */
 const EXEC_FILES: readonly RegExp[] = [
+  // instruções que outros agentes seguem
+  /^(claude|claude\.local|agents|gemini|copilot-instructions)\.md$/i,
   // npm, yarn, pnpm, bun, node
   /^(package|package-lock|npm-shrinkwrap|deno|bower|composer)\.jsonc?$/i,
   /^(yarn\.lock|pnpm-lock\.yaml|pnpm-workspace\.yaml|bun\.lockb?|bunfig\.toml|composer\.lock)$/i,

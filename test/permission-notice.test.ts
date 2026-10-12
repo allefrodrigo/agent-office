@@ -165,9 +165,7 @@ describe('ferramentas de arquivo', () => {
     expect(toolRisk('Write', { file_path: `${CWD}/README.md` }, scope)).toBe('')
     expect(toolRisk('Read', { file_path: `${CWD}/src/a.ts` }, scope)).toBe('')
     expect(toolRisk('NotebookEdit', { notebook_path: `${CWD}/n.ipynb` }, scope)).toBe('')
-    expect(toolRisk('Grep', { pattern: 'login' }, scope)).toBe('')
     expect(toolRisk('Glob', { pattern: 'src/**/*.ts' }, scope)).toBe('')
-    expect(toolRisk('Grep', { pattern: 'x', path: `${CWD}/src` }, scope)).toBe('')
   })
 
   it.each([
@@ -276,6 +274,21 @@ describe('ferramentas de arquivo', () => {
     expect(normalizePath('/a/./b/../c//d')).toBe('/a/c/d')
     expect(normalizePath('/..')).toBe('')
     expect(normalizePath('a/b')).toBe('')
+  })
+})
+
+describe('pedidos que só o app decide (verificação final)', () => {
+  it('Grep nunca ganha Permitir: lê o conteúdo, inclusive .env', () => {
+    expect(toolRisk('Grep', { pattern: 'KEY' }, scope)).not.toBe('')
+    expect(toolRisk('Grep', { pattern: 'x', path: `${CWD}/src` }, scope)).not.toBe('')
+  })
+
+  it.each(['CLAUDE.md', 'claude.local.md', 'AGENTS.md', 'docs/GEMINI.md'])('escrever %s (instruções de agentes) abre o app', (f) => {
+    expect(toolRisk('Write', { file_path: `${CWD}/${f}` }, scope)).not.toBe('')
+  })
+
+  it('README.md continua com Permitir', () => {
+    expect(toolRisk('Write', { file_path: `${CWD}/README.md` }, scope)).toBe('')
   })
 })
 

@@ -209,6 +209,26 @@ describe('worktrees (AO-33)', { timeout: GIT_TIMEOUT }, () => {
     expect(git('worktree', 'list')).not.toContain('cy-abcdef01')
   })
 
+  it('a confirmação vale só para os arquivos do diálogo: troca ou edição depois muda a impressão', async () => {
+    const { dir, git } = newRepo('ao-wt-fp-')
+    writeFileSync(join(dir, 'a.txt'), 'a\n')
+    git('add', '.')
+    git('commit', '-qm', 'init')
+    const wt = (await createWorktree(dir, 'Fp', 'aaaa0002'))!
+    writeFileSync(join(wt.root, 'um.txt'), '1\n')
+    const confirmed = await worktreeState(wt)
+    expect((await worktreeState(wt)).fingerprint).toBe(confirmed.fingerprint)
+    // Same count, another file: the player never confirmed losing dois.txt.
+    rmSync(join(wt.root, 'um.txt'))
+    writeFileSync(join(wt.root, 'dois.txt'), '2\n')
+    const swapped = await worktreeState(wt)
+    expect(swapped.dirty).toBe(confirmed.dirty)
+    expect(swapped.fingerprint).not.toBe(confirmed.fingerprint)
+    // Same file, edited again.
+    writeFileSync(join(wt.root, 'dois.txt'), '2 e mais\n')
+    expect((await worktreeState(wt)).fingerprint).not.toBe(swapped.fingerprint)
+  })
+
   it('cópia "limpa" com arquivos ignorados (.env) não é apagada sem confirmar', async () => {
     const { dir, git } = newRepo('ao-wt-ign-')
     writeFileSync(join(dir, '.gitignore'), '.env\nnode_modules/\n')

@@ -10,7 +10,7 @@ export function registerWorktreesIpc(ctx: IpcContext): void {
   // ---------- worktrees (AO-33) ----------
   // What the player chose in the native dialog of prepareFire. Only that dialog can
   // authorize removing a worktree: the renderer never sends "remove".
-  const fireChoices = new Map<string, { remove: boolean; dirty: number; ignored: number }>()
+  const fireChoices = new Map<string, { remove: boolean; dirty: number; ignored: number; fingerprint: string }>()
   const agentId = (raw: unknown) => parse(uuidSchema, raw, 'Esse agente não está mais no escritório.')
   const plural = (n: number, one: string, many: string) => `${n} ${n > 1 ? many : one}`
   ipcMain.handle('office:prepareFire', async (_e, raw: unknown) => {
@@ -19,7 +19,7 @@ export function registerWorktreesIpc(ctx: IpcContext): void {
     if (!a || !wt) return 'plain'
     const st = await worktreeState(wt).catch(() => null)
     if (!st?.exists) {
-      fireChoices.set(a.id, { remove: false, dirty: 0, ignored: 0 })
+      fireChoices.set(a.id, { remove: false, dirty: 0, ignored: 0, fingerprint: '' })
       return 'plain'
     }
     const kept = st.ahead ? ` O branch tem ${st.ahead} commit${st.ahead > 1 ? 's' : ''} e fica no repositório mesmo se você remover a cópia.` : ''
@@ -57,7 +57,7 @@ export function registerWorktreesIpc(ctx: IpcContext): void {
       })
       if (sure.response !== 0) return 'cancelled'
     }
-    fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty, ignored: st.ignored })
+    fireChoices.set(a.id, { remove: response === 1, dirty: st.dirty, ignored: st.ignored, fingerprint: st.fingerprint })
     return 'confirmed'
   })
   ipcMain.handle('office:fire', async (_e, raw: unknown) => {
@@ -68,9 +68,9 @@ export function registerWorktreesIpc(ctx: IpcContext): void {
     manager.fire(aid)
     if (!wt) return
     if (!choice?.remove) return `A cópia isolada ficou em ${wt.root} (branch ${wt.branch}).`
-    // Forced only when the player confirmed losing changes; anything newer than that keeps the copy.
+    // Forced only when the player confirmed losing exactly these files; any change since keeps the copy.
     const now = await worktreeState(wt).catch(() => null)
-    const force = pendingLoss(choice) > 0 && !!now && now.dirty <= choice.dirty && now.ignored <= choice.ignored
+    const force = pendingLoss(choice) > 0 && !!now && now.fingerprint === choice.fingerprint
     return removeWorktree(wt, force).catch((err) => `Não consegui remover a cópia: ${err instanceof Error ? err.message : String(err)}`)
   })
 
