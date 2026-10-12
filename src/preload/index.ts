@@ -46,6 +46,9 @@ const api: OfficeAPI = {
   getLedger: (query) => ipcRenderer.invoke('office:getLedger', query ?? {}),
   getStats: () => ipcRenderer.invoke('office:getStats'),
   refreshStats: () => ipcRenderer.invoke('office:refreshStats'),
+  updateStatus: () => ipcRenderer.invoke('office:updateStatus'),
+  checkForUpdates: () => ipcRenderer.invoke('office:checkForUpdates'),
+  installUpdate: (force) => ipcRenderer.invoke('office:installUpdate', force === true),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

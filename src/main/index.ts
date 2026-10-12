@@ -21,6 +21,7 @@ import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
+import { Updater } from './updater'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 const DELEGATE_MODES: OfficePermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan']
@@ -246,6 +247,20 @@ app.whenReady().then(async () => {
   stats.on('stats', (s) => broadcast({ type: 'stats', stats: s }))
   stats.start()
   void accounts.check()
+  // Auto-update (packaged app only): restarting asks first while agents work or permissions wait.
+  const updater = new Updater({
+    channel: () => (store.settings.updateChannel === 'beta' ? 'beta' : 'stable'),
+    busy: () => ({
+      working: manager.list().filter((a) => a.source === 'office' && (a.status === 'working' || a.status === 'starting')).length,
+      pending: manager.pendingRequests().length,
+    }),
+    flush: () => {
+      store.flush()
+      board.flush()
+    },
+    broadcast,
+  })
+  updater.start()
 
   // ---------- IPC ----------
   ipcMain.handle('office:getState', (): OfficeState => ({
@@ -501,6 +516,7 @@ app.whenReady().then(async () => {
     if (BrowserWindow.getAllWindows().length === 0) win = createWindow()
   })
   app.on('before-quit', () => {
+    updater.stop()
     bridge.stop()
     usage.stop()
     stats.stop()

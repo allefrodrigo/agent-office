@@ -6,6 +6,7 @@ import type { State } from '../state'
 import { accountField, openAccounts } from './accounts'
 import { h, icon, timeAgo } from './dom'
 import { portrait } from './portrait'
+import { updateSettingsBox } from './updates'
 
 export const LAST_CWD = 'agent-office:last-cwd'
 
@@ -420,6 +421,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   mode.value = s.defaultPermissionMode
   const maxSubs = h('input', { class: 'input', type: 'number', min: 0, max: 100, step: 1, value: s.maxSubagents ?? 10 }) as HTMLInputElement
   const budget = h('input', { class: 'input', type: 'number', min: 0, step: 0.5, value: s.agentBudgetUsd ?? 0 }) as HTMLInputElement
+  const updates = updateSettingsBox(root, s.updateChannel)
 
   const b = state.bridge
   const bridgeStatus = h(
@@ -486,6 +488,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       defaultPermissionMode: mode.value as OfficePermissionMode,
       maxSubagents: Math.max(0, Math.round(Number(maxSubs.value) || 0)),
       agentBudgetUsd: Math.max(0, Number(budget.value) || 0),
+      updateChannel: updates.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
     close()
@@ -557,6 +560,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
         ),
         h('div', { class: 'bridge-row' }, bridgeStatus, bridgeBtn),
       ),
+      updates.el,
     ],
     [
       h('span', { class: 'app-version', title: `Build de ${__APP_BUILD__}` }, `Agent Office v${__APP_VERSION__} · build ${__APP_BUILD__}`),
@@ -824,7 +828,7 @@ async function readLogo(file: File): Promise<{ logo: string; color: string | nul
     ctx.drawImage(img, 0, 0, c.width, c.height)
     return { logo: c.toDataURL('image/png'), color: vividColor(ctx.getImageData(0, 0, c.width, c.height).data) }
   } catch (err) {
-    throw new Error(err instanceof Error && err.message.startsWith('Use') ? err.message : 'Não consegui abrir essa imagem.')
+    throw new Error(err instanceof Error && err.message.startsWith('Use') ? err.message : 'Não consegui abrir essa imagem.', { cause: err })
   } finally {
     URL.revokeObjectURL(url)
   }
