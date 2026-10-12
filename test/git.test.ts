@@ -21,6 +21,9 @@ import {
   worktreeState,
 } from '../src/main/git'
 
+// Creating symlinks needs special rights on Windows (the CI runners lack them).
+const itWithSymlinks = it.skipIf(process.platform === 'win32')
+
 // Everything runs in throwaway repos made with `git init` in the temp folder, never in this repo.
 const made: string[] = []
 afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })))
@@ -120,7 +123,7 @@ describe('arquivos alterados (AO-34)', { timeout: GIT_TIMEOUT }, () => {
     expect(snap.partial).toBe(true)
   })
 
-  it('sem git: caminho relativo à pasta mesmo atrás de symlink (/tmp -> /private/tmp)', () => {
+  itWithSymlinks('sem git: caminho relativo à pasta mesmo atrás de symlink (/tmp -> /private/tmp)', () => {
     const real = tmp('ao-disp-')
     const link = join(tmp('ao-disp-link-'), 'pasta')
     symlinkSync(real, link)
@@ -223,7 +226,7 @@ describe('worktrees (AO-33)', { timeout: GIT_TIMEOUT }, () => {
     expect(existsSync(wt.root)).toBe(false)
   })
 
-  it('.agent-office como symlink para fora: recusa sem criar nada lá', async () => {
+  itWithSymlinks('.agent-office como symlink para fora: recusa sem criar nada lá', async () => {
     const { dir, git } = newRepo('ao-wt-link-')
     writeFileSync(join(dir, 'a.txt'), 'a\n')
     git('add', '.')
@@ -284,7 +287,7 @@ describe('segurança', { timeout: GIT_TIMEOUT }, () => {
     await expect(openPullRequest({ ...wt, branch: '--delete' }, 't', 'b')).rejects.toThrow()
   })
 
-  it('recusa caminhos com ../, absolutos, com - , dentro de .git ou atrás de symlink para fora', () => {
+  itWithSymlinks('recusa caminhos com ../, absolutos, com - , dentro de .git ou atrás de symlink para fora', () => {
     const { dir } = newRepo('ao-sec-')
     const outside = tmp('ao-outside-')
     expect(insideRoot(dir, '../x')).toBeNull()
@@ -297,7 +300,7 @@ describe('segurança', { timeout: GIT_TIMEOUT }, () => {
     expect(insideRoot(dir, 'ok/new.txt')).toBe(join(dir, 'ok', 'new.txt'))
   })
 
-  it('symlink para fora nunca é lido nem seguido ao descartar', async () => {
+  itWithSymlinks('symlink para fora nunca é lido nem seguido ao descartar', async () => {
     const { dir, git } = newRepo('ao-sec-')
     const outside = tmp('ao-outside-')
     const secret = join(outside, 'secret.txt')
