@@ -13,6 +13,20 @@ import { openReports } from './ui/reports'
 import { showDataNotice } from './ui/data'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
+// Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
+window.addEventListener('error', (e) => {
+  window.office.reportError({
+    kind: 'error',
+    message: String(e.message || e.error?.message || 'erro sem mensagem'),
+    source: e.filename ? `${e.filename}:${e.lineno}:${e.colno}` : undefined,
+    stack: e.error instanceof Error ? e.error.stack : undefined,
+  })
+})
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason
+  window.office.reportError({ kind: 'rejection', message: r instanceof Error ? r.message : String(r), stack: r instanceof Error ? r.stack : undefined })
+})
+
 async function boot(): Promise<void> {
   const initial = await window.office.getState()
   const initialNotices = initial.dataNotices ?? []
@@ -283,5 +297,6 @@ async function boot(): Promise<void> {
 }
 
 boot().catch((err) => {
+  window.office.reportError({ kind: 'error', message: `Falha ao iniciar: ${err instanceof Error ? err.message : String(err)}`, stack: err instanceof Error ? err.stack : undefined })
   document.body.textContent = `Falha ao iniciar: ${err instanceof Error ? err.message : String(err)}`
 })

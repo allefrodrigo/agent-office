@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { applyImport, backupCopies, backupsDir, buildExport, dailyBackup, KEEP_DAILY, listBackups, parseExport, restoreBackup, snapshot } from '../backups'
+import { applyImport, backupCopies, backupsDir, buildExport, dailyBackup, KEEP_DAILY, listBackups, parseExport, restoreBackup, snapshot } from '../src/main/backups'
 
 let dir: string
 

@@ -250,6 +250,27 @@ export interface HireRequest {
   effort?: EffortLevel
   accounts?: string[]
   permissionMode: OfficePermissionMode
+  /** Looks picked in a saved template; missing = drawn from the name. */
+  look?: Look
+}
+
+/**
+ * A saved way of hiring (aba "Modelos" do Novo agente): one click fills the name,
+ * looks, brain, freedom and the starting brief. Kept in Settings.templates.
+ */
+export interface AgentTemplate {
+  id: string
+  name: string
+  /** Missing = drawn from the name, like any hire. */
+  look?: Look
+  /** '' or missing = Claude Code's default. */
+  model?: string
+  effort?: EffortLevel
+  permissionMode: OfficePermissionMode
+  /** Starting brief; {pasta} becomes the folder and {ticket} the chosen ticket. Empty = asks for the task. */
+  instruction: string
+  /** ProjectFloor.id it belongs to; missing = every floor. */
+  floor?: string
 }
 
 /** A Claude Code session saved on this machine, for the resume center. */
@@ -292,6 +313,8 @@ export interface Settings {
   maxSubagents: number
   /** Most an office agent may spend, in USD, counted from the cost book; 0 = no cap. */
   agentBudgetUsd: number
+  /** Saved hiring templates, global and per floor. Changed only through saveTemplate/deleteTemplate. */
+  templates: AgentTemplate[]
 }
 
 /**
@@ -501,6 +524,14 @@ export type OfficeEvent =
   /** A data file was found corrupt after startup (the closed tickets load on first use). */
   | { type: 'data:notice'; notice: DataNotice }
 
+/** window.onerror / unhandledrejection, as the page reports them to the log. */
+export interface RendererError {
+  kind: 'error' | 'rejection'
+  message: string
+  source?: string
+  stack?: string
+}
+
 export interface OfficeAPI {
   getState(): Promise<OfficeState>
   getLog(agentId: string): Promise<LogEntry[]>
@@ -542,6 +573,9 @@ export interface OfficeAPI {
   installBridge(): Promise<BridgeStatus>
   uninstallBridge(): Promise<BridgeStatus>
   saveSettings(patch: Partial<Settings>): Promise<Settings>
+  /** Creates (unknown id) or replaces a template; returns it as stored. */
+  saveTemplate(t: AgentTemplate): Promise<AgentTemplate>
+  deleteTemplate(id: string): Promise<void>
   createTicket(draft: TicketDraft): Promise<Ticket>
   updateTicket(ticketId: string, patch: TicketPatch): Promise<Ticket>
   /** Moves a ticket to a column, before `beforeId` (or to the end). */
@@ -581,6 +615,12 @@ export interface OfficeAPI {
   exportData(): Promise<string | null>
   /** Picks an export, asks, saves the current state as a backup, replaces the data and restarts. */
   importData(): Promise<boolean>
+  /** An error the page did not catch, for the app log (main keeps only short strings). */
+  reportError(err: RendererError): void
+  /** Opens userData/logs in the file manager. */
+  openLogs(): Promise<void>
+  /** Puts version, OS, Claude Code version and the last 200 log lines on the clipboard. */
+  copyDiagnostics(): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

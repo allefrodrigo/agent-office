@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { BackupEntry, OfficeEvent } from '@shared/types'
 import { backupsDir, dailyBackup, dayKey, importSet, listBackups, parseExport, readBackup, replaceData, snapshot, writeExport, type DataSet } from './backups'
 import { onDataNotice } from './fs-safe'
+import { log } from './log'
 
 const HOUR = 3_600_000
 /** Exports are a few MB; anything far bigger is not one. */
@@ -11,28 +12,33 @@ const MAX_IMPORT_BYTES = 256 * 1024 * 1024
 
 /**
  * Saves the pending (debounced) data whenever the app may die without before-quit:
- * kill -TERM, Ctrl+C, a crash in the main process, the Mac going to sleep or shutting down.
- * uncaughtExceptionMonitor watches without changing what Electron does with the error.
+ * kill -TERM, Ctrl+C, the Mac going to sleep or shutting down. Crashes in the main
+ * process are crash.ts's (onFatalFlush).
+ *
+ * A signal runs the before-quit work itself and leaves with app.exit: app.quit can be
+ * held up (the fatal error dialog is modal), and the process was asked to end.
  */
-export function flushOnExit(flush: () => void): void {
-  const safeFlush = (why: string) => {
+export function flushOnExit(d: { flush: () => void; stopAll: () => void }): void {
+  const safe = (why: string, fn: () => void) => {
     try {
-      flush()
+      fn()
+      return true
     } catch (err) {
-      console.error(`[data] flush (${why}) falhou:`, err)
+      log.error(`Falha ao salvar os dados (${why}):`, err)
+      return false
     }
   }
   for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     process.on(sig, () => {
-      safeFlush(sig)
-      // A listener replaces the default exit: quit (before-quit stops agents), and leave for sure.
-      app.quit()
-      setTimeout(() => app.exit(0), 3000).unref()
+      log.info(`${sig} recebido: salvando e saindo`)
+      safe(sig, d.stopAll)
+      // stopAll flushes last; again in case something before it threw.
+      safe(sig, d.flush)
+      app.exit(0)
     })
   }
-  process.on('uncaughtExceptionMonitor', () => safeFlush('uncaughtException'))
-  powerMonitor.on('suspend', () => safeFlush('suspend'))
-  powerMonitor.on('shutdown', () => safeFlush('shutdown'))
+  powerMonitor.on('suspend', () => safe('suspend', d.flush) && log.info('Dados salvos antes de dormir'))
+  powerMonitor.on('shutdown', () => safe('shutdown', d.flush) && log.info('Dados salvos antes de desligar'))
 }
 
 export interface DataDeps {
@@ -55,9 +61,10 @@ export function setupData(d: DataDeps): void {
   const daily = () => {
     try {
       d.flush()
-      dailyBackup(d.dataDir)
+      const made = dailyBackup(d.dataDir)
+      if (made) log.info(`Backup diário em ${made}`)
     } catch (err) {
-      console.error('[data] backup diário falhou:', err)
+      log.error('Backup diário falhou:', err)
     }
   }
   daily()
@@ -67,8 +74,9 @@ export function setupData(d: DataDeps): void {
   const replaceAndRestart = (files: DataSet) => {
     d.stopAll()
     d.lock()
-    snapshot(d.dataDir)
+    const before = snapshot(d.dataDir)
     replaceData(d.dataDir, files)
+    log.info(`Dados substituídos (${Object.keys(files).join(', ')}); estado anterior em ${before}. Reiniciando`)
     app.relaunch()
     // exit, not quit: before-quit would write the old state from memory over the new files.
     app.exit(0)

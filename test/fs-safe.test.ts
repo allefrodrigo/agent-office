@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync,
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { bakPath, loadJson, noticeFor, writeJsonAtomic } from '../fs-safe'
+import { bakPath, loadJson, noticeFor, writeJsonAtomic } from '../src/main/fs-safe'
 
 let dir: string
 let file: string

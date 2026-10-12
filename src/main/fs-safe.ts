@@ -1,6 +1,7 @@
 import { closeSync, fsyncSync, openSync, readFileSync, renameSync, statSync, writeSync } from 'node:fs'
 import { basename, dirname, extname, join } from 'node:path'
 import type { DataNotice } from '@shared/types'
+import { log } from './log'
 
 /**
  * Durable writes and careful reads for the app's JSON files. No Electron here, so it
@@ -189,8 +190,11 @@ const listeners = new Set<NoticeListener>()
 /** Records the notice of a load (if any) for the renderer. */
 export function reportLoad(file: string, r: LoadResult<unknown>): void {
   const n = noticeFor(file, r)
-  if (!n) return
-  console.warn('[data]', n.text)
+  if (!n) {
+    if (r.status === 'ok') log.debug(`Dados: ${basename(file)} carregado; .bak atualizado`)
+    return
+  }
+  log.warn(`Dados: ${basename(file)} corrompido, guardado em ${n.path}; ${r.status === 'restored' ? `carreguei ${r.from}` : 'sem cópia válida, começando do zero'}`)
   notices.push(n)
   for (const l of listeners) l(n)
 }

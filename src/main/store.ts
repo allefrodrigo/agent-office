@@ -6,6 +6,7 @@ import { lookFromSeed } from '@shared/describe'
 import { floorNameFor } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { mainAccount } from './accounts'
+import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
 import { backupCopies } from './backups'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
@@ -42,6 +43,7 @@ const DEFAULT_SETTINGS: Settings = {
   ticketAutoCloseDays: 7,
   maxSubagents: 10,
   agentBudgetUsd: 0,
+  templates: [],
 }
 
 /** Up to v0.2 one squad folder made a single squad floor; it becomes the first project floor. */
@@ -57,6 +59,8 @@ function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
     const name = typeof squadFloorName === 'string' && squadFloorName.trim() ? squadFloorName.trim() : floorNameFor(squadFolder)
     settings.projects = [{ id: 'p1', name, cwd: squadFolder }]
   }
+  // Templates came in v0.3.3: older files have none, and a broken one is dropped, not fatal.
+  settings.templates = loadTemplates(settings.templates, settings.projects)
   return settings
 }
 
