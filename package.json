@@ -32,7 +32,8 @@
     "marked": "^18.1.0",
     "three": "^0.186.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.7"
+    "vite": "^7.3.7",
+    "vitest": "^3.2.7"
   },
   "type": "module"
 }
