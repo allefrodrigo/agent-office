@@ -19,7 +19,9 @@ const TOOL_RESULT_LINES = 40
 
 /** Cabeçalho (agente, pasta, modelo, custo, datas) e a conversa, na ordem do log. */
 export function conversationMarkdown(head: ExportHeader, log: LogEntry[]): string {
-  const out: string[] = [`# ${oneLine(head.agent)}`, '', ...headerLines(head, log), '', '## Conversa', '']
+  // sem nome, o título e as falas usam "Agente" em vez de ficar vazios
+  head = { ...head, agent: oneLine(head.agent) || 'Agente' }
+  const out: string[] = [`# ${head.agent}`, '', ...headerLines(head, log), '', '## Conversa', '']
   for (const e of log) {
     const block = entryMarkdown(e, head.agent)
     if (block) out.push(block, '')

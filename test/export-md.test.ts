@@ -28,6 +28,12 @@ describe('conversationMarkdown', () => {
     expect(md).toContain('## Conversa')
   })
 
+  it('nome vazio vira "Agente" no título e nas falas', () => {
+    const md = conversationMarkdown({ agent: '  ', cwd: '/p' }, log)
+    expect(md).toMatch(/^# Agente\n/)
+    expect(md).toContain('### Agente · 09:31')
+  })
+
   it('conversa legível: falas, ferramentas, erros e resultado', () => {
     const md = conversationMarkdown({ agent: 'Joana', cwd: '/p' }, log)
     expect(md).toContain('### Você · 09:30\n\n> Conserte o login\n> sem mexer no layout\n\n- anexo: print.png')
