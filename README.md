@@ -132,7 +132,7 @@ src/
     env.ts              carrega o PATH do shell de login (apps abertos pelo Finder não têm)
     demo.ts             agentes simulados (npm run demo)
     index.ts            janela, IPC, notificações, badge do Dock
-  preload/index.ts      expõe window.office (API tipada em shared/types.ts)
+  preload/index.ts      expõe window.office (API tipada em shared/types/ipc.ts)
   shared/               tipos e textos compartilhados
   renderer/src/
     world/              three.js
