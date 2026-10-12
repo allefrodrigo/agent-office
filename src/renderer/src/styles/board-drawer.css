@@ -1,0 +1,335 @@
+/* detail drawer */
+
+.tdetail {
+  width: 440px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--line);
+  background: #1d1e30;
+  animation: slide 0.18s ease-out;
+}
+
+.tdetail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 12px 6px 16px;
+}
+
+.tdetail-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  user-select: text;
+}
+
+.tdetail-title {
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  resize: none;
+  outline: none;
+}
+
+.tdetail-title:hover,
+.tdetail-title:focus {
+  border-color: var(--line-strong);
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.tdetail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.tdetail-grid .input {
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12.5px;
+}
+
+.tsection {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tsection-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.tassign {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tassignee {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tassignee-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.tassignee-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.tassignee-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tdelegate {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tdelegate-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tdelegate-row .input {
+  height: 30px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12px;
+}
+
+.tdelegate-row .btn {
+  height: 30px;
+}
+
+.treview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(91, 156, 240, 0.35);
+  background: rgba(91, 156, 240, 0.08);
+}
+
+.treview-text {
+  font-weight: 600;
+}
+
+.treview-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.tdesc {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.tdesc .md {
+  width: 100%;
+}
+
+.tdesc-edit {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.tdesc-actions {
+  display: flex;
+  gap: 6px;
+  align-self: flex-end;
+}
+
+.tcrits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tcrit {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 4px 4px 2px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.tcrit:hover {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.tcrit input {
+  margin-top: 3px;
+  accent-color: var(--green);
+}
+
+.tcrit-text {
+  flex: 1;
+}
+
+.tcrit.done .tcrit-text {
+  color: var(--dim);
+  text-decoration: line-through;
+}
+
+.tcrit-del {
+  width: 22px;
+  height: 22px;
+  opacity: 0;
+}
+
+.tcrit:hover .tcrit-del {
+  opacity: 1;
+}
+
+.tcrits .input {
+  height: 30px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12px;
+}
+
+.tbrief,
+.tactivity {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+}
+
+.tbrief summary,
+.tactivity summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.tbrief[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tbrief .code {
+  max-height: 320px;
+}
+
+.tbrief .btn {
+  align-self: flex-start;
+}
+
+.tcomments {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tcomment {
+  display: flex;
+  gap: 8px;
+}
+
+.tcomment-main {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12.5px;
+}
+
+.tcomment.by-agent .tcomment-main {
+  background: rgba(91, 156, 240, 0.07);
+}
+
+.tcomment-head {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 3px;
+  font-size: 11.5px;
+}
+
+.tcomment-head span {
+  color: var(--dim);
+}
+
+.tcomment-new {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.tactivity-row {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.tactivity-row span {
+  margin-left: 6px;
+  color: var(--dim);
+}
+
+.tdetail-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--dim);
+  font-size: 11.5px;
+}
+
+.backdrop-ticket .modal {
+  width: min(620px, calc(100vw - 32px));
+}
+
+.tdetail-scroll > * {
+  flex: none;
+}
+
+.tdelegate-row {
+  flex-wrap: wrap;
+}
+
+.tdelegate-row select {
+  flex: 1 1 150px;
+  width: auto;
+}

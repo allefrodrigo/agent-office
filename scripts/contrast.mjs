@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Contraste dos textos do HUD (AO-38): lê as cores de verdade do styles.css, compõe os
+ * Contraste dos textos do HUD (AO-38): lê as cores de verdade dos estilos (styles/), compõe os
  * fundos translúcidos (cartão sobre o mundo) e calcula a razão WCAG 2.x de cada par.
  *
  *   node scripts/contrast.mjs          tabela com todos os pares
@@ -14,7 +14,12 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), '../src/renderer/src/styles.css')
+const CSS_DIR = join(dirname(fileURLToPath(import.meta.url)), '../src/renderer/src/styles')
+
+/** styles/index.css with its `@import`s inlined, in cascade order. */
+function readStyles(file) {
+  return readFileSync(join(CSS_DIR, file), 'utf8').replace(/@import '\.\/([\w-]+\.css)';/g, (_, f) => readStyles(f))
+}
 const AA = 4.5
 
 /** Rules as [selectors[], declarations{}], in file order, ignoring @media bodies' nesting. */
@@ -35,14 +40,14 @@ function parseRules(css) {
   return rules
 }
 
-const rules = parseRules(readFileSync(CSS_PATH, 'utf8'))
+const rules = parseRules(readStyles('index.css'))
 const vars = Object.fromEntries(rules.filter(([s]) => s.includes(':root')).flatMap(([, d]) => Object.entries(d).filter(([k]) => k.startsWith('--'))))
 
 /** The last value a selector sets for a property (later rules win, like the cascade). */
 function prop(selector, name) {
   let v
   for (const [sels, decls] of rules) if (sels.includes(selector) && decls[name] !== undefined) v = decls[name]
-  if (v === undefined) throw new Error(`${selector} não define ${name} em styles.css`)
+  if (v === undefined) throw new Error(`${selector} não define ${name} nos estilos (styles/)`)
   return v
 }
 
@@ -91,7 +96,7 @@ export function ratio(fg, bg) {
 // ---------- fundos ----------
 
 const WHITE = [255, 255, 255, 1]
-const WORLD = parseColor('#2a2b45') // centro do gradiente do #world (styles.css)
+const WORLD = parseColor('#2a2b45') // centro do gradiente do #world (styles/base.css)
 const css = (selector, name = 'background') => parseColor(prop(selector, name))
 /** A stack of layers, bottom first, flattened to one opaque color. */
 const stack = (...layers) => layers.reduce((under, top) => over(top, under))

@@ -151,6 +151,8 @@ src/
                         (cada parte estende a anterior: base, floors, boards, actors, lounge,
                         deliveries, subagents, squads, skull, movement, input; index.ts monta o Game)
     ui/                 HUD, painel do agente, cartões de permissão/resultado, modais
+    styles/             CSS, um arquivo por componente; index.css importa na ordem da cascata,
+                        tokens.css tem as cores e fontes
 ```
 
 Fluxo de um pedido de permissão: o SDK chama `canUseTool` → `AgentManager.requestDecision` emite `permission:new` → o renderer manda o avatar até a sua sala e abre o cartão quando você está perto → `window.office.respond()` resolve a promessa → o agente volta para a mesa.
@@ -180,7 +182,7 @@ O código é o mesmo; o que falta validar:
 ## Ferramentas de desenvolvimento
 
 - `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis. Um trecho `keys:N Enter Alt+Right =texto ;; js` aperta teclas de verdade antes (Enter clica o botão em foco, Tab anda; `=texto` digita, `_` é espaço) e depois roda o js: serve para testar o app só pelo teclado. No modo demo, quem você contrata ou chama finge o trabalho (pede para rodar os testes e entrega um resultado) sem abrir o Claude Code.
-- `npm run contrast` mostra a razão de contraste dos textos do HUD, lida do `styles.css`; `npm test` falha se algum par ficar abaixo de AA (4,5:1).
+- `npm run contrast` mostra a razão de contraste dos textos do HUD, lida de `src/renderer/src/styles/`; `npm test` falha se algum par ficar abaixo de AA (4,5:1).
 - Tecla `?` no app lista todos os atalhos.
 - Log do app em `userData/logs/main-<data>.log` (gira em 5 MB, guarda 5 arquivos; sem prompts nem tokens). `AGENT_OFFICE_DEBUG=1` inclui o nível debug.
 - Só em dev: `AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error` quebra algo 6 s depois de abrir, para testar o tratamento de erros. `AGENT_OFFICE_LOG_MAX_KB=20` gira o log mais cedo.

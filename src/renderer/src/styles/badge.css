@@ -1,0 +1,371 @@
+/* ---------- agent badge (panel head) ---------- */
+
+.ab {
+  position: relative;
+  border: 1px solid var(--line-strong);
+  border-radius: 12px;
+  background: linear-gradient(180deg, #25273e, #1f2034);
+}
+
+/* the badge's lanyard slot */
+.ab::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 50%;
+  width: 30px;
+  height: 5px;
+  margin-left: -15px;
+  border-radius: 0 0 4px 4px;
+  background: var(--card-solid);
+}
+
+.ab-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 6px 10px 10px;
+}
+
+.ab-open .ab-row {
+  align-items: flex-start;
+  padding: 14px 6px 12px 12px;
+}
+
+.ab-id {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ab-name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ab-name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  font: 700 15px var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ab-open .ab-name {
+  font-size: 18px;
+}
+
+.ab-role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ab-toggle svg {
+  transform: rotate(90deg);
+  transition: transform 0.2s;
+}
+
+.ab-open .ab-toggle svg {
+  transform: rotate(-90deg);
+}
+
+.btn-warn {
+  background: var(--amber);
+  border-color: transparent;
+  color: #2a1a00;
+}
+
+.btn-warn:hover {
+  background: #ffb63f;
+}
+
+/* photo: memory ring around the portrait */
+.ab-photo {
+  padding: 4px;
+  border-radius: 12px;
+  background: #11121c;
+}
+
+.ab-ring {
+  position: relative;
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+.ab-ring-svg {
+  position: absolute;
+  inset: 0;
+  transform: rotate(-90deg);
+}
+
+.ab-ring-track,
+.ab-ring-fill {
+  fill: none;
+}
+
+.ab-ring-track {
+  stroke: rgba(255, 255, 255, 0.08);
+}
+
+.ab-ring-fill {
+  stroke: var(--green);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.4s ease-out;
+}
+
+.ab-warn .ab-ring-fill {
+  stroke: var(--amber);
+}
+
+.ab-full .ab-ring-fill {
+  stroke: var(--red);
+}
+
+.ab-full .ab-ring-svg {
+  animation: ring-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes ring-pulse {
+  50% {
+    filter: drop-shadow(0 0 4px rgba(239, 91, 91, 0.8));
+  }
+}
+
+.ab-ring-pic {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.ab-ring-pct {
+  position: absolute;
+  right: -7px;
+  bottom: -5px;
+  padding: 0 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 5px;
+  background: #0f1018;
+  font: 700 9.5px/15px var(--mono);
+}
+
+.ab-warn .ab-ring-pct {
+  color: #ffd38a;
+}
+
+.ab-full .ab-ring-pct {
+  color: #ff9a9a;
+}
+
+/* LED sign with what the agent is doing */
+.ab-led-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ab-led-line .ab-led {
+  flex: 1;
+}
+
+.ab-led-line .btn-small {
+  height: 24px;
+  padding: 0 8px;
+}
+
+.ab-led {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 3px 8px;
+  border: 1px solid rgba(62, 207, 142, 0.15);
+  border-radius: 6px;
+  background: #0f1018;
+  color: #8ff0c4;
+  font: 600 11.5px var(--mono);
+}
+
+.ab-led .dot {
+  width: 7px;
+  height: 7px;
+}
+
+.ab-led-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ab-led-waiting {
+  border-color: rgba(245, 165, 36, 0.25);
+  color: #ffd38a;
+}
+
+.ab-led-starting,
+.ab-led-done {
+  border-color: rgba(91, 156, 240, 0.2);
+  color: #a9c8ff;
+}
+
+.ab-led-idle,
+.ab-led-stopped {
+  border-color: var(--line);
+  color: var(--muted);
+}
+
+.ab-led-error {
+  border-color: rgba(239, 91, 91, 0.25);
+  color: #ff9a9a;
+}
+
+/* open half */
+.ab-more {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.ab-stamps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ab-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font: 11px var(--mono);
+  white-space: nowrap;
+}
+
+button.ab-stamp:hover {
+  color: var(--text);
+}
+
+.ab-mem-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ab-mem-label {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.ab-blocks {
+  display: flex;
+  flex: 1;
+  gap: 3px;
+}
+
+.ab-blocks i {
+  flex: 1;
+  height: 8px;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ab-blocks i.on {
+  background: var(--green);
+}
+
+.ctx-warn .ab-blocks i.on {
+  background: var(--amber);
+}
+
+.ctx-full .ab-blocks i.on {
+  background: var(--red);
+}
+
+.ab-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line-strong);
+}
+
+.ab-fire {
+  margin-left: auto;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font-size: 11.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.ab-fire:hover {
+  color: #ffb0b0;
+}
+
+/* compact/clear menu under the ring */
+.ab-menu {
+  position: absolute;
+  z-index: 5;
+  top: 64px;
+  left: 18px;
+  min-width: 230px;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: #22233a;
+  box-shadow: var(--shadow);
+}
+
+.ab-menu-head {
+  padding: 4px 8px 6px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.ab-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.ab-menu button:hover {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.ab-menu button[disabled] {
+  opacity: 0.45;
+}
+
+.ab-menu small {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 11px;
+}

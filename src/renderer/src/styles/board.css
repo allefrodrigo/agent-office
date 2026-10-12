@@ -1,0 +1,365 @@
+/* ---------- ticket board (kanban) ---------- */
+
+.chip-ticket {
+  border: 0;
+  background: rgba(217, 119, 87, 0.18);
+  color: #ffc2a8;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+
+.badge-review {
+  background: var(--green);
+  color: #062417;
+}
+
+.board {
+  position: fixed;
+  inset: 16px 16px 84px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--card-solid);
+  animation: rise-modal 0.18s ease-out;
+  outline: none;
+}
+
+.platform-darwin .board {
+  top: 40px;
+}
+
+.board-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.board-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 700;
+  margin-right: 8px;
+  white-space: nowrap;
+}
+
+.board-count {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.board-search {
+  width: 220px;
+  height: 32px;
+  padding: 0 10px;
+}
+
+.board-filter {
+  width: auto;
+  height: 32px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12px;
+}
+
+/* the floor whose board is shown */
+.board-floor {
+  font-weight: 700;
+}
+
+.board-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  position: relative;
+}
+
+.board-cols {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(200px, 1fr));
+  gap: 10px;
+  padding: 12px;
+  overflow-x: auto;
+}
+
+.tcol {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--line);
+}
+
+.tcol-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 8px 7px 12px;
+  font-weight: 700;
+  font-size: 12.5px;
+}
+
+.tcol-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dim);
+}
+
+.tcol-todo .tcol-dot {
+  background: #b7b4d0;
+}
+
+.tcol-doing .tcol-dot {
+  background: var(--amber);
+}
+
+.tcol-review .tcol-dot {
+  background: var(--blue);
+}
+
+.tcol-done .tcol-dot {
+  background: var(--green);
+}
+
+.tcol-count {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.tcol-head .icon-btn {
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+}
+
+.tcol-list {
+  flex: 1;
+  min-height: 60px;
+  overflow-y: auto;
+  padding: 2px 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.tcol-list.drop-end::after {
+  content: '';
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tcol-empty,
+.tcol-more {
+  padding: 10px 6px;
+  color: var(--dim);
+  font-size: 11.5px;
+  line-height: 1.45;
+  text-align: center;
+}
+
+.tcard {
+  position: relative;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: #23243a;
+  border: 1px solid var(--line-strong);
+  cursor: grab;
+  transition: border-color 0.12s, transform 0.12s;
+}
+
+.tcard:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.tcard.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(217, 119, 87, 0.25);
+}
+
+.tcard.dragging {
+  opacity: 0.35;
+}
+
+.tcard.drop-before::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.tcard-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tkey {
+  font: 600 10.5px var(--mono);
+  color: var(--muted);
+}
+
+.tkey-lg {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.ttype {
+  padding: 0 6px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+}
+
+/* which floor a card belongs to, on "Todos os andares" */
+.tfloor {
+  --floor: var(--accent);
+  overflow: hidden;
+  max-width: 110px;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--floor) 20%, transparent);
+  color: color-mix(in srgb, var(--floor) 55%, #fff);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ttype-bug {
+  background: rgba(239, 91, 91, 0.16);
+  color: #ffb0b0;
+}
+
+.ttype-feature {
+  background: rgba(91, 156, 240, 0.16);
+  color: #a8c8ff;
+}
+
+.ttype-improvement {
+  background: rgba(62, 207, 142, 0.14);
+  color: #8ff0c4;
+}
+
+.tprio {
+  margin-left: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 3px;
+  background: var(--dim);
+}
+
+.tprio-medium {
+  background: #8fb3ff;
+}
+
+.tprio-high {
+  background: var(--amber);
+}
+
+.tprio-critical {
+  background: var(--red);
+  box-shadow: 0 0 0 3px rgba(239, 91, 91, 0.25);
+}
+
+.tcard.prio-critical {
+  border-left: 3px solid var(--red);
+}
+
+.tcard-title {
+  margin-top: 5px;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tcard-live {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tcard-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.ttag {
+  padding: 0 6px;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+.tcard-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  min-height: 22px;
+}
+
+.tmeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.tmeta-ok {
+  color: #8ff0c4;
+}
+
+.tmeta-late {
+  color: #ffb0b0;
+  font-weight: 600;
+}
+
+.tavatar {
+  display: inline-flex;
+}
+
+.tavatar .portrait {
+  border-radius: 7px;
+}
+
+.avatar-stub {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+}

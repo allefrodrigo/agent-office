@@ -1,4 +1,4 @@
-import './styles.css'
+import './styles/index.css'
 import { Game } from './game'
 import { bindPerfKeys, perf } from './perf'
 import { State } from './state'

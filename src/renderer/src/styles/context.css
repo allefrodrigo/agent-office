@@ -1,0 +1,74 @@
+/* ---------- context meter ---------- */
+
+.ctx-bar,
+.ctx-mini {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.ctx-mini {
+  height: 3px;
+  margin-top: 5px;
+}
+
+.ctx-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+  transition: width 0.4s ease-out;
+}
+
+.ctx-warn .ctx-fill {
+  background: var(--amber);
+}
+
+.ctx-full .ctx-fill {
+  background: var(--red);
+}
+
+.ctx-num {
+  min-width: 32px;
+  text-align: right;
+  font: 600 11.5px var(--mono);
+  color: var(--muted);
+}
+
+.ctx-warn .ctx-num {
+  color: #ffd38a;
+}
+
+.ctx-full .ctx-num {
+  color: #ff9a9a;
+}
+
+.ctx-hint {
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+
+.panel-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.banner-wait {
+  background: rgba(245, 165, 36, 0.14);
+  color: #ffd38a;
+}
+
+.banner-done {
+  background: rgba(62, 207, 142, 0.12);
+  color: #8ff0c4;
+}

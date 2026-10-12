@@ -1,0 +1,64 @@
+/* ---------- closed tickets ---------- */
+.closed-modal .modal {
+  width: min(720px, 94vw);
+}
+
+.closed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 52vh;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.closed-row {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.closed-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.closed-title {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.closed-when {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.closed-body {
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.closed-criteria {
+  margin: 8px 0 0;
+  padding-left: 4px;
+  list-style: none;
+  color: var(--muted);
+}
+
+.closed-comment {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.closed-comment-who {
+  color: var(--muted);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
