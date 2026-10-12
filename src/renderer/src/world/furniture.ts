@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { blob, box, cylinder, mat, panel } from './kit'
+import { animated } from './merge'
 import { artTexture, booksTexture, canvas, pixelTexture, whiteboardTexture, type WindowSky } from './textures'
 
 // Every factory builds its piece centered on the origin, standing on y = 0,
@@ -291,14 +292,14 @@ export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh
   box(g, 1.7, 2.3, 0.08, '#8e96a8', 0, 0, 0, false)
   box(g, 1.5, 2.1, 0.02, '#2d3142', 0, 0, 0.04, false)
   const doorMat = new THREE.MeshLambertMaterial({ color: '#c9d1de' })
-  const left = box(g, 0.7, 2.06, 0.04, doorMat, -0.36, 0.01, 0.06, false)
-  const right = box(g, 0.7, 2.06, 0.04, doorMat, 0.36, 0.01, 0.06, false)
+  const left = animated(box(g, 0.7, 2.06, 0.04, doorMat, -0.36, 0.01, 0.06, false))
+  const right = animated(box(g, 0.7, 2.06, 0.04, doorMat, 0.36, 0.01, 0.06, false))
   box(g, 0.02, 2.06, 0.05, '#9aa3b5', 0, 0.01, 0.07, false)
   box(g, 0.5, 0.16, 0.04, '#2d3142', 0, 2.36, 0.02, false)
   const light = box(g, 0.08, 0.08, 0.02, new THREE.MeshBasicMaterial({ color: '#55efc4' }), 0, 2.4, 0.05, false)
   box(g, 0.12, 0.22, 0.04, '#2d3142', 1.0, 1.0, 0.04, false)
   // call buttons: T on top, then one per floor above it
-  const buttons = [box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false), box(g, 0.05, 0.05, 0.02, '#55efc4', 1.0, 1.04, 0.07, false)]
+  const buttons = [box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false), box(g, 0.05, 0.05, 0.02, '#55efc4', 1.0, 1.04, 0.07, false)].map(animated)
   return { group: g, doors: [left, right], light, buttons }
 }
 
@@ -320,7 +321,8 @@ export interface MonitorTv {
 
 /** Big pixel-art monitor on a low console: chunky bezel, neck, foot and a power LED. Claude FM plays on it. */
 export function monitorTv(): MonitorTv {
-  const g = new THREE.Group()
+  // clicked (raycast on its group) and its LED swaps material: kept out of the merge
+  const g = animated(new THREE.Group())
   const w = 2.0
   const h = w * (9 / 16)
   const cy = 1.48 // screen center height: the bezel clears the neck

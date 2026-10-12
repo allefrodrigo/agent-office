@@ -8,6 +8,8 @@ export function mat(color: string): THREE.MeshLambertMaterial {
   let m = mats.get(color)
   if (!m) {
     m = shared(new THREE.MeshLambertMaterial({ color, flatShading: true }))
+    // world/merge.ts folds these into one vertex-colored mesh: never change one at runtime
+    m.userData.palette = true
     mats.set(color, m)
   }
   return m

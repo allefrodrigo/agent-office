@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { animated } from './merge'
 import { box, cylinder, panel } from './kit'
 import { shared } from './dispose'
 
@@ -131,7 +132,7 @@ export interface Beacon {
  * the wall and floor below. Origin at the wall, bottom of the bracket.
  */
 export function beacon(): Beacon {
-  const g = new THREE.Group()
+  const g = animated(new THREE.Group())
   box(g, 0.34, 0.06, 0.3, '#a8323a', 0, 0, 0.12, false)
   const base = cylinder(g, 0.14, 0.15, 0.12, '#b8323c', 0, 0.06, 0.16, 14)
   base.castShadow = false

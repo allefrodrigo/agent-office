@@ -4,6 +4,7 @@ import * as F from './furniture'
 import { beacon, costBoard } from './props'
 import { workstation } from './workstation'
 import { box, panel } from './kit'
+import { mergeStatic } from './merge'
 import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
 import { buildPartitions, buildShell, type Office } from './office'
 import { Grid } from './pathfinding'
@@ -110,6 +111,8 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   place(money.group, 0.06, 5, Math.PI / 2, 1.0)
   const alarm = beacon()
   place(alarm.group, 0.04, 7.6, Math.PI / 2, 1.85)
+  // every box that never moves becomes one mesh per material (AO-30)
+  mergeStatic(group)
 
   let doorOpen = 0
   let doorTimer = 0
