@@ -29,7 +29,8 @@ const made: string[] = []
 afterAll(() => made.forEach((d) => rmSync(d, { recursive: true, force: true })))
 
 function tmp(prefix: string): string {
-  const d = realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+  // .native expands Windows 8.3 names (RUNNER~1), the long form git reports back.
+  const d = realpathSync.native(mkdtempSync(join(tmpdir(), prefix)))
   made.push(d)
   return d
 }
@@ -45,6 +46,9 @@ function newRepo(prefix = 'ao-git-'): { dir: string; git: (...args: string[]) =>
 }
 
 const read = (p: string) => readFileSync(p, 'utf8')
+
+// A file name that must come out escaped in the card; Windows forbids < and > in names.
+const HTML_NAME = process.platform === 'win32' ? "new & 'b'.txt" : 'new <b>.txt'
 
 // Each test spawns dozens of git processes (~0.2-2 s alone). Under a loaded `npm test` that
 // passes the 5 s default, so these get their own limit. Nothing here waits on purpose.
@@ -65,16 +69,16 @@ describe('arquivos alterados (AO-34)', { timeout: GIT_TIMEOUT }, () => {
     // The "agent" works.
     writeFileSync(join(dir, 'a.txt'), 'one\nTWO\nthree\n')
     writeFileSync(join(dir, 'b.txt'), 'bee\nuser edit\nagent edit\n')
-    writeFileSync(join(dir, 'new <b>.txt'), '<script>alert(1)</script>\n')
+    writeFileSync(join(dir, HTML_NAME), '<script>alert(1)</script>\n')
     unlinkSync(join(dir, 'del.txt'))
 
     const c = await changesSince(snap)
     const row = (p: string) => c.files.find((f) => f.path === p)
-    expect(c.files.map((f) => f.path)).toEqual(['a.txt', 'b.txt', 'del.txt', 'new <b>.txt'])
+    expect(c.files.map((f) => f.path)).toEqual(['a.txt', 'b.txt', 'del.txt', HTML_NAME])
     expect(row('a.txt')).toMatchObject({ status: 'modified', added: 2, removed: 1 })
     expect(row('b.txt')).toMatchObject({ status: 'modified', added: 1, removed: 0, preexisting: true })
     expect(row('del.txt')).toMatchObject({ status: 'deleted', removed: 1 })
-    expect(row('new <b>.txt')).toMatchObject({ status: 'added', added: 1 })
+    expect(row(HTML_NAME)).toMatchObject({ status: 'added', added: 1 })
     const diffB = await fileDiff(c, 'b.txt')
     expect(diffB).toContain('+agent edit')
     expect(diffB).not.toContain('+user edit')
@@ -85,7 +89,7 @@ describe('arquivos alterados (AO-34)', { timeout: GIT_TIMEOUT }, () => {
     expect(read(join(dir, 'a.txt'))).toBe('one\ntwo\n')
     expect(read(join(dir, 'b.txt'))).toBe('bee\nuser edit\n')
     expect(existsSync(join(dir, 'del.txt'))).toBe(true)
-    expect(existsSync(join(dir, 'new <b>.txt'))).toBe(false)
+    expect(existsSync(join(dir, HTML_NAME))).toBe(false)
     expect(existsSync(join(dir, 'mine.txt'))).toBe(true)
     expect((await changesSince(snap)).files).toHaveLength(0)
   })
@@ -402,6 +406,7 @@ describe('segurança', { timeout: GIT_TIMEOUT }, () => {
     } catch {
       // the fake filter isn't a real filter process, so git gives up after running it
     }
-    expect(existsSync(marker)).toBe(true)
+    // Git for Windows can't run these #!/bin/sh stand-ins, so the control only means something elsewhere.
+    if (process.platform !== 'win32') expect(existsSync(marker)).toBe(true)
   })
 })
