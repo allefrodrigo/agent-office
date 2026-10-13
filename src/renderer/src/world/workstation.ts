@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import * as F from './furniture'
 import { box, cylinder, panel } from './kit'
+import { animated } from './merge'
 import { LoopScreen } from './screens'
 
 // A desk with someone's setup on it. Each desk number gets its own: one monitor,
@@ -57,9 +58,9 @@ export interface Workstation {
 
 /**
  * Desk number `index` with its setup. `screen` is the agent's own screen (what it is
- * doing); the extra screens only scroll code.
+ * doing) and `led` the totem's light; the extra screens only scroll code.
  */
-export function workstation(index: number, screen: THREE.Texture): Workstation {
+export function workstation(index: number, screen: THREE.Texture, led: THREE.Material): Workstation {
   const g = new THREE.Group()
   const loops: LoopScreen[] = []
   const second = () => {
@@ -129,6 +130,10 @@ export function workstation(index: number, screen: THREE.Texture): Workstation {
       box(g, 0.2, 0.02, 0.04, '#2d3436', ex, TOP + 0.03, 0.1, false)
   }
   if (setup !== 'laptop') place(g, F.mug(['#ffffff', '#fdcb6e', '#81ecec'][index % 3]), 0.8, 0.3)
+
+  // status totem on the back corner: a post with a light on top
+  box(g, 0.05, 0.42, 0.05, DARK, 0.92, TOP, -0.4)
+  animated(box(g, 0.11, 0.11, 0.11, led, 0.92, TOP + 0.42, -0.4, false))
 
   const chair = F.officeChair(CHAIRS[index % CHAIRS.length])
   chair.position.set(0, 0, 0.9)
