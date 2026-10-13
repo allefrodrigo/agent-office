@@ -1,37 +1,37 @@
-# Every new version in package.json on main publishes a release by itself: bump the
-# version, merge, and the installers (.dmg, .exe, .AppImage) show up in GitHub Releases
-# with the latest*.yml files the auto-update reads. A tag v* (e.g. v0.4.0-beta.1 for the
-# beta channel) or "Run workflow" does the same.
+# Every new version in package.json on main builds a release by itself: bump the version,
+# merge, and the installers (.dmg, .exe, .AppImage) are built with the latest*.yml files
+# the auto-update reads. "Run workflow" on main does the same.
 #
-# Order: a draft release first, then the Mac, Windows and Linux builds upload into it, then
-# the draft goes public. The app only ever sees a release with every file in it. A version
-# that already has a published release is skipped, so pushes that don't bump it cost nothing.
+# Nothing reaches GitHub Releases before a person approves. The builds keep their files as
+# run artifacts; only the publish job, in the "release" environment (main only, waits for a
+# reviewer), creates the release, from the files of its own run. A run from any other branch
+# can build but never publish, and no draft sits around for another run to swap files in.
+# A version that already has a release is skipped, so pushes that don't bump it cost nothing.
 # Linux is best effort: if it fails, the release still goes out with Mac and Windows.
-# Publishing waits for an approval in the "release" environment.
 #
 # Secrets (Settings → Secrets and variables → Actions). All optional: without them the
 # Mac build falls back to ad-hoc signing and Windows ships unsigned.
 #   MAC_CSC_LINK, MAC_CSC_KEY_PASSWORD   Developer ID Application (.p12 in base64) and its password
 #   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID   notarization
 #   WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD   Windows code signing certificate
+#   RELEASE_TOKEN (in the "release" environment)   fine-grained token of the repo admin, so
+#     the v* tag is created by someone the tag ruleset lets through
 name: Release
 
 on:
   push:
     branches: [main]
     paths: [package.json]
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
-# One release at a time: a version bump pushed with its tag starts two runs, the second skips.
 concurrency:
   group: release
 
 jobs:
-  draft:
+  version:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.version.outputs.tag }}
@@ -44,29 +44,17 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="v$(node -p "require('./package.json').version")"
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
-            echo "::error::A tag $GITHUB_REF_NAME não bate com a versão do package.json ($tag)."
-            exit 1
-          fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          draft=$(gh release view "$tag" --json isDraft -q .isDraft 2>/dev/null || echo none)
-          if [ "$draft" = false ]; then
-            echo "::notice::$tag já está publicada; nada a fazer."
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::notice::$tag já tem release; nada a fazer."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
-      - name: Create the draft release
-        if: steps.version.outputs.skip == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.version.outputs.tag }}
-        run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --generate-notes --target "$GITHUB_SHA"
 
   build:
-    needs: draft
-    if: needs.draft.outputs.skip == 'false'
+    needs: version
+    if: needs.version.outputs.skip == 'false'
     name: build (${{ matrix.os }})
     strategy:
       fail-fast: false
@@ -88,10 +76,9 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Build and upload to the draft
-        run: npm run ${{ matrix.dist }} -- --publish always
+      - name: Build
+        run: npm run ${{ matrix.dist }} -- --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Mac: Developer ID + notarization (scripts/dist-mac.mjs signs ad-hoc when empty).
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
@@ -101,22 +88,43 @@ jobs:
           # Windows: Authenticode, read by electron-builder only on the Windows build.
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}
+          if-no-files-found: error
+          path: |
+            dist/*.dmg
+            dist/*.zip
+            dist/*.exe
+            dist/*.AppImage
+            dist/*.blockmap
+            dist/latest*.yml
 
   publish:
-    needs: [draft, build]
+    needs: [version, build]
     runs-on: ubuntu-latest
-    # Waits for a reviewer of the "release" environment (Settings → Environments): the
-    # installers are built and uploaded, but nobody gets them until a person approves.
+    # Waits for a reviewer of the "release" environment (Settings → Environments), which
+    # only accepts runs from main. Nothing is on GitHub Releases until this job runs.
     environment: release
+    permissions:
+      contents: write
     steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
       - name: Publish the release
         env:
-          # RELEASE_TOKEN (secret of the "release" environment): a fine-grained token of the
-          # repo admin, so the v* tag is created by someone the tag ruleset lets through.
           GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ needs.draft.outputs.tag }}
+          TAG: ${{ needs.version.outputs.tag }}
         run: |
-          # A tag with a suffix (v0.4.0-beta.1) is a pre-release: only the beta channel takes it.
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::Release só sai da main (este run veio de $GITHUB_REF)."
+            exit 1
+          fi
+          ls -l dist
+          # A version with a suffix (0.4.0-beta.1) is a pre-release: only the beta channel takes it.
           if [[ "$TAG" == *-* ]]; then pre=--prerelease; else pre=--latest; fi
-          gh release edit "$TAG" --draft=false $pre
+          gh release create "$TAG" dist/* --title "$TAG" --generate-notes --target "$GITHUB_SHA" $pre
