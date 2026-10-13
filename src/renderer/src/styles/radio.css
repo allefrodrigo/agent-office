@@ -106,3 +106,64 @@ body:has(.radio:not(.hidden)) .toasts {
   flex: 1;
   accent-color: var(--accent);
 }
+
+.radio-edit + .radio-off {
+  margin-left: 0;
+}
+
+.radio-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 2px 0;
+}
+
+.radio-link {
+  display: flex;
+  gap: 4px;
+}
+
+.radio-link input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font-size: 12px;
+}
+
+.radio-link input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.radio-link button {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+}
+
+.radio-error {
+  color: var(--red);
+  font-size: 12px;
+}
+
+.radio-back {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.radio-back:hover {
+  color: var(--text);
+}
