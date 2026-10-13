@@ -281,8 +281,9 @@ Como funciona (`.github/workflows/release.yml`):
 1. Um push na `main` que muda o `package.json` dispara o workflow. Uma tag `v*` ou o botão "Run workflow" também.
 2. Se a versão já tem release publicada, ele para ali. Pushes sem mudança de versão não geram nada.
 3. Cria a release como rascunho, builda Mac, Windows e Linux em paralelo e sobe os arquivos com os `latest*.yml` que o auto-update lê.
-4. Publica quando os builds terminam. O app nunca vê uma release pela metade. Se o Linux falhar, a release sai com Mac e Windows.
-5. Versão com sufixo (`0.4.0-beta.1`) sai como pre-release: só o canal Beta recebe.
+4. Espera a aprovação de quem revisa o ambiente `release` (Actions → o run → **Review deployments**). O build é automático; publicar depende de uma pessoa.
+5. Publica. O app nunca vê uma release pela metade. Se o Linux falhar, a release sai com Mac e Windows.
+6. Versão com sufixo (`0.4.0-beta.1`) sai como pre-release: só o canal Beta recebe.
 
 O CI (`.github/workflows/ci.yml`) roda `typecheck`, `lint`, `test` e `build` no macOS e no Windows em todo PR e push na `main`.
 

@@ -7,6 +7,7 @@
 # the draft goes public. The app only ever sees a release with every file in it. A version
 # that already has a published release is skipped, so pushes that don't bump it cost nothing.
 # Linux is best effort: if it fails, the release still goes out with Mac and Windows.
+# Publishing waits for an approval in the "release" environment.
 #
 # Secrets (Settings → Secrets and variables → Actions). All optional: without them the
 # Mac build falls back to ad-hoc signing and Windows ships unsigned.
@@ -104,10 +105,15 @@ jobs:
   publish:
     needs: [draft, build]
     runs-on: ubuntu-latest
+    # Waits for a reviewer of the "release" environment (Settings → Environments): the
+    # installers are built and uploaded, but nobody gets them until a person approves.
+    environment: release
     steps:
       - name: Publish the release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # RELEASE_TOKEN (secret of the "release" environment): a fine-grained token of the
+          # repo admin, so the v* tag is created by someone the tag ruleset lets through.
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ needs.draft.outputs.tag }}
         run: |
