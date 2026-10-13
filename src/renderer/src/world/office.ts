@@ -94,7 +94,7 @@ export function buildOffice(): GroundFloor {
   for (const d of DESKS) {
     const screen = new Screen()
     deskScreens.push(screen)
-    const ws = workstation(d.index, screen.texture)
+    const ws = workstation(d.index, screen.texture, screen.led)
     loops.push(...ws.loops)
     place(ws.group, d.x + 1, d.z + 0.5)
     grid.blockRect(d.x, d.z, 2, 1)
