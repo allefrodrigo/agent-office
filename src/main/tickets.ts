@@ -1,15 +1,17 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { createSdkMcpServer, tool, type McpSdkServerConfigWithInstance } from '@anthropic-ai/claude-agent-sdk'
 import { z } from 'zod'
+import { projectFor } from '@shared/projects'
 import { labelOf, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
 import type {
   Actor,
   AgentSummary,
   Criterion,
   OfficeEvent,
+  ProjectFloor,
   Ticket,
   TicketDraft,
   TicketPatch,
@@ -17,6 +19,8 @@ import type {
   TicketStatus,
   TicketType,
 } from '@shared/types'
+import { backupCopies, shapeOf } from './backups'
+import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 
 const KEY_PREFIX = 'AO'
 const MAX_TITLE = 160
@@ -27,6 +31,8 @@ const MAX_COMMENTS = 300
 const MAX_ACTIVITY = 200
 const MAX_CLOSED_SHOWN = 200
 const DAY = 86_400_000
+
+const keyNumber = (key: string): number => Number(/-(\d+)$/.exec(key)?.[1] ?? 0)
 
 const STATUS_VALUES = STATUSES.map((s) => s.value) as [TicketStatus, ...TicketStatus[]]
 const TYPE_VALUES = TYPES.map((s) => s.value) as [TicketType, ...TicketType[]]
@@ -53,8 +59,10 @@ export class TicketBoard extends EventEmitter {
   private closedData: Ticket[] | null = null
   private timer: NodeJS.Timeout | null = null
   private closedDirty = false
+  /** Set while a restore or import replaces the files: nothing in memory may land on them. */
+  private locked = false
 
-  constructor(dir: string) {
+  constructor(private dir: string) {
     super()
     mkdirSync(dir, { recursive: true })
     this.file = join(dir, 'tickets.json')
@@ -64,23 +72,29 @@ export class TicketBoard extends EventEmitter {
 
   private get closed(): Ticket[] {
     if (!this.closedData) {
-      try {
-        const raw = JSON.parse(readFileSync(this.closedFile, 'utf8')) as { tickets?: Ticket[] }
-        this.closedData = Array.isArray(raw.tickets) ? raw.tickets : []
-      } catch {
-        this.closedData = []
-      }
+      // A broken archive is moved aside, never replaced by the next "Fechar" (AO-24).
+      const r = loadJson<{ tickets?: Ticket[] }>(this.closedFile, {
+        valid: shapeOf('tickets-closed.json'),
+        fallbacks: backupCopies(this.dir, 'tickets-closed.json'),
+      })
+      reportLoad(this.closedFile, r)
+      const raw = r.status === 'ok' || r.status === 'restored' ? r.data : {}
+      this.closedData = Array.isArray(raw.tickets) ? raw.tickets : []
+      // What came from a backup goes back to disk under the real name.
+      if (r.status === 'restored') this.closedDirty = true
     }
     return this.closedData
   }
 
   private load(): Data {
-    try {
-      const raw = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Data>
-      return { seq: raw.seq ?? 0, tickets: raw.tickets ?? [] }
-    } catch {
-      return { seq: 0, tickets: [] }
-    }
+    // A broken board is moved aside and the last good copy loads, so AO-N keys never repeat (AO-24).
+    const r = loadJson<Partial<Data>>(this.file, { valid: shapeOf('tickets.json'), fallbacks: backupCopies(this.dir, 'tickets.json') })
+    reportLoad(this.file, r)
+    const raw: Partial<Data> = r.status === 'ok' || r.status === 'restored' ? r.data : {}
+    const data = { seq: raw.seq ?? 0, tickets: raw.tickets ?? [] }
+    // An older copy (or none) may be behind the keys already handed out: count past them.
+    if (r.status === 'restored' || r.status === 'lost') data.seq = Math.max(data.seq, ...[...data.tickets, ...this.closed].map((t) => keyNumber(t.key)))
+    return data
   }
 
   // ---------- reads ----------
@@ -327,15 +341,18 @@ export class TicketBoard extends EventEmitter {
   flush(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
-    const tmp = this.file + '.tmp'
-    writeFileSync(tmp, JSON.stringify(this.data))
-    renameSync(tmp, this.file)
+    if (this.locked) return
+    writeJsonAtomic(this.file, this.data)
     if (this.closedDirty && this.closedData) {
-      const ctmp = this.closedFile + '.tmp'
-      writeFileSync(ctmp, JSON.stringify({ tickets: this.closedData }))
-      renameSync(ctmp, this.closedFile)
+      writeJsonAtomic(this.closedFile, { tickets: this.closedData })
       this.closedDirty = false
     }
+  }
+
+  /** Writes what is pending, then stops writing for good (the app restarts next). */
+  lock(): void {
+    this.flush()
+    this.locked = true
   }
 
   // ---------- agent tools ----------
@@ -345,8 +362,10 @@ export class TicketBoard extends EventEmitter {
    * Agents can open, read, comment and move tickets up to review; closing ("done")
    * stays with the people who review the work.
    */
-  toolsFor(agent: AgentSummary): McpSdkServerConfigWithInstance {
+  toolsFor(agent: AgentSummary, projects: () => ProjectFloor[]): McpSdkServerConfigWithInstance {
     const me: Actor = { kind: 'agent', name: agent.name, id: agent.id }
+    // Each project floor has its own board: by default an agent sees the tickets of the floor it works on.
+    const onMyFloor = (t: Ticket) => projectFor(projects(), t.cwd)?.id === agent.project
     const find = (key: string) => {
       const t = this.byKey(key)
       if (!t && this.byKey(key, true)) throw new Error(`${key} está fechado: só dá para ler (ticket_get). Peça para uma pessoa reabrir se precisar mexer.`)
@@ -367,7 +386,8 @@ export class TicketBoard extends EventEmitter {
       version: '1.0.0',
       instructions:
         'Quadro kanban do escritório (Agent Office). Colunas: backlog, todo (a fazer), doing (fazendo), review (revisão), done (feito). ' +
-        'Tickets têm chave curta como AO-12. Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
+        'Tickets têm chave curta como AO-12. Cada andar (projeto) tem o seu quadro: tickets_list mostra só os do seu andar, a não ser que peça all_floors. ' +
+        'Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
         'Um bom ticket se explica sozinho: título no imperativo, contexto com arquivos e passos de reprodução, critérios de aceite verificáveis. ' +
         'Só pessoas movem para done. Tickets fechados (arquivados depois de done) saem do quadro: consulte só quando precisar, com tickets_list closed=true ou ticket_get.',
       tools: [
@@ -379,20 +399,24 @@ export class TicketBoard extends EventEmitter {
             search: z.string().optional().describe('Texto no título, descrição ou tags'),
             mine: z.boolean().optional().describe('Só os tickets atribuídos a você'),
             closed: z.boolean().optional().describe('Busca nos tickets fechados (arquivo) em vez do quadro; combine com search'),
+            all_floors: z.boolean().optional().describe('Inclui os tickets de todos os andares; padrão: só os do seu andar'),
           },
           (args) =>
             run(() => {
+              const floor = (t: Ticket) => args.all_floors || onMyFloor(t)
+              const others = args.all_floors ? '' : ' neste andar. Use all_floors=true para ver os outros andares'
               if (args.closed) {
-                const found = this.listClosed(args.search, 50).filter((t) => !args.mine || t.assignee?.id === agent.id)
-                return found.length ? found.map((t) => `${listLine(t)} · fechado`).join('\n') : 'Nenhum ticket fechado com esses filtros.'
+                const found = this.listClosed(args.search, 50).filter((t) => floor(t) && (!args.mine || t.assignee?.id === agent.id))
+                return found.length ? found.map((t) => `${listLine(t)} · fechado`).join('\n') : `Nenhum ticket fechado com esses filtros${others}.`
               }
               const q = args.search?.toLowerCase().trim()
               const shown = this.list()
+                .filter(floor)
                 .filter((t) => (args.status?.length ? args.status.includes(t.status) : t.status !== 'done'))
                 .filter((t) => !args.mine || t.assignee?.id === agent.id)
                 .filter((t) => !q || [t.title, t.description, ...t.tags].some((v) => v.toLowerCase().includes(q)))
                 .sort((a, b) => STATUS_VALUES.indexOf(a.status) - STATUS_VALUES.indexOf(b.status) || a.order - b.order)
-              if (!shown.length) return 'Nenhum ticket com esses filtros.'
+              if (!shown.length) return `Nenhum ticket com esses filtros${others}.`
               return shown.map(listLine).join('\n')
             })(),
           { annotations: { readOnlyHint: true } },

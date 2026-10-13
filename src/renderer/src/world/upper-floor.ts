@@ -1,12 +1,15 @@
 import * as THREE from 'three'
-import { brandSign, logoPlaque, type Brand } from './brand'
+import { brandSign, type Brand } from './brand'
 import * as F from './furniture'
+import { beacon, costBoard } from './props'
+import { workstation } from './workstation'
 import { box, panel } from './kit'
-import { DIRECTOR_RECT, ELEVATOR, H, LOBBY_RECT, W, type ProjectPlan, type SectorRoom } from './layout'
-import { buildPartitions, buildShell, type Office } from './office'
+import { mergeStatic } from './merge'
+import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
+import { buildPartitions, buildShell, CALM_BEACON, type Office } from './office'
 import { Grid } from './pathfinding'
-import { dashboardPainter, LoopScreen, Screen } from './screens'
-import { rugTexture, WindowSky } from './textures'
+import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
+import { rugTexture } from './textures'
 
 /** A project floor. deskScreens holds the team desks first, then the sector desks (DeskSlot.index). */
 export interface UpperFloor extends Office {
@@ -15,7 +18,6 @@ export interface UpperFloor extends Office {
   board: THREE.Object3D
 }
 
-const CHAIR_COLORS = ['#2f8f83', '#d97757', '#6c5ce7', '#3d4a6b', '#e1873b']
 const RUGS: [string, string, string][] = [
   ['#e6eef7', '#7b9cc4', '#4a6fa5'],
   ['#f3e4c4', '#c98b5e', '#d97757'],
@@ -25,7 +27,7 @@ const RUGS: [string, string, string][] = [
   ['#e9eef0', '#8aa1ab', '#4f6d7a'],
 ]
 
-/** A project floor: Diretoria with the orchestrators' desks around the elevator, team and sector rooms, a lobby with the company's sign. */
+/** A project floor: Diretoria with the company's sign and the orchestrators' desks around the elevator, team and sector rooms. */
 export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   const group = new THREE.Group()
   const grid = new Grid(W, H)
@@ -37,13 +39,14 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     return obj
   }
 
-  const floor = buildShell(group)
+  // planks in the Diretoria, carpet in the rooms (under their rugs), hall planks in the corridor
+  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
   buildPartitions(group, grid, plan.partitions)
 
   // ---------- Diretoria ----------
   const [dx0, , dx1, dz1] = DIRECTOR_RECT
   const dcx = (dx0 + dx1) / 2
-  place(F.rug(8, 4, rugTexture(8, 4, '#2d3a5c', '#1d2742', '#e0a96d')), dcx, 5.5)
+  place(F.rug(8, 4, rugTexture(8, 4, '#2d3a5c', '#1d2742', brand.color)), dcx, 5.5)
   for (const d of plan.directors) {
     place(F.bossDesk(d.w), d.x + d.w / 2, d.z + 0.5)
     grid.blockRect(d.x, d.z, d.w, 1)
@@ -54,11 +57,10 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     place(F.bossChair(), d.seat.x, d.seat.z, 0)
     place(F.simpleChair('#6c5ce7'), d.side.x, d.side.z, -Math.PI / 2)
   }
-  // back wall, left to right: plant, sign and clock, cycle board, then the elevator
+  // back wall, left to right: plant, the company's sign, cycle board, then the elevator
   place(F.plant('tall', '#e9edf2'), dx0 + 0.5, 0.5)
   grid.block(dx0, 0)
-  place(F.clock(), dx0 + 2.3, 0.04, 0, 2.25)
-  place(sign('Diretoria', '#1d2742', '#f6c445'), dx0 + 2.3, 0.03, 0, 2.05)
+  place(brandSign(brand, 2.4), dx0 + 2.4, 0.03, 0, 1.75)
   place(F.plant('fern'), dx0 + 0.5, dz1 - 0.5)
   grid.block(dx0, dz1 - 1)
   place(F.plant('flower', '#f5f3ee'), dx1 - 0.5, dz1 - 0.5)
@@ -82,14 +84,12 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     const [base, border, accent] = RUGS[rug % RUGS.length]
     place(F.rug(x1 - x0 - 1, z1 - z0 - 1, rugTexture(x1 - x0 - 1, z1 - z0 - 1, base, border, accent)), cx, (z0 + z1) / 2)
     for (const d of r.desks) {
-      place(F.desk(2), d.x + 1, d.z + 0.5)
-      grid.blockRect(d.x, d.z, 2, 1)
       const screen = new Screen()
       deskScreens[d.index] = screen
-      place(F.monitor(screen.texture, 0.95).group, d.x + 1, d.z + 0.28, 0, 0.76)
-      place(F.keyboard(), d.x + 1, d.z + 0.68, 0, 0.76)
-      place(F.mug(['#ffffff', '#fdcb6e', '#81ecec'][d.index % 3]), d.x + 0.3, d.z + 0.62, 0, 0.76)
-      place(F.officeChair(CHAIR_COLORS[d.index % CHAIR_COLORS.length]), d.seat.x, d.seat.z - 0.05, Math.PI)
+      const ws = workstation(d.index + 2, screen.texture)
+      loops.push(...ws.loops)
+      place(ws.group, d.x + 1, d.z + 0.5)
+      grid.blockRect(d.x, d.z, 2, 1)
     }
     // the sign: on the back wall for rooms along it, over the door for the front ones
     if (r.top) {
@@ -103,22 +103,16 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     }
   })
 
-  // ---------- lobby ----------
-  const [lx0, , lx1] = LOBBY_RECT
-  place(brandSign(brand, 2.6), lx0 + 1.7, 0.03, 0, 1.85)
-  // the logo again on the side wall, facing the lobby
-  const plaque = logoPlaque(brand, 0.9)
-  if (plaque) place(plaque, 0.05, 3, Math.PI / 2, 1.4)
-  const skies = [new WindowSky(31)]
-  place(F.wallWindow(1.6, 1.3, skies[0]), lx1 - 1.4, 0.02, 0, 1.6)
-  place(F.sofa(2, '#d97757'), lx0 + 1.5, 5.45, 0)
-  grid.blockRect(lx0 + 1, 5, 2, 1)
-  place(F.coffeeTable(2), lx0 + 1.5, 7)
-  grid.blockRect(lx0 + 1, 7, 2, 1)
-  place(F.plant('tall'), lx1 - 0.5, 8.5)
-  grid.block(lx1 - 1, 8)
-  place(F.waterCooler(), lx1 - 0.5, 6.5)
-  grid.block(lx1 - 1, 6)
+  // ---------- common areas in the front rooms no sector took ----------
+  plan.commons.forEach((rect, i) => commons(COMMONS[i % COMMONS.length], rect, place, grid, loops, brand.color))
+
+  // the company's spending board on the side wall, the alarm above it
+  const money = costBoard(brand.name, 2.2)
+  place(money.group, 0.06, 5, Math.PI / 2, 1.0)
+  const alarm = beacon()
+  place(alarm.group, 0.04, 7.6, Math.PI / 2, 1.85)
+  // every box that never moves becomes one mesh per material (AO-30)
+  mergeStatic(group)
 
   let doorOpen = 0
   let doorTimer = 0
@@ -130,10 +124,14 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     deskScreens,
     plan,
     board,
+    money,
+    alarm,
+    reducedMotion: false,
     update(dt: number) {
+      money.update(dt)
+      alarm.update(this.reducedMotion ? dt * CALM_BEACON : dt)
       for (const s of deskScreens) s?.update(dt)
       for (const l of loops) l.update(dt)
-      for (const s of skies) s.update()
       doorTimer = Math.max(0, doorTimer - dt)
       doorOpen += ((doorTimer > 0 ? 1 : 0) - doorOpen) * Math.min(1, dt * 5)
       const w = 0.72 * (1 - doorOpen * 0.9)
@@ -147,6 +145,86 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     setFloors(n: number) {
       elev.buttons.forEach((b, i) => (b.visible = i < n))
     },
+  }
+}
+
+type Common = 'lounge' | 'cafe' | 'games' | 'quiet'
+const COMMONS: Common[] = ['lounge', 'cafe', 'games', 'quiet']
+
+/** Furnishes an open front area (8 x 11 tiles); its back edge faces the corridor. */
+function commons(kind: Common, rect: [number, number, number, number], place: (o: THREE.Object3D, x: number, z: number, rot?: number, y?: number) => THREE.Object3D, grid: Grid, loops: LoopScreen[], accent: string): void {
+  const [x0, z0, x1, z1] = rect
+  const cx = (x0 + x1) / 2
+  const cz = (z0 + z1) / 2 + 0.5
+  const block = (x: number, z: number, w = 1, h = 1) => grid.blockRect(Math.floor(x), Math.floor(z), w, h)
+  switch (kind) {
+    case 'lounge':
+      place(F.rug(6, 5, rugTexture(6, 5, '#e6eef7', '#7b9cc4', accent)), cx, cz)
+      place(F.sofa(3, '#3d4a6b'), cx, cz - 1.55, 0)
+      block(cx - 1.5, cz - 2, 3)
+      place(F.coffeeTable(3), cx, cz)
+      block(cx - 1.5, cz, 3)
+      place(F.armchair('#f4a259'), cx - 2.05, cz, Math.PI / 2)
+      block(cx - 2.5, cz)
+      place(F.armchair('#f4a259'), cx + 2.05, cz, -Math.PI / 2)
+      block(cx + 1.5, cz)
+      place(F.floorLamp(), x0 + 0.5, z0 + 1.5)
+      block(x0, z0 + 1)
+      place(F.plant('tall'), x1 - 0.5, z1 - 0.5)
+      block(x1 - 1, z1 - 1)
+      place(F.plant('bush'), x0 + 0.5, z1 - 0.5)
+      block(x0, z1 - 1)
+      break
+    case 'cafe':
+      place(F.kitchenCounter(3), cx, z1 - 0.7, Math.PI)
+      block(cx - 1.5, z1 - 1, 3)
+      place(F.coffeeMachine(), cx - 0.8, z1 - 0.75, Math.PI, 0.91)
+      place(F.microwave(), cx + 0.3, z1 - 0.75, Math.PI, 0.91)
+      place(F.fridge(), cx + 2.2, z1 - 0.6, Math.PI)
+      block(cx + 1.5, z1 - 1)
+      place(F.barTable(), cx - 1.5, cz - 1.5)
+      block(cx - 2, cz - 2)
+      for (const [dx, dz, c] of [[-0.8, 0, '#d97757'], [0.8, 0, '#2f8f83'], [0, -0.8, accent]] as const) place(F.stool(c), cx - 1.5 + dx, cz - 1.5 + dz)
+      place(F.roundTable(0.55), cx + 1.5, cz)
+      block(cx + 1, cz)
+      for (const [dx, dz, r] of [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -1, 0]] as const) place(F.simpleChair('#f4a259'), cx + 1.5 + dx, cz + dz, r)
+      place(F.plant('fern'), x0 + 0.5, z1 - 0.5)
+      block(x0, z1 - 1)
+      break
+    case 'games': {
+      place(F.rug(6, 5, rugTexture(6, 5, '#f3e4c4', '#c98b5e', accent)), cx, cz)
+      place(F.foosball(), cx - 1.5, cz - 1)
+      block(cx - 2.5, cz - 1.5, 2)
+      place(F.pingPong(), cx + 1.5, cz + 1, Math.PI / 2)
+      block(cx + 1, cz + 0.5, 2)
+      const screen = new LoopScreen(24, 20, arcadePainter, 7)
+      loops.push(screen)
+      place(F.arcade(screen.texture), x1 - 0.5, z1 - 0.6, Math.PI)
+      block(x1 - 1, z1 - 1)
+      place(F.plant('tall'), x0 + 0.5, z1 - 0.5)
+      block(x0, z1 - 1)
+      break
+    }
+    case 'quiet':
+      place(F.rug(4, 4, rugTexture(4, 4, '#e3f1e6', '#6fae86', accent)), cx, cz)
+      place(F.lowTable(), cx, cz)
+      block(cx, cz)
+      for (const [dx, dz, c] of [[-1.2, 0, '#a29bfe'], [1.2, 0, '#ff7675'], [0, 1.2, '#55efc4'], [0, -1.2, '#fdcb6e']] as const) {
+        place(F.beanBag(c), cx + dx, cz + dz, Math.atan2(-dx, -dz))
+        block(cx + dx, cz + dz)
+      }
+      // against the side wall when there is one, else facing into the area from the back
+      if (x0 === 0) {
+        place(F.bookshelf(2, 1.7, 5), 0.3, z0 + 3, Math.PI / 2)
+        block(0, z0 + 2, 1, 2)
+      } else {
+        place(F.bookshelf(2, 1.7, 5), x0 + 1.2, z0 + 0.6)
+        block(x0, z0, 2)
+      }
+      place(F.plant('fern'), x1 - 0.5, z1 - 0.5)
+      block(x1 - 1, z1 - 1)
+      place(F.plant('flower', '#f5f3ee'), x1 - 0.5, z0 + 1.5)
+      block(x1 - 1, z0 + 1)
   }
 }
 

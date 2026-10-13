@@ -2,11 +2,11 @@ import * as THREE from 'three'
 import type { Look } from '@shared/types'
 import { patchTexture } from './brand'
 import { blob, box, mat, panel } from './kit'
+import { disposeTree, shared } from './dispose'
 import { shadeHex } from './furniture'
-import { heldGun } from './weapons'
 
 export type Pose = 'stand' | 'sit' | 'type' | 'wave' | 'talk' | 'relax' | 'play'
-export type Prop = 'none' | 'paper' | 'redPaper' | 'mug' | 'gun'
+export type Prop = 'none' | 'paper' | 'redPaper' | 'mug'
 
 const HIP = 0.46
 const SHOULDER = 0.8
@@ -25,7 +25,7 @@ export interface Uniform {
 
 let shadowGeo: THREE.CircleGeometry | null = null
 let gemGeo: THREE.OctahedronGeometry | null = null
-const shadowMat = new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.2, depthWrite: false })
+const shadowMat = shared(new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.2, depthWrite: false }))
 
 function wrapAngle(a: number): number {
   while (a > Math.PI) a -= Math.PI * 2
@@ -48,9 +48,6 @@ export class Avatar {
   private shinL = new THREE.Group()
   private shinR = new THREE.Group()
   private propGroup = new THREE.Group()
-  /** Lives on the right arm so the gun points wherever the arm points. */
-  private gunGroup = new THREE.Group()
-  private recoil = 0
   private hurt = 0
   /** Seconds since being knocked down, or -1 when standing. */
   private downT = -1
@@ -84,7 +81,7 @@ export class Avatar {
     this.root.add(this.body)
     this.anchor.position.y = TAG_Y
     this.root.add(this.anchor)
-    if (!shadowGeo) shadowGeo = new THREE.CircleGeometry(0.26, 12).rotateX(-Math.PI / 2)
+    if (!shadowGeo) shadowGeo = shared(new THREE.CircleGeometry(0.26, 12).rotateX(-Math.PI / 2))
     const shadow = new THREE.Mesh(shadowGeo, shadowMat)
     shadow.position.y = 0.025
     shadow.renderOrder = 1
@@ -95,6 +92,9 @@ export class Avatar {
   private build(): void {
     const U = this.uniform
     const L = U ? { ...this.look, shirt: U.color } : this.look
+    // the old body's own pieces (hair blobs, logo patch plane) leave the GPU; shared ones stay.
+    // Dispose first: once the body is cleared, disposeTree has no children left to find (AO-28).
+    disposeTree(this.body)
     this.body.clear()
     this.shirtMeshes = []
     const shirtDark = shadeHex(L.shirt, -30)
@@ -137,7 +137,6 @@ export class Avatar {
       box(arm, 0.1, 0.13, 0.12, L.skin, 0, -0.33, 0)
       this.body.add(arm)
     }
-    this.armR.add(this.gunGroup)
 
     // head
     this.headGroup.clear()
@@ -237,7 +236,7 @@ export class Avatar {
       if (this.gem) this.gem.visible = false
       return
     }
-    if (!gemGeo) gemGeo = new THREE.OctahedronGeometry(0.13, 0).scale(0.8, 1.45, 0.8)
+    if (!gemGeo) gemGeo = shared(new THREE.OctahedronGeometry(0.13, 0).scale(0.8, 1.45, 0.8))
     if (!this.gem) {
       this.gem = new THREE.Mesh(gemGeo, new THREE.MeshLambertMaterial({ flatShading: true, transparent: true, opacity: 0.92 }))
       this.gem.position.y = GEM_Y
@@ -252,12 +251,9 @@ export class Avatar {
   setProp(prop: Prop, force = false): void {
     if (prop === this.prop && !force) return
     this.prop = prop
+    disposeTree(this.propGroup)
     this.propGroup.clear()
-    this.gunGroup.clear()
-    if (prop === 'gun') {
-      this.gunGroup.add(heldGun())
-      this.gunGroup.traverse((o) => (o.userData.avatarId = this.id))
-    } else if (prop === 'paper' || prop === 'redPaper') {
+    if (prop === 'paper' || prop === 'redPaper') {
       const p = new THREE.Group()
       box(p, 0.26, 0.32, 0.03, prop === 'paper' ? '#fbfbf8' : '#ffecec', 0, 0, 0)
       box(p, 0.27, 0.06, 0.035, prop === 'paper' ? '#20a464' : '#e5484d', 0, 0.26, 0)
@@ -274,6 +270,11 @@ export class Avatar {
     }
   }
 
+  /** Frees what only this avatar uses (call when it leaves the scene for good). */
+  dispose(): void {
+    disposeTree(this.root)
+  }
+
   get position(): THREE.Vector3 {
     return this.root.position
   }
@@ -282,18 +283,13 @@ export class Avatar {
     return this.walking
   }
 
+  /** Walking, turning, flinching or falling: the scene should draw at full rate (AO-29). */
+  get isMoving(): boolean {
+    return this.walking || this.steer > 0 || this.hurt > 0 || (this.downT >= 0 && this.downT < 0.4) || this.angle !== this.targetAngle
+  }
+
   get isDown(): boolean {
     return this.downT >= 0
-  }
-
-  /** World position of the gun's muzzle. */
-  muzzle(): THREE.Vector3 {
-    this.root.updateMatrixWorld(true)
-    return this.gunGroup.localToWorld(new THREE.Vector3(0, -0.57, 0))
-  }
-
-  kick(): void {
-    this.recoil = 0.12
   }
 
   /** Flinch after being hit. */
@@ -389,7 +385,6 @@ export class Avatar {
     }
 
     this.steer = Math.max(0, this.steer - dt)
-    this.recoil = Math.max(0, this.recoil - dt)
     this.hurt = Math.max(0, this.hurt - dt)
     if (this.downT >= 0) this.downT += dt
 
@@ -424,7 +419,6 @@ export class Avatar {
       return
     }
     this.animatePose()
-    if (this.prop === 'gun') this.armR.rotation.set(-Math.PI / 2 - this.recoil * 3, 0, 0)
     if (this.hurt > 0) {
       const k = this.hurt / 0.3
       this.body.rotation.x = -0.35 * k

@@ -1,18 +1,21 @@
 import * as THREE from 'three'
+import { shared } from './dispose'
 
 const mats = new Map<string, THREE.MeshLambertMaterial>()
 
-/** Shared flat-shaded material per color. */
+/** Shared flat-shaded material per color (marked shared: disposeTree never frees it). */
 export function mat(color: string): THREE.MeshLambertMaterial {
   let m = mats.get(color)
   if (!m) {
-    m = new THREE.MeshLambertMaterial({ color, flatShading: true })
+    m = shared(new THREE.MeshLambertMaterial({ color, flatShading: true }))
+    // world/merge.ts folds these into one vertex-colored mesh: never change one at runtime
+    m.userData.palette = true
     mats.set(color, m)
   }
   return m
 }
 
-export const unitBox = new THREE.BoxGeometry(1, 1, 1)
+export const unitBox = shared(new THREE.BoxGeometry(1, 1, 1))
 unitBox.translate(0, 0.5, 0) // origin at the bottom face
 
 /** Adds a box whose bottom-center sits at (x, y, z). */

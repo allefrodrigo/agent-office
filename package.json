@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.3.2",
+  "version": "0.3.4",
   "private": true,
   "description": "Escritório isométrico onde agentes do Claude Code trabalham, pedem permissão e entregam resultados.",
   "main": "./out/main/index.js",
@@ -10,29 +10,45 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "dist:mac": "electron-vite build && electron-builder --mac",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc -p tsconfig.test.json",
+    "dist:mac": "electron-vite build && node scripts/dist-mac.mjs",
     "dist:win": "electron-vite build && electron-builder --win",
     "demo": "AGENT_OFFICE_DEMO=1 electron-vite dev",
+    "bench": "electron-vite build && node scripts/bench.mjs",
     "icon": "node scripts/make-icon.mjs",
-    "dmg-bg": "electron scripts/make-dmg-background.mjs"
+    "dmg-bg": "electron scripts/make-dmg-background.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "contrast": "node scripts/contrast.mjs",
+    "format": "prettier --write"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.292",
+    "electron-updater": "^6.8.9",
     "yaml": "^2.9.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^22.20.5",
     "@types/three": "^0.186.0",
+    "@vitest/coverage-v8": "^5.0.4",
     "dompurify": "^3.4.16",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "eslint": "^10.12.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.13.0",
     "marked": "^18.1.0",
+    "prettier": "^3.9.10",
     "three": "^0.186.1",
     "typescript": "^5.9.3",
-    "vite": "^7.3.7"
+    "typescript-eslint": "^8.71.1",
+    "vite": "^7.3.7",
+    "vitest": "^5.0.4"
   },
   "type": "module"
 }

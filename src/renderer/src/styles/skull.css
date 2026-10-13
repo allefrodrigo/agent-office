@@ -1,0 +1,64 @@
+/* ---------- skull: dismiss an agent ---------- */
+
+.skull-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 58vh;
+  overflow-y: auto;
+  margin: 0 -6px;
+  padding: 2px 6px;
+}
+
+/* A roster row in a <button>: reset the button look. */
+.skull-row {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.btn-small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  border-radius: 8px;
+}
+
+.btn-icon {
+  width: 38px;
+  padding: 0;
+}
+
+.input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  user-select: text;
+  resize: vertical;
+}
+
+.input:focus {
+  border-color: rgba(217, 119, 87, 0.7);
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.18);
+}
+
+select.input {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 50%, calc(100% - 10px) 50%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  padding-right: 28px;
+}
+
+.grow {
+  flex: 1;
+}

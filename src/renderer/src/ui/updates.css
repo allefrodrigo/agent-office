@@ -1,0 +1,43 @@
+/* ---------- auto-update (ui/updates.ts) ---------- */
+
+/* Discreet notice at the top center: only when a downloaded version waits for a restart. */
+.update-notice {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 12px;
+  background: var(--card-solid);
+  border: 1px solid var(--line-strong);
+  border-left: 3px solid var(--green);
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  font-weight: 500;
+  animation: rise-toast 0.2s ease-out;
+}
+
+/* A modal has the player's attention: wait until it closes. */
+body:has(.backdrop) .update-notice {
+  display: none;
+}
+
+.update-notice .icon {
+  color: var(--green);
+  flex: none;
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.update-channel {
+  width: auto;
+}

@@ -55,10 +55,10 @@ $env:AGENT_OFFICE_DEMO=1; npm run dev
 
 ### Contratar um agente com tarefa
 
-1. Clique no botão do lápis na barra de baixo (ou em **Com tarefa…** no Chamar agente).
+1. Clique em **Novo agente** na barra de baixo (ou tecle `N`) e escolha a aba **Com tarefa**.
 2. Descreva a tarefa. No térreo, escolha a pasta; num andar de empresa, a pasta é a do andar.
 3. Escolha o modo de permissão. "Pedir permissão" faz o agente vir até você antes de editar arquivos ou rodar comandos.
-4. Clique em **Contratar**. O agente chega pelo elevador, senta numa mesa e começa.
+4. Clique em **Contratar** (ou ⌘/Ctrl+Enter). O agente chega pelo elevador, senta numa mesa e começa.
 
 Quando ele precisar de você, vai até a sua sala e um cartão abre com **Permitir**, **Sempre permitir** ou **Negar**. Ao terminar, ele traz o resultado.
 
@@ -66,7 +66,7 @@ Quando ele precisar de você, vai até a sua sala e um cartão abre com **Permit
 
 Para conversar como no terminal, sem preencher o formulário:
 
-1. Clique em **Chamar agente** na barra de baixo (funciona em qualquer andar), ou na etiqueta **Chamar agente** em cima do seu computador.
+1. Clique em **Novo agente** na barra de baixo (funciona em qualquer andar) e fique na aba **Conversar**, ou clique na etiqueta **Novo agente** em cima do seu computador.
 2. No térreo, escolha a pasta. Num andar de empresa, a pasta já é a do andar.
 3. O agente chega e o painel dele abre. Digite o que quer.
 
@@ -106,13 +106,18 @@ Conectar adiciona hooks em `~/.claude/settings.json` e faz backup em `settings.j
 | Voltar para a sua cadeira | Botão da casinha |
 | Ver pendências | Botão da caixa de entrada |
 | Fechar cartão ou painel | Esc |
-| Pegar a airsoft | Clique nela (mesa da sala de reunião) ou aperte E perto dela |
-| Atirar | Com a arma na mão, clique num agente |
-| Largar a arma | Q |
+| Dispensar um agente | Clique na caveira (armário ao lado da sua sala) |
 
-### Airsoft
+### Caveira
 
-Cada agente aguenta 3 tiros (os corações aparecem no crachá e voltam depois de 12 segundos sem levar tiro). No terceiro, um agente contratado cai, vira fantasma e sai do escritório: **a sessão dele é encerrada de verdade**, como em Demitir. Um agente do terminal fica caído e o app pergunta se você quer fechar aquela sessão. "Fechar sessão" encerra o `claude` daquele terminal (a conversa fica salva para `claude --resume`); "Deixar viver" faz ele levantar. O mesmo botão "Fechar sessão" fica no painel do agente.
+A caveira fica no armário ao lado da sua sala. Clique nela (ou na etiqueta "Caveira") para ver a lista de agentes, com nome e status. Clique num agente e confirme: se ele estiver trabalhando, a confirmação avisa que o trabalho em andamento se perde. Cancelar não muda nada.
+
+Depois de confirmar, a câmera vai até o agente, mesmo em outro andar. A caveira cai do teto, gargalha e acerta o agente, que desmaia e vira fantasma. Aí **a sessão dele é encerrada de verdade**, como em Dispensar:
+
+- Agente contratado: sai do escritório.
+- Agente do terminal: o `claude` daquele terminal fecha, sem outra pergunta. A conversa fica salva para `claude --resume`.
+
+Se a sessão não fechar, o agente levanta e um aviso explica o erro. O painel do agente também tem "Dispensar agente" (contratados) e "Fechar sessão" (terminal).
 
 ## 5. Gerar o app instalável
 

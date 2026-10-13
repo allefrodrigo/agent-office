@@ -1,0 +1,162 @@
+/* ---------- dock ---------- */
+
+.dock {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border-radius: 18px;
+}
+
+.dock-me {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 4px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  font-weight: 600;
+  cursor: default;
+}
+
+.dock-portrait {
+  display: flex;
+}
+
+.dock-sep {
+  width: 1px;
+  height: 24px;
+  background: var(--line-strong);
+  margin: 0 4px;
+}
+
+.dock-primary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 38px;
+  padding: 0 14px 0 10px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-solid);
+  color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 0 #8a3f27;
+  transition: transform 0.1s, background 0.15s;
+}
+
+.dock-primary:hover {
+  background: var(--accent-solid-hi);
+}
+
+.dock-primary:active {
+  transform: translateY(1px);
+}
+
+.dock-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--muted);
+}
+
+.dock-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.dock-btn.on {
+  color: var(--green);
+}
+
+.dock-btn .badge {
+  position: absolute;
+  top: 2px;
+  right: 0;
+}
+
+.dock-btn.pulse {
+  color: var(--amber);
+}
+
+/* terminal bridge failing: a small amber dot on the gear */
+.dock-alert {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 2px var(--card-solid);
+}
+
+/* segmented picker at the top of a modal (Novo agente: Conversar / Com tarefa / Squad) */
+.seg {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+}
+
+.seg-btn {
+  flex: 1;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 600;
+  transition: background 0.15s, color 0.15s;
+}
+
+.seg-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.seg-btn.on {
+  border-color: var(--accent);
+  background: rgba(217, 119, 87, 0.16);
+  color: var(--text);
+}
+
+.zoom {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  gap: 2px;
+  border-radius: 12px;
+}
+
+.zoom button {
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.zoom button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}

@@ -1,0 +1,37 @@
+# Typecheck, lint, tests and build on every PR and every push to main, on macOS and Windows.
+# "CI verde" for branch protection = both "check (macos-latest)" and "check (windows-latest)".
+# Prettier is not checked here: much of the code predates it (56 files would fail). Run
+# `npm run format -- <files>` on the files you touch; the check comes after one full format.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build

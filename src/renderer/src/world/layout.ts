@@ -5,7 +5,7 @@ export const W = 32
 export const H = 24
 export const WALL_H = 2.7
 
-export type FloorStyle = 'hall' | 'boss' | 'team' | 'meeting' | 'lounge'
+export type FloorStyle = 'hall' | 'boss' | 'team' | 'lounge' | 'cafe'
 
 export interface Zone {
   id: FloorStyle
@@ -16,8 +16,8 @@ export interface Zone {
 export const ZONES: Zone[] = [
   { id: 'boss', label: 'Sua sala', rect: [0, 0, 9, 9] },
   { id: 'team', label: 'Time de agentes', rect: [11, 0, 32, 12] },
-  { id: 'meeting', label: 'Sala de reunião', rect: [0, 11, 9, 24] },
   { id: 'lounge', label: 'Lounge', rect: [11, 15, 32, 24] },
+  { id: 'cafe', label: 'Copa', rect: [0, 11, 9, 24] },
 ]
 
 /** Glass partition along a tile edge. axis 'x' = line x = at, spanning z in [from, to). */
@@ -32,8 +32,6 @@ export interface Partition {
 export const PARTITIONS: Partition[] = [
   { axis: 'x', at: 9, from: 0, to: 9, doors: [5, 6] },
   { axis: 'z', at: 9, from: 0, to: 9, doors: [] },
-  { axis: 'z', at: 11, from: 0, to: 9, doors: [] },
-  { axis: 'x', at: 9, from: 11, to: 24, doors: [13, 14] },
 ]
 
 export interface DeskSlot {
@@ -128,6 +126,8 @@ export const LOUNGE_SEATS: HangSpot[] = [
   { x: 30.5, z: 16.45, look: [30.5, 15.5], approach: [30, 16], kind: 'play' },
   { x: 28.3, z: 22.5, look: [30, 22.5], approach: [28, 22], kind: 'play' },
   { x: 31.7, z: 22.5, look: [30, 22.5], approach: [31, 22], kind: 'play' },
+  // a coffee at the café counter
+  { x: 1.5, z: 14.6, look: [0.5, 14.6], approach: [1, 14], kind: 'stand' },
   around(LOUNGE.armchairs[0], LOUNGE.tableA, [12, 19]),
   around(LOUNGE.circleBags[0], LOUNGE.circle, [19, 20]),
   sofaSeat(13.5, 16.45),
@@ -143,6 +143,8 @@ export const LOUNGE_SEATS: HangSpot[] = [
   around(LOUNGE.bagsC[2], LOUNGE.tableC, [26, 22]),
   { x: 18.5, z: 19.5, look: [17.5, 19.5], approach: [18, 19], kind: 'stand' },
   { x: 23.5, z: 19.5, look: [24.5, 19.5], approach: [23, 19], kind: 'stand' },
+  { x: 4.5, z: 16.5, look: [4.5, 15.5], approach: [4, 16], kind: 'stand' },
+  { x: 1.5, z: 16.6, look: [0.5, 16.6], approach: [1, 16], kind: 'stand' },
 ]
 
 export function zoneAt(x: number, z: number): Zone | undefined {
@@ -155,8 +157,8 @@ export function inBossRoom(x: number, z: number): boolean {
 
 // ---------- project floors (1º andar and up) ----------
 // Same footprint and elevator as the ground floor. Diretoria top-right around the
-// elevator, so orchestrators and members step straight in and out of it; a lobby
-// top-left; the team rooms with the project's agents along the back wall; a corridor
+// elevator, so orchestrators and members step straight in and out of it, with the
+// company's sign; the team rooms with the project's agents along the back wall; a corridor
 // across the middle and the squad sectors in front of it.
 
 export const DEFAULT_SECTOR = 'Equipe'
@@ -165,8 +167,8 @@ const DESKS_PER_ROOM = 6
 type Rect = [number, number, number, number]
 /** Back rooms open to the corridor at z = 10, nearest the Diretoria first. */
 const BACK_ROOMS: Rect[] = [
-  [14, 0, 22, 10],
-  [6, 0, 14, 10],
+  [11, 0, 22, 10],
+  [0, 0, 11, 10],
 ]
 /** Front rooms open to the corridor at z = 13, nearest the Diretoria first. */
 const FRONT_ROOMS: Rect[] = [
@@ -176,7 +178,6 @@ const FRONT_ROOMS: Rect[] = [
   [0, 13, 8, 24],
 ]
 export const DIRECTOR_RECT: Rect = [22, 0, 32, 10]
-export const LOBBY_RECT: Rect = [0, 0, 6, 10]
 
 export interface SectorRoom {
   name: string
@@ -217,6 +218,8 @@ export interface ProjectPlan {
   partitions: Partition[]
   /** member id -> sector name, for every squad on the floor. */
   sectorOf: Map<string, string>
+  /** Front rooms no sector uses: open common areas (lounge, café, games…). */
+  commons: Rect[]
 }
 
 /** Squad members share one floor: `squad/member` ids keep two squads with the same member id apart. */
@@ -224,17 +227,23 @@ export const memberKey = (squad: string, member: string) => `${squad}/${member}`
 
 /** Desks of a room, rows nearest the door first so a lone agent doesn't walk to the far wall. */
 function roomDesks(rect: Rect, top: boolean, count: number, first: number): { desks: DeskSlot[]; stand: [number, number][] } {
-  const [x0, z0] = rect
+  const [x0, z0, x1] = rect
   const rows = top ? [z0 + 7, z0 + 4, z0 + 1] : [z0 + 2, z0 + 5, z0 + 8]
+  // two-tile desks every four tiles, as many as the room is wide, centered
+  const n = Math.floor((x1 - x0 - 4) / 4) + 1
+  const left = x0 + Math.floor((x1 - x0 - (n * 4 - 2)) / 2)
+  const cols = Array.from({ length: n }, (_, i) => left + i * 4)
   const desks: DeskSlot[] = []
   for (const z of rows) {
-    for (const x of [x0 + 1, x0 + 5]) {
+    for (const x of cols) {
       if (desks.length >= Math.min(DESKS_PER_ROOM, count)) break
       desks.push({ index: first + desks.length, x, z, seat: { x: x + 1, z: z + 1.45 }, approach: [x, z + 1] })
     }
   }
   const stand: [number, number][] = []
-  for (const z of rows) stand.push([x0 + 3, z + 1], [x0 + 4, z + 1], [x0 + 3, z], [x0 + 4, z])
+  // the aisle between the first two desk columns
+  const aisle = cols[0] + 2
+  for (const z of rows) stand.push([aisle, z + 1], [aisle + 1, z + 1], [aisle, z], [aisle + 1, z])
   return { desks, stand }
 }
 
@@ -309,6 +318,7 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
   // The middle row of the corridor, off the doors, so people still get by.
   const doors = new Set(partitions.filter((p) => p.axis === 'z').flatMap((p) => p.doors))
   const teamStand: [number, number][] = []
-  for (let x = 7; x < dx0; x++) if (!doors.has(x)) teamStand.push([x, 11])
-  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf }
+  for (let x = 1; x < dx0; x++) if (!doors.has(x)) teamStand.push([x, 11])
+  const commons = FRONT_ROOMS.filter((rect) => !sectors.some((s) => s.rect === rect))
+  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf, commons }
 }

@@ -2,9 +2,10 @@ import { execFile } from 'node:child_process'
 import { createReadStream, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { getSessionInfo, getSessionMessages, listSessions } from '@anthropic-ai/claude-agent-sdk'
-import type { LogEntry, SessionEntry } from '@shared/types'
-import { toolDetail } from './agents'
+import { getSessionInfo, getSessionMessages, getSubagentMessages, listSessions, listSubagents, type SessionMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { LogEntry, SessionEntry, SubagentInfo } from '@shared/types'
+import { toolDetail } from '@shared/describe'
+import { agentCallsFromTranscript, SUB_DONE_KEEP, subagentStep } from './subagent-log'
 import { findClaude } from './claude-path'
 
 /**
@@ -46,9 +47,10 @@ export async function sessionEntry(sessionId: string): Promise<SessionEntry | nu
   }
 }
 
-/** The end of a transcript as office log entries, plus the model the session last used. */
-export async function transcript(sessionId: string, keep = 80): Promise<{ log: LogEntry[]; model?: string }> {
+/** The end of a transcript as office log entries, plus the model the session last used and its helpers' logs. */
+export async function transcript(sessionId: string, keep = 80): Promise<{ log: LogEntry[]; model?: string; helpers: { info: SubagentInfo; log: LogEntry[] }[] }> {
   const messages = await getSessionMessages(sessionId)
+  const helpers = await subagentLogs(sessionId, messages).catch(() => [])
   const out: LogEntry[] = []
   let model: string | undefined
   let n = 0
@@ -83,7 +85,45 @@ export async function transcript(sessionId: string, keep = 80): Promise<{ log: L
   const tail = out.slice(-keep)
   if (out.length > keep) tail.unshift({ id: `${sessionId}-older`, t: 0, kind: 'system', text: `… ${out.length - keep} mensagens anteriores ocultas` })
   tail.push({ id: `${sessionId}-back`, t: Date.now(), kind: 'system', text: 'Sessão retomada. Mande a próxima instrução.' })
-  return { log: tail, model }
+  return { log: tail, model, helpers }
+}
+
+/**
+ * Resume (AO-46): the subagents of a saved session, each with the end of its own
+ * transcript (<session>/subagents/agent-<id>.jsonl). The parent's Agent calls give the
+ * description and type; a transcript with no call that matches still comes, unnamed.
+ */
+export async function subagentLogs(sessionId: string, parent: SessionMessage[], max = SUB_DONE_KEEP, keep = 200): Promise<{ info: SubagentInfo; log: LogEntry[] }[]> {
+  const calls = agentCallsFromTranscript(parent)
+  const ids = await listSubagents(sessionId)
+  // In the order the parent called them; the unmatched ones go first, as older.
+  const ordered = [...ids.filter((id) => !calls.has(id)), ...[...calls.keys()].filter((id) => ids.includes(id))].slice(-max)
+  return Promise.all(
+    ordered.map(async (id) => {
+      const call = calls.get(id)
+      const messages = await getSubagentMessages(sessionId, id).catch(() => [])
+      let n = 0
+      const log: LogEntry[] = []
+      for (const m of messages) {
+        if (m.type !== 'user' && m.type !== 'assistant') continue
+        const step = subagentStep(m.type, (m.message as { content?: unknown } | null)?.content, () => `${sessionId}-${id}-${n++}`, 0)
+        log.push(...step.entries.filter((e) => e.kind !== 'user' || !isMeta(e.text)))
+      }
+      const tail = log.slice(-keep)
+      if (log.length > keep) tail.unshift({ id: `${sessionId}-${id}-older`, t: 0, kind: 'system', text: `… ${log.length - keep} mensagens anteriores ocultas` })
+      const info: SubagentInfo = {
+        id,
+        description: call?.description ?? 'Ajudante',
+        type: call?.type,
+        startedAt: 0,
+        background: false,
+        status: call?.isError ? 'failed' : 'completed',
+        toolUses: tail.filter((e) => e.kind === 'tool').length,
+      }
+      if (call) info.toolUseId = call.toolUseId
+      return { info, log: tail }
+    }),
+  )
 }
 
 /** Opens a new Terminal window running `claude --resume <id>` in the session's folder (macOS). */

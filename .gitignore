@@ -4,3 +4,20 @@ dist/
 .DS_Store
 *.log
 *.tsbuildinfo
+
+# Rascunhos locais e sobras de build
+/index.html
+/notas.txt
+/quem-sou-eu.txt
+.agent-office/
+.claude/worktrees/
+coverage/
+
+# Certificados de assinatura e segredos: vão nos secrets do GitHub, nunca no repo
+*.p12
+*.pfx
+*.cer
+*.provisionprofile
+.env
+.env.*
+!.env.example

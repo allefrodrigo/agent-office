@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import type { ProjectFloor } from '@shared/types'
 import { box, panel } from './kit'
+import { shared } from './dispose'
 
 /** The office orange, for floors without a brand color. */
 export const DEFAULT_BRAND = '#d97757'
@@ -54,14 +55,17 @@ function fit(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, y:
 
 const patches = new Map<string, THREE.CanvasTexture>()
 
-/** The chest patch of a uniform: the logo on a white badge, one texture per logo. */
+/**
+ * The chest patch of a uniform: the logo on a white badge, one texture per logo,
+ * shared by every avatar wearing it (so disposeTree skips it; releaseLogos frees it).
+ */
 export function patchTexture(logo: string): THREE.CanvasTexture {
   let tex = patches.get(logo)
   if (tex) return tex
   const c = document.createElement('canvas')
   c.width = c.height = 64
   const ctx = c.getContext('2d')!
-  tex = new THREE.CanvasTexture(c)
+  tex = shared(new THREE.CanvasTexture(c))
   tex.colorSpace = THREE.SRGBColorSpace
   const img = logoImage(logo)
   drawWhenReady(img, tex, () => {
@@ -71,6 +75,19 @@ export function patchTexture(logo: string): THREE.CanvasTexture {
   })
   patches.set(logo, tex)
   return tex
+}
+
+/**
+ * Frees the patches and decoded images of logos no floor uses anymore (a logo was
+ * replaced or its floor removed). Call after everyone has been dressed again.
+ */
+export function releaseLogos(inUse: Set<string>): void {
+  for (const [logo, tex] of patches) {
+    if (inUse.has(logo)) continue
+    tex.dispose()
+    patches.delete(logo)
+  }
+  for (const src of images.keys()) if (!inUse.has(src)) images.delete(src)
 }
 
 /** Light text on dark brands, dark text on light ones. */
@@ -117,25 +134,5 @@ export function brandSign(b: Brand, width = 2.6): THREE.Group {
   const h = (width * c.height) / c.width
   box(g, width + 0.08, h + 0.08, 0.04, '#2d3142', 0, -0.04, 0, false)
   panel(g, width, h, tex, 0, h / 2, 0.025)
-  return g
-}
-
-/** A square logo plaque for walls; null when the company has no logo. */
-export function logoPlaque(b: Brand, size = 0.9): THREE.Group | null {
-  if (!b.logo) return null
-  const g = new THREE.Group()
-  const c = document.createElement('canvas')
-  c.width = c.height = 128
-  const ctx = c.getContext('2d')!
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  const img = logoImage(b.logo)
-  drawWhenReady(img, tex, () => {
-    ctx.fillStyle = '#ffffff'
-    ctx.fillRect(0, 0, 128, 128)
-    fit(ctx, img, 12, 12, 104, 104)
-  })
-  box(g, size + 0.1, size + 0.1, 0.04, b.color, 0, -0.05, 0, false)
-  panel(g, size, size, tex, 0, size / 2, 0.025)
   return g
 }

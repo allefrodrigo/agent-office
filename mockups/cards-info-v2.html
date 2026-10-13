@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Cards de info: híbridos A + C + D</title>
+<style>
+:root {
+  --page: #13141f;
+  --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.14);
+  --text: #eceaf6; --muted: #9c9ab5; --dim: #6f6d8a;
+  --accent: #d97757; --green: #3ecf8e; --amber: #f5a524; --red: #ef5b5b;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; -webkit-font-smoothing: antialiased; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+svg.i { width: 14px; height: 14px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+header.top { position: sticky; top: 0; z-index: 10; background: rgba(19,20,31,.92); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  padding: 14px 32px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+header.top h1 { font-size: 16px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.seg button { padding: 6px 12px; color: var(--muted); font-size: 12px; }
+.seg button.on { background: rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+.lbl { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; margin-right: 6px; }
+.tally { margin-left: auto; color: var(--muted); font-size: 12px; }
+main { padding: 28px 32px 80px; max-width: 1500px; margin: 0 auto; }
+.intro { max-width: 800px; color: var(--muted); margin-bottom: 28px; }
+.intro h2 { color: var(--text); font-size: 15px; margin: 0 0 6px; }
+.intro ul { margin: 6px 0 0; padding-left: 18px; }
+.intro b { color: var(--text); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(440px, 1fr)); gap: 28px; }
+.variant { background: #171826; border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.variant.approved { border-color: rgba(62,207,142,.5); box-shadow: 0 0 0 1px rgba(62,207,142,.25); }
+.variant.rejected { opacity: .45; }
+.v-head { display: flex; align-items: baseline; gap: 10px; }
+.v-head h3 { margin: 0; font-size: 14px; }
+.v-tag { font: 600 10.5px var(--mono); color: var(--accent); background: rgba(217,119,87,.12); padding: 2px 6px; border-radius: 5px; }
+.v-tag.rec { color: #8ff0c4; background: rgba(62,207,142,.12); }
+.v-h { margin-left: auto; font: 11px var(--mono); color: var(--dim); }
+.v-desc { color: var(--muted); font-size: 12.5px; margin: 0; }
+.v-desc b { color: var(--text); font-weight: 600; }
+.mix { display: flex; gap: 6px; flex-wrap: wrap; }
+.mix span { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 6px; }
+.mix span b { color: var(--accent); }
+.stage { display: flex; gap: 18px; justify-content: center; align-items: flex-start; flex-wrap: wrap; padding: 22px 16px; border-radius: 12px; min-height: 200px;
+  background-color: #b98a5a;
+  background-image: linear-gradient(45deg, rgba(0,0,0,.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.08) 75%),
+    linear-gradient(45deg, rgba(0,0,0,.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.08) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.col { display: flex; flex-direction: column; gap: 6px; width: 280px; }
+.cap { font-size: 11px; color: rgba(0,0,0,.6); font-weight: 700; }
+.vote { display: flex; gap: 8px; }
+.vote button { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line-strong); font-weight: 600; font-size: 12px; color: var(--muted); }
+.vote button.yes.on { background: rgba(62,207,142,.16); color: #8ff0c4; border-color: rgba(62,207,142,.4); }
+.vote button.no.on { background: rgba(239,91,91,.14); color: #ffb0b0; border-color: rgba(239,91,91,.35); }
+.summary { margin-top: 32px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); }
+.summary textarea { width: 100%; height: 56px; margin-top: 8px; background: #11121c; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px var(--mono); }
+
+/* ---------- card no estilo HUD (C) ---------- */
+.hud { width: 280px; background: rgba(16,17,27,.94); border: 2px solid #2d2f4a; border-radius: 8px; box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.4); position: relative; }
+.hud .pad { padding: 10px 12px 12px; }
+.head { display: flex; align-items: center; gap: 4px; font: 700 11px var(--mono); color: #c9c6e8; letter-spacing: .12em; text-transform: uppercase; }
+.head .sp { flex: 1; }
+.sec { margin-top: 12px; }
+.ibtn { width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 4px; color: var(--muted); }
+.ibtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.stale { font: 600 10px var(--mono); letter-spacing: 0; text-transform: none; color: #ffd38a; background: rgba(245,165,36,.14); padding: 1px 5px; border-radius: 3px; margin-left: 6px; }
+.px { width: 8px; height: 8px; flex: none; display: inline-block; }
+.num { font: 600 11px var(--mono); text-align: right; white-space: nowrap; }
+.num.warn { color: #ffd38a; } .num.full { color: #ff9a9a; } .num.zero { color: var(--dim); font-weight: 400; }
+.blocks { display: flex; gap: 2px; flex: 1; }
+.blocks i { flex: 1; height: 8px; background: rgba(255,255,255,.07); }
+.blocks i.on { background: var(--green); }
+.blocks.warn i.on { background: var(--amber); } .blocks.full i.on { background: var(--red); }
+.ag { font: 600 10px var(--mono); color: #8ff0c4; background: rgba(62,207,142,.14); padding: 0 4px; line-height: 14px; border-radius: 3px; }
+.flag { font: 600 10px var(--mono); padding: 0 4px; line-height: 14px; border-radius: 3px; white-space: nowrap; }
+.flag.full { color: #ffb0b0; background: rgba(239,91,91,.16); } .flag.warn { color: #ffd38a; background: rgba(245,165,36,.16); }
+
+/* LED (C) */
+.led { display: flex; align-items: center; gap: 7px; padding: 4px 8px; background: #0b0c13; border: 1px solid rgba(62,207,142,.15); border-radius: 4px; font: 600 11px var(--mono); color: #8ff0c4; min-width: 0; }
+.led.warn { color: #ffd38a; border-color: rgba(245,165,36,.25); } .led.full { color: #ff9a9a; border-color: rgba(239,91,91,.25); }
+.led .d { width: 6px; height: 6px; background: currentColor; flex: none; }
+.led.full .d, .led.warn .d { animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+.led .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+
+/* tabela (A) */
+table.t { width: 100%; border-collapse: collapse; margin-top: 8px; font-family: var(--mono); }
+.t th { font-size: 10px; color: var(--dim); font-weight: 600; text-align: left; padding: 0 0 4px 8px; letter-spacing: .04em; }
+.t th:first-child { padding-left: 0; }
+.t td { padding: 5px 0 5px 8px; border-top: 1px dashed rgba(255,255,255,.07); vertical-align: middle; }
+.t td:first-child { padding-left: 0; }
+.t .nm { display: flex; align-items: center; gap: 6px; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+.t .cell { display: flex; align-items: center; gap: 5px; }
+.t .cell .blocks { width: 36px; flex: none; }
+.t .cell .blocks i { height: 7px; }
+.t .cell .num { width: 32px; }
+.t small { display: block; font-size: 9.5px; color: var(--dim); white-space: nowrap; margin-top: 1px; }
+.t .zero-cell { color: var(--dim); font-size: 11px; }
+
+/* sistema (A em duas colunas + C) */
+.sys2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.sys2 .k { display: flex; justify-content: space-between; font: 600 11px var(--mono); margin-bottom: 4px; color: var(--muted); }
+.procs { display: flex; justify-content: space-between; margin-top: 8px; font: 10.5px var(--mono); color: var(--dim); }
+.procs b { color: var(--text); font-weight: 600; }
+
+/* fita (D) */
+.strip { display: flex; align-items: center; gap: 6px; padding: 7px 6px 7px 8px; cursor: pointer; }
+.strip:hover { background: rgba(255,255,255,.03); }
+.chips { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.chip { display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,.06); font: 600 11px var(--mono); white-space: nowrap; }
+.chip .px { width: 6px; height: 6px; }
+.chip.warn { color: #ffd38a; } .chip.full { color: #ff9a9a; background: rgba(239,91,91,.14); }
+.chev { transition: transform .2s; color: var(--muted); }
+.open .chev { transform: rotate(180deg); }
+.body { display: none; border-top: 2px solid #2d2f4a; }
+.open .body { display: block; }
+.strip .led { flex: 1; padding: 3px 7px; }
+.strip .mini { display: flex; gap: 6px; font: 600 10.5px var(--mono); color: var(--muted); }
+.strip .mini span { display: inline-flex; gap: 3px; align-items: center; }
+.strip .mini .px { width: 5px; height: 5px; }
+.strip .mini .warn { color: #ffd38a; } .strip .mini .full { color: #ff9a9a; }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Cards de info: híbridos A + C + D</h1>
+  <div><span class="lbl">Cenário</span>
+    <div class="seg" id="scSeg">
+      <button data-v="normal" class="on">Tranquilo</button><button data-v="tight">Apertado</button>
+      <button data-v="trouble">Com problema</button><button data-v="single">Só 1 conta</button>
+    </div>
+  </div>
+  <div class="tally" id="tally"></div>
+</header>
+
+<main>
+  <section class="intro">
+    <h2>O que cada versão pega de cada uma</h2>
+    <ul>
+      <li><b>De A:</b> a tabela, com contas nas linhas, 5h e Fable nas colunas e "↻ 1h12" embaixo de cada barra. Sistema em duas colunas.</li>
+      <li><b>De C:</b> a cara do jogo, com fonte de máquina, barras em blocos, bordas retas e o letreiro LED com o resumo.</li>
+      <li><b>De D:</b> fechado por padrão. O escritório fica livre e você abre só quando quer o detalhe.</li>
+    </ul>
+    <p>Regra comum: <b>o LED sempre diz a coisa mais urgente</b>, na ordem: conta cheia, conta sem login, conta perto do limite, Mac apertado, tudo tranquilo. Quando há problema, o quadradinho do LED pisca.</p>
+  </section>
+  <div class="grid" id="grid"></div>
+  <div class="summary">Suas escolhas (cole de volta para mim):<textarea id="out" readonly></textarea></div>
+</main>
+
+<script>
+const ACC = (name, color, agents, w5, wk, extra = {}) => ({ name, short: name.split(' ')[0], color, agents, w5, wk, ...extra })
+const W = (p, at, left) => ({ p, at, left })
+const SYS_OK = { cpu: 20, ram: 58, used: '9,3 GB', total: '16 GB', app: '705 MB', agentsN: 1, agents: '42 MB' }
+const SC = {
+  normal: { accounts: [
+    ACC('Principal', '#d97757', 0, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+    ACC('QT - Allef', '#5b9cf0', 1, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+    ACC('MKT - Allef', '#3ecf8e', 0, W(8, '19:29', '1h41'), W(0, 'sex 13:00', '4d')),
+  ], sys: SYS_OK },
+  tight: { accounts: [
+    ACC('Principal', '#d97757', 1, W(67, '19:00', '1h12'), W(41, 'amanhã 00:00', '6h12')),
+    ACC('QT - Allef', '#5b9cf0', 3, W(91, '19:00', '1h12'), W(78, 'amanhã 00:00', '6h12')),
+    ACC('MKT - Allef', '#3ecf8e', 0, W(100, '19:29', '1h41'), W(12, 'sex 13:00', '4d'), { out: '19:29' }),
+  ], sys: { cpu: 78, ram: 88, used: '14,1 GB', total: '16 GB', app: '812 MB', agentsN: 4, agents: '2,1 GB' } },
+  trouble: { stale: true, accounts: [
+    ACC('Principal', '#d97757', 0, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+    ACC('QT - Allef', '#5b9cf0', 1, W(15, '19:00', '1h12'), W(0, 'amanhã 00:00', '6h12')),
+    ACC('MKT - Allef', '#3ecf8e', 0, W(0, '', ''), W(0, '', ''), { nologin: true }),
+  ], sys: SYS_OK },
+  single: { accounts: [ACC('Principal', '#d97757', 2, W(34, '19:00', '1h12'), W(9, 'amanhã 00:00', '6h12'))],
+    sys: { cpu: 31, ram: 61, used: '9,8 GB', total: '16 GB', app: '720 MB', agentsN: 2, agents: '380 MB' } },
+}
+let sc = 'normal'
+const S = () => SC[sc]
+const lv = (p) => (p >= 85 ? 'full' : p >= 60 ? 'warn' : 'ok')
+const many = () => S().accounts.length > 1
+
+const P = {
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+}
+const ic = (n, cls = '') => `<svg class="i ${cls}" viewBox="0 0 24 24">${P[n]}</svg>`
+
+// ---------- peças ----------
+/** A coisa mais urgente, na ordem: cheia, sem login, perto do limite, Mac apertado, tranquilo. */
+function summary() {
+  const acc = S().accounts, s = S().sys
+  const out = acc.find((a) => a.out)
+  if (out) return { lv: 'full', text: `${out.short} cheia · volta ${out.out}` }
+  const nolog = acc.find((a) => a.nologin)
+  if (nolog) return { lv: 'warn', text: `${nolog.short} sem login` }
+  const worst = [...acc].sort((a, b) => b.w5.p - a.w5.p)[0]
+  if (lv(worst.w5.p) !== 'ok') return { lv: lv(worst.w5.p), text: `${worst.short} em ${worst.w5.p}% · ↻ ${worst.w5.left}` }
+  if (lv(Math.max(s.cpu, s.ram)) !== 'ok') return { lv: lv(Math.max(s.cpu, s.ram)), text: `Mac apertado · RAM ${s.ram}%` }
+  return { lv: '', text: 'Tudo tranquilo' }
+}
+const led = (sm = summary()) => `<div class="led ${sm.lv}"><span class="d"></span><span class="t">${sm.text}</span></div>`
+const blocks = (p, n = 10) => `<div class="blocks ${lv(p) === 'ok' ? '' : lv(p)}">${Array.from({ length: n }, (_, i) => `<i class="${i < Math.round((p / 100) * n) ? 'on' : ''}"></i>`).join('')}</div>`
+const head = (title, tools = true) => `<div class="head">${title}${S().stale ? '<span class="stale">desatualizado</span>' : ''}<span class="sp"></span>${tools ? `<button class="ibtn" title="Contas">${ic('users')}</button><button class="ibtn" title="Atualizar">${ic('history')}</button>` : ''}</div>`
+const sysWorst = () => Math.max(S().sys.cpu, S().sys.ram)
+
+function table() {
+  const cell = (a, w, is5) => {
+    if (w.p === 0 && !a.out) return `<td><span class="zero-cell">—</span></td>`
+    return `<td><div class="cell">${blocks(w.p, 6)}<span class="num ${lv(w.p) === 'ok' ? '' : lv(w.p)}">${w.p}%</span></div><small>${a.out && is5 ? 'volta ' + a.out : '↻ ' + w.left}</small></td>`
+  }
+  return `<table class="t"><tr><th>${many() ? 'conta' : ''}</th><th>5h</th><th>Fable</th></tr>
+    ${S().accounts.map((a) => `<tr><td><div class="nm"><span class="px" style="background:${a.color}"></span>${a.short}${a.agents ? `<span class="ag" title="${a.agents} agente(s) usando">${a.agents}</span>` : ''}</div></td>
+      ${a.nologin ? `<td colspan="2"><span class="flag warn">sem login</span></td>` : cell(a, a.w5, true) + cell(a, a.wk, false)}</tr>`).join('')}</table>`
+}
+function system(title = true) {
+  const s = S().sys
+  return `${title ? `<div class="sec">${head('Sistema', false)}</div>` : ''}
+    <div class="sys2"><div><div class="k"><span>CPU</span><span class="num ${lv(s.cpu) === 'ok' ? '' : lv(s.cpu)}">${s.cpu}%</span></div>${blocks(s.cpu)}</div>
+    <div><div class="k"><span>RAM</span><span class="num ${lv(s.ram) === 'ok' ? '' : lv(s.ram)}">${s.ram}%</span></div>${blocks(s.ram)}</div></div>
+    <div class="procs"><span>escritório <b>${s.app}</b></span><span>agentes(${s.agentsN}) <b>${s.agents}</b></span></div>`
+}
+const chips = () => S().accounts.map((a) => {
+  const p = a.nologin ? null : a.w5.p
+  return `<span class="chip ${a.nologin ? 'warn' : lv(p) === 'ok' ? '' : lv(p)}" title="${a.name}: 5h ${p ?? '–'}%"><span class="px" style="background:${a.color}"></span>${p === null ? '!' : p + '%'}</span>`
+}).join('') + `<span class="chip ${lv(sysWorst()) === 'ok' ? '' : lv(sysWorst())}" title="CPU ${S().sys.cpu}% · RAM ${S().sys.ram}%">MAC ${sysWorst()}%</span>`
+
+// ---------- variantes ----------
+const V = [
+  {
+    id: 'H1', title: 'Fita que abre em tabela', tag: 'H1 · recomendada', rec: true, split: true,
+    mix: ['D: fechado por padrão', 'C: chips e LED', 'A: tabela + sistema'],
+    desc: '<b>Fechado: uma fita de ~36px com um chip por conta e o chip MAC.</b> Aberto: o LED com o resumo, a tabela em blocos e o sistema. Quem só quer saber se está tudo bem não precisa abrir.',
+    card: (open) => `<div class="hud ${open ? 'open' : ''}">
+      <div class="strip" data-toggle><div class="chips">${chips()}</div>${S().stale ? '<span class="stale" style="margin:0">!</span>' : ''}${ic('chev', 'chev')}</div>
+      <div class="body"><div class="pad">${led()}<div class="sec">${head('Limites do plano')}</div>${table()}${system()}</div></div></div>`,
+  },
+  {
+    id: 'H2', title: 'HUD em tabela', tag: 'H2', split: false,
+    mix: ['C: card HUD sempre aberto', 'A: tabela', 'D: um card só'],
+    desc: '<b>Um card só, sempre aberto, sem nada para clicar.</b> O LED no topo, a tabela embaixo e o sistema no rodapé, separados por linhas. Ocupa ~250px, metade do atual, e mostra tudo de uma vez.',
+    card: () => `<div class="hud"><div class="pad">${head('Escritório')}<div style="margin-top:8px">${led()}</div>${table()}
+      <div style="border-top:2px solid #2d2f4a;margin:10px -12px 0"></div>${system(false)}</div></div>`,
+  },
+  {
+    id: 'H3', title: 'Fita LED', tag: 'H3', split: true,
+    mix: ['C: o LED é a fita', 'D: abre e fecha', 'A: tabela dentro'],
+    desc: '<b>Fechado, a fita é o próprio letreiro</b>, com o resumo em texto e os números pequenos ao lado. Diz o que está acontecendo, não só porcentagens. Aberto, mostra a tabela e o sistema, sem repetir o LED.',
+    card: (open) => {
+      const sm = summary()
+      const mini = S().accounts.map((a) => `<span class="${a.nologin ? 'warn' : lv(a.w5.p) === 'ok' ? '' : lv(a.w5.p)}"><span class="px" style="background:${a.color}"></span>${a.nologin ? '!' : a.w5.p}</span>`).join('')
+      return `<div class="hud ${open ? 'open' : ''}">
+        <div class="strip" data-toggle>${led(sm)}<span class="mini">${mini}</span>${ic('chev', 'chev')}</div>
+        <div class="body"><div class="pad">${head('Limites do plano')}${table()}${system()}</div></div></div>`
+    },
+  },
+]
+
+// ---------- render ----------
+const votes = JSON.parse(localStorage.getItem('cards-votes-v2') || '{}')
+function measure() {
+  document.querySelectorAll('.variant').forEach((v) => {
+    v.querySelector('.v-h').textContent = 'altura ' + [...v.querySelectorAll('.hud')].map((c) => Math.round(c.getBoundingClientRect().height) + 'px').join(' / ')
+  })
+}
+function render() {
+  document.getElementById('grid').innerHTML = V.map((v) => `
+    <article class="variant ${votes[v.id] === 'sim' ? 'approved' : votes[v.id] === 'nao' ? 'rejected' : ''}">
+      <div class="v-head"><span class="v-tag ${v.rec ? 'rec' : ''}">${v.tag}</span><h3>${v.title}</h3><span class="v-h"></span></div>
+      <p class="v-desc">${v.desc}</p>
+      <div class="mix">${v.mix.map((m) => `<span><b>${m.split(':')[0]}</b>${m.slice(m.indexOf(':'))}</span>`).join('')}</div>
+      <div class="stage">${v.split ? `<div class="col"><span class="cap">fechado (padrão)</span>${v.card(false)}</div><div class="col"><span class="cap">aberto</span>${v.card(true)}</div>` : `<div class="col"><span class="cap">sempre aberto</span>${v.card()}</div>`}</div>
+      <div class="vote"><button class="yes ${votes[v.id] === 'sim' ? 'on' : ''}" data-vote="${v.id}:sim">Aprovar</button><button class="no ${votes[v.id] === 'nao' ? 'on' : ''}" data-vote="${v.id}:nao">Rejeitar</button></div>
+    </article>`).join('')
+  measure()
+  const yes = V.filter((v) => votes[v.id] === 'sim').map((v) => v.id), no = V.filter((v) => votes[v.id] === 'nao').map((v) => v.id)
+  document.getElementById('tally').textContent = `${yes.length} aprovada(s) · ${no.length} rejeitada(s)`
+  document.getElementById('out').value = `Aprovadas: ${yes.join(', ') || 'nenhuma'}\nRejeitadas: ${no.join(', ') || 'nenhuma'}`
+}
+document.addEventListener('click', (e) => {
+  const seg = e.target.closest('.seg button')
+  if (seg) { seg.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === seg)); sc = seg.dataset.v; return render() }
+  const vb = e.target.closest('[data-vote]')
+  if (vb) { const [id, val] = vb.dataset.vote.split(':'); votes[id] = votes[id] === val ? undefined : val; localStorage.setItem('cards-votes-v2', JSON.stringify(votes)); return render() }
+  const tg = e.target.closest('[data-toggle]')
+  if (tg) { tg.closest('.hud').classList.toggle('open'); measure() }
+})
+render()
+</script>
+</body>
+</html>

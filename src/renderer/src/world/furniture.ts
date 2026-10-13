@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { blob, box, cylinder, mat, panel } from './kit'
+import { animated } from './merge'
 import { artTexture, booksTexture, canvas, pixelTexture, whiteboardTexture, type WindowSky } from './textures'
 
 // Every factory builds its piece centered on the origin, standing on y = 0,
@@ -291,14 +292,14 @@ export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh
   box(g, 1.7, 2.3, 0.08, '#8e96a8', 0, 0, 0, false)
   box(g, 1.5, 2.1, 0.02, '#2d3142', 0, 0, 0.04, false)
   const doorMat = new THREE.MeshLambertMaterial({ color: '#c9d1de' })
-  const left = box(g, 0.7, 2.06, 0.04, doorMat, -0.36, 0.01, 0.06, false)
-  const right = box(g, 0.7, 2.06, 0.04, doorMat, 0.36, 0.01, 0.06, false)
+  const left = animated(box(g, 0.7, 2.06, 0.04, doorMat, -0.36, 0.01, 0.06, false))
+  const right = animated(box(g, 0.7, 2.06, 0.04, doorMat, 0.36, 0.01, 0.06, false))
   box(g, 0.02, 2.06, 0.05, '#9aa3b5', 0, 0.01, 0.07, false)
   box(g, 0.5, 0.16, 0.04, '#2d3142', 0, 2.36, 0.02, false)
   const light = box(g, 0.08, 0.08, 0.02, new THREE.MeshBasicMaterial({ color: '#55efc4' }), 0, 2.4, 0.05, false)
   box(g, 0.12, 0.22, 0.04, '#2d3142', 1.0, 1.0, 0.04, false)
   // call buttons: T on top, then one per floor above it
-  const buttons = [box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false), box(g, 0.05, 0.05, 0.02, '#55efc4', 1.0, 1.04, 0.07, false)]
+  const buttons = [box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false), box(g, 0.05, 0.05, 0.02, '#55efc4', 1.0, 1.04, 0.07, false)].map(animated)
   return { group: g, doors: [left, right], light, buttons }
 }
 
@@ -320,7 +321,8 @@ export interface MonitorTv {
 
 /** Big pixel-art monitor on a low console: chunky bezel, neck, foot and a power LED. Claude FM plays on it. */
 export function monitorTv(): MonitorTv {
-  const g = new THREE.Group()
+  // clicked (raycast on its group) and its LED swaps material: kept out of the merge
+  const g = animated(new THREE.Group())
   const w = 2.0
   const h = w * (9 / 16)
   const cy = 1.48 // screen center height: the bezel clears the neck
@@ -458,4 +460,89 @@ export function shadeHex(hex: string, amt: number): string {
   const n = parseInt(hex.slice(1), 16)
   const c = (v: number) => Math.max(0, Math.min(255, v + amt)).toString(16).padStart(2, '0')
   return `#${c((n >> 16) & 255)}${c((n >> 8) & 255)}${c(n & 255)}`
+}
+
+// ---------- café ----------
+
+/** Kitchen counter `len` tiles long, front facing +z, with a sink near one end. */
+export function kitchenCounter(len: number): THREE.Group {
+  const g = new THREE.Group()
+  const d = 0.62
+  box(g, len - 0.04, 0.86, d, '#f2efe8', 0, 0, 0)
+  box(g, len, 0.05, d + 0.04, '#5b6074', 0, 0.86, 0.01)
+  for (let i = 0; i < len; i++) {
+    const x = -len / 2 + i + 0.5
+    box(g, 0.9, 0.7, 0.01, '#e4dfd4', x, 0.08, d / 2 + 0.005, false)
+    box(g, 0.18, 0.025, 0.02, '#8d93a3', x, 0.68, d / 2 + 0.015, false)
+  }
+  box(g, 0.5, 0.02, 0.36, '#9aa3b5', len / 2 - 0.7, 0.9, 0, false)
+  box(g, 0.03, 0.22, 0.03, '#c9ced8', len / 2 - 0.7, 0.9, -0.18, false)
+  box(g, 0.03, 0.03, 0.14, '#c9ced8', len / 2 - 0.7, 1.1, -0.12, false)
+  return g
+}
+
+/** Upper cabinets for a wall, `len` tiles long, hung at the given height. */
+export function wallCabinets(len: number, y = 1.55): THREE.Group {
+  const g = new THREE.Group()
+  box(g, len - 0.04, 0.6, 0.34, '#f2efe8', 0, y, 0)
+  for (let i = 0; i < len; i++) box(g, 0.16, 0.02, 0.02, '#8d93a3', -len / 2 + i + 0.5, y + 0.08, 0.18, false)
+  return g
+}
+
+export function coffeeMachine(): THREE.Group {
+  const g = new THREE.Group()
+  box(g, 0.32, 0.42, 0.3, '#2d3436', 0, 0, 0)
+  box(g, 0.26, 0.08, 0.04, '#636e72', 0, 0.3, 0.15, false)
+  box(g, 0.06, 0.03, 0.03, '#55efc4', 0.09, 0.36, 0.16, false)
+  box(g, 0.12, 0.02, 0.12, '#636e72', 0, 0.04, 0.1, false)
+  cylinder(g, 0.04, 0.035, 0.08, '#ffffff', 0, 0.06, 0.1, 8)
+  return g
+}
+
+export function microwave(): THREE.Group {
+  const g = new THREE.Group()
+  box(g, 0.46, 0.28, 0.32, '#dfe6e9', 0, 0, 0)
+  box(g, 0.3, 0.2, 0.01, '#2d3436', -0.06, 0.04, 0.16, false)
+  box(g, 0.08, 0.2, 0.01, '#b2bec3', 0.17, 0.04, 0.16, false)
+  return g
+}
+
+export function fridge(): THREE.Group {
+  const g = new THREE.Group()
+  box(g, 0.72, 1.85, 0.66, '#e9edf2', 0, 0, 0)
+  box(g, 0.7, 0.02, 0.01, '#b2bec3', 0, 1.2, 0.335, false)
+  box(g, 0.04, 0.4, 0.04, '#b2bec3', -0.26, 1.35, 0.34, false)
+  box(g, 0.04, 0.5, 0.04, '#b2bec3', -0.26, 0.55, 0.34, false)
+  // a couple of magnets and a note
+  box(g, 0.12, 0.14, 0.01, '#fdcb6e', 0.12, 1.5, 0.335, false)
+  box(g, 0.05, 0.05, 0.012, '#e17055', 0.2, 0.9, 0.336, false)
+  return g
+}
+
+/** Tall round table for standing or the bar stools. */
+export function barTable(): THREE.Group {
+  const g = new THREE.Group()
+  cylinder(g, 0.22, 0.26, 0.04, DARK, 0, 0, 0, 12)
+  cylinder(g, 0.04, 0.04, 1.0, '#55596b', 0, 0.04, 0, 8)
+  cylinder(g, 0.42, 0.42, 0.05, WOOD, 0, 1.04, 0, 16)
+  cylinder(g, 0.05, 0.04, 0.09, '#ffffff', 0.12, 1.09, 0.08, 8)
+  return g
+}
+
+export function stool(color: string): THREE.Group {
+  const g = new THREE.Group()
+  cylinder(g, 0.15, 0.17, 0.03, DARK, 0, 0, 0, 10)
+  cylinder(g, 0.03, 0.03, 0.66, '#55596b', 0, 0.03, 0, 8)
+  cylinder(g, 0.12, 0.12, 0.02, '#55596b', 0, 0.32, 0, 10)
+  cylinder(g, 0.18, 0.17, 0.07, color, 0, 0.69, 0, 12)
+  return g
+}
+
+/** Low round table for the café, `r` its radius. */
+export function roundTable(r = 0.5): THREE.Group {
+  const g = new THREE.Group()
+  cylinder(g, 0.24, 0.28, 0.04, DARK, 0, 0, 0, 12)
+  cylinder(g, 0.05, 0.05, 0.68, '#55596b', 0, 0.04, 0, 8)
+  cylinder(g, r, r, 0.05, '#f2efe8', 0, 0.72, 0, 18)
+  return g
 }

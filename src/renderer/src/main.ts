@@ -1,19 +1,46 @@
-import './styles.css'
+import './styles/index.css'
 import { Game } from './game'
+import { bindPerfKeys, perf } from './perf'
 import { State } from './state'
 import { Board } from './ui/board'
 import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
-import type { ProjectFloor } from '@shared/types'
+import type { DataNotice, ProjectFloor } from '@shared/types'
+import { DEFAULT_VIDEO, effectiveVideo, frameInterval } from '@shared/video'
 import { openAccounts } from './ui/accounts'
-import { confirmDialog, openHire, openNewFloor, openResume, openRunSquad, openSettings, openSummon } from './ui/modals'
+import { openSkull } from './ui/skull'
+import { openReports } from './ui/reports'
+import { copyReport, exportConversation } from './ui/export'
+import { showDataNotice } from './ui/data'
+import { mountUpdateNotice } from './ui/updates'
+import { announce, isTyping, mountLiveRegions } from './ui/a11y'
+import { openShortcuts } from './ui/shortcuts'
+import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
+
+// Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
+window.addEventListener('error', (e) => {
+  window.office.reportError({
+    kind: 'error',
+    message: String(e.message || e.error?.message || 'erro sem mensagem'),
+    source: e.filename ? `${e.filename}:${e.lineno}:${e.colno}` : undefined,
+    stack: e.error instanceof Error ? e.error.stack : undefined,
+  })
+})
+window.addEventListener('unhandledrejection', (e) => {
+  const r = e.reason
+  window.office.reportError({ kind: 'rejection', message: r instanceof Error ? r.message : String(r), stack: r instanceof Error ? r.stack : undefined })
+})
 
 async function boot(): Promise<void> {
-  const state = new State(await window.office.getState())
+  const initial = await window.office.getState()
+  const initialNotices = initial.dataNotices ?? []
+  const state = new State(initial)
   const ui = document.getElementById('ui')!
   document.body.classList.add(`platform-${state.platform}`)
+  // Empty from the start, so screen readers read what goes in later (AO-38).
+  mountLiveRegions(document.body)
 
   // Cards the player closed with "later" stay closed until they walk away and back.
   const dismissed = new Set<string>()
@@ -34,22 +61,59 @@ async function boot(): Promise<void> {
     })
     if (!yes || !state.agents.has(id)) return false
     game.ghostOut(id)
+    return endTerminal(id, a.name)
+  }
+
+  /** Stops the claude process behind a terminal agent, no questions. Returns true if it closed. */
+  const endTerminal = async (id: string, name: string): Promise<boolean> => {
     const r = await window.office.closeTerminal(id)
-    if (r.ok) toast(`A sessão de ${a.name} foi encerrada.`, 'err')
+    if (r.ok) toast(`A sessão de ${name} foi encerrada.`, 'err')
     else toast(r.message ?? 'Não consegui fechar a sessão.', 'err')
     return r.ok
   }
 
   /**
-   * Pick a folder (and how free the agent is) and an agent shows up there, waiting for
-   * your first message. On a project floor the folder is the project's.
+   * Picked at the skull (already confirmed): the camera goes to the agent, the skull
+   * strikes, and then its session ends. If that fails, the agent gets back up.
    */
-  const summon = async () => {
+  const dismiss = async (id: string) => {
+    const a = state.agents.get(id)
+    if (!a) return
+    // An agent in a worktree asks first whether its copy stays or goes.
+    if (a.source === 'office' && (await window.office.prepareFire(id).catch(() => 'cancelled')) === 'cancelled') return
+    dialog.close()
+    panel.close()
+    const started = game.dismiss(id, () => {
+      // it may have left on its own during the animation
+      if (!state.agents.has(id)) return
+      if (a.source === 'terminal') {
+        void endTerminal(id, a.name).then((closed) => {
+          if (!closed) game.revive(id)
+        })
+        return
+      }
+      window.office
+        .fire(id)
+        .then((note) => toast(`${a.name} saiu do escritório. A sessão foi encerrada.${note ? ` ${note}` : ''}`, 'err'))
+        .catch((err) => {
+          toast(cleanError(err), 'err')
+          game.revive(id)
+        })
+    })
+    if (!started) toast(`${a.name} já está de saída.`)
+  }
+
+  /**
+   * "Novo agente". Conversar: pick a folder (and how free the agent is) and an agent shows
+   * up there, waiting for your first message. Com tarefa and Squad finish inside the
+   * dialog. On a project floor the folder is the project's.
+   */
+  const newAgent = async (tab?: 'summon') => {
     const project = game.currentProject
-    const choice = await openSummon(ui, state, project, () => hire())
-    if (!choice) return
+    const choice = await openNewAgent(ui, state, project, { toast, tab, hireSquad: project ? () => hireSquad(project) : undefined })
+    if (choice?.kind !== 'summon') return
     try {
-      const a = await window.office.summon(choice.cwd, choice.permissionMode, choice.brain)
+      const a = await window.office.summon(choice.cwd, choice.permissionMode, choice.brain, choice.worktree)
       const floor = state.settings.projects.find((p) => p.id === a.project)
       toast(floor && floor !== project ? `${a.name} está subindo para o andar ${floor.name}. Diga o que fazer.` : `${a.name} chegou. Diga o que fazer.`, 'ok')
       panel.open(a.id).then(() => panel.focusInput())
@@ -70,12 +134,6 @@ async function boot(): Promise<void> {
       game.focusAgent(a.id)
     })
 
-  /** The full form: name, task, model. On a project floor the folder is the project's. */
-  const hire = () => {
-    const project = game.currentProject
-    openHire(ui, state, toast, project, project ? () => hireSquad(project) : undefined)
-  }
-
   /** A project folder becomes a floor; the player rides up to it. */
   const newFloor = async () => {
     const floor = await openNewFloor(ui, state, toast)
@@ -88,10 +146,10 @@ async function boot(): Promise<void> {
   const radio = new Radio(document.getElementById('overlay')!)
 
   const game = new Game(document.getElementById('world')!, document.getElementById('overlay')!, state, {
-    onAgentClick: (id) => {
+    onAgentClick: (id, helper) => {
       const items = state.itemsFor(id)
-      if (items.permissions.length || items.results.length) openItem(id)
-      panel.open(id)
+      if (!helper && (items.permissions.length || items.results.length)) openItem(id)
+      panel.open(id, helper ?? null)
     },
     onNear: (id) => {
       if (nearId && nearId !== id) {
@@ -104,29 +162,11 @@ async function boot(): Promise<void> {
       const first = items.permissions[0] ?? items.results[0]
       if (first && !dismissed.has(first.id)) openItem(id, first.id)
     },
-    onGun: (armed) => {
-      hud.setArmed(armed)
-      if (armed) {
-        dialog.close()
-        panel.close()
-      }
-    },
-    onKill: (id) => {
-      const name = state.agents.get(id)?.name ?? 'O agente'
-      window.office
-        .fire(id)
-        .then(() => toast(`${name} levou o terceiro tiro e saiu do escritório. A sessão foi encerrada.`, 'err'))
-        .catch((err) => toast(String(err), 'err'))
-    },
-    onComputer: () => void summon(),
+    onSkull: () => openSkull(ui, state, dismiss),
+    onComputer: () => void newAgent('summon'),
     onRunSquad: (project) => hireSquad(project),
     onFloor: (n) => hud.setFloors(game.floors, n),
     onTv: () => void radio.toggle(),
-    onKnockout: (id) => {
-      closeTerminal(id).then((closed) => {
-        if (!closed) game.revive(id)
-      })
-    },
   })
 
   const hud = new Hud(ui, state, {
@@ -136,16 +176,14 @@ async function boot(): Promise<void> {
     },
     focusAgent: (id) => game.focusAgent(id),
     openItem: (agentId, itemId) => openItem(agentId, itemId),
-    hire: () => hire(),
-    settings: () => openSettings(ui, state, toast),
+    settings: (section) => openSettings(ui, state, toast, { section }),
     goHome: () => game.goHome(),
-    bridge: () => openSettings(ui, state, toast),
     zoom: (d) => game.zoom(d),
-    dropGun: () => game.dropGun(),
-    summon: () => void summon(),
+    newAgent: () => void newAgent(),
     goFloor: (n) => game.goFloor(n),
     newFloor: () => void newFloor(),
     accounts: () => openAccounts(ui, state, toast),
+    reports: () => openReports(ui, state, { project: game.currentProject, toast }),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -167,6 +205,9 @@ async function boot(): Promise<void> {
     closeTerminal: (id) => void closeTerminal(id),
     openItem: (agentId, itemId) => openItem(agentId, itemId),
     toast,
+    exportConversation: (id) => void exportConversation(state, id, toast),
+    copyReport: (id) => void copyReport(state, id, toast),
+    focusCard: () => dialog.focus(),
   })
 
   const dialog = new Dialog(ui, state, {
@@ -174,9 +215,11 @@ async function boot(): Promise<void> {
       panel.open(id).then(() => panel.focusInput())
     },
     toast,
+    exportConversation: (id) => void exportConversation(state, id, toast),
   })
 
   const board = new Board(ui, state, {
+    currentProject: () => game.currentProject,
     openAgent: (id) => {
       panel.open(id)
       game.focusAgent(id)
@@ -184,12 +227,30 @@ async function boot(): Promise<void> {
     toast,
   })
 
-  // T opens the board, like a shortcut in any kanban.
+  // T opens the board, like a shortcut in any kanban; N opens "Novo agente"; R the reports; I the inbox.
   window.addEventListener('keydown', (e) => {
     const a = document.activeElement
     if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
+    if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
+    if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
+    if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
+      e.preventDefault()
+      void newAgent()
+    }
   })
+
+  // ? lists every shortcut. Capture phase: it works over the board and windows too, which stop the keys they use.
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping()) return
+      e.preventDefault()
+      e.stopPropagation()
+      openShortcuts(ui, state.platform)
+    },
+    true,
+  )
 
   // Remember which card the player closed without deciding.
   const closeDialog = dialog.close.bind(dialog)
@@ -199,9 +260,29 @@ async function boot(): Promise<void> {
   }
 
   hud.setFloors(game.floors, game.currentFloor)
+  mountUpdateNotice(ui)
+
+  // Configurações → Vídeo (AO-32): shadows and effects apply live; on battery, Economia if asked.
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)')
+  let video = effectiveVideo(state.settings.video ?? DEFAULT_VIDEO, state.onBattery)
+  let videoKey = ''
+  const applyVideo = () => {
+    const was = video.saving
+    video = effectiveVideo(state.settings.video ?? DEFAULT_VIDEO, state.onBattery)
+    const reduced = video.effects === 'reduced' || reduceMotion.matches
+    const key = JSON.stringify([video, reduced])
+    if (key === videoKey) return
+    if (videoKey && video.saving !== was) toast(video.saving ? 'Na bateria: o escritório entrou no modo Economia.' : 'Na tomada: a qualidade gráfica voltou ao normal.')
+    videoKey = key
+    game.engine.setShadows(video.shadows, video.shadowMapSize)
+    game.setReducedEffects(reduced)
+  }
+  applyVideo()
+  reduceMotion.addEventListener('change', applyVideo)
 
   let pixelSize = state.settings.pixelSize
   state.onChange(() => {
+    applyVideo()
     game.setProjects(state.settings.projects, state.squads)
     hud.render()
     panel.render()
@@ -213,16 +294,33 @@ async function boot(): Promise<void> {
     }
   })
 
+  // Data files found corrupt (AO-24): one warning each, now and when the archive loads later.
+  const noticed = new Set<string>()
+  const notice = (n: DataNotice) => {
+    if (noticed.has(n.id)) return
+    noticed.add(n.id)
+    showDataNotice(ui, n)
+  }
+  for (const n of initialNotices) notice(n)
+
   window.office.onEvent((e) => {
+    if (e.type === 'data:notice') return notice(e.notice)
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
-    // Every 3 s: redraw only its card, not the whole HUD.
+    // Clique na notificação do sistema: o cartão abre na hora, sem esperar a caminhada.
+    if (e.type === 'notice:open') {
+      dismissed.delete(e.itemId)
+      if (dialog.itemId !== e.itemId) openItem(e.agentId, e.itemId)
+      return game.focusAgent(e.agentId)
+    }
+    // Every 3 s: redraw only the info card (it also ticks the reset countdowns), not the whole HUD.
     if (e.type === 'system') {
       state.system = e.system
-      return hud.renderSystem()
+      return hud.renderInfo()
     }
     const before = e.type === 'ticket:upsert' ? state.tickets.get(e.ticket.id) : undefined
     state.apply(e)
+    if (e.type === 'result:changes') dialog.syncChanges(e.resultId)
     if (e.type === 'ticket:upsert' && e.ticket.status !== before?.status) {
       const by = e.ticket.activity.at(-1)?.actor
       if (e.ticket.status === 'review' && by?.kind === 'agent') toast(`${by.name} entregou o ${e.ticket.key}. Está esperando sua revisão no quadro.`, 'ok')
@@ -231,27 +329,79 @@ async function boot(): Promise<void> {
     if (e.type === 'permission:new') {
       const a = state.agents.get(e.request.agentId)
       if (a) toast(`${a.name} está indo até a sua sala.`, 'info')
+      // Interrupts the screen reader: the agent is stopped until the player decides.
+      if (a) {
+        const r = e.request
+        const what = r.kind === 'question' ? 'tem uma pergunta' : r.kind === 'plan' ? 'trouxe um plano' : 'pede sua permissão'
+        const detail = r.kind === 'tool' && r.detail ? ` ${r.detail.split('\n')[0].slice(0, 100)}.` : ''
+        const how = r.kind === 'question' ? 'Abra o cartão para responder.' : `Enter no cartão permite, ${state.platform === 'darwin' ? 'Command' : 'Control'} Backspace nega. I abre a caixa de entrada.`
+        announce(`${a.name} ${what}: ${r.title.replace(/[.?!:]*$/, '')}.${detail} ${how}`, 'assertive')
+      }
     } else if (e.type === 'result:new') {
       const a = state.agents.get(e.result.agentId)
       if (a) toast(e.result.isError ? `${a.name} teve um problema.` : `${a.name} terminou e vai te entregar o resultado.`, e.result.isError ? 'err' : 'ok')
     }
   })
 
-  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, { __game: game, __state: state, __panel: panel, __dialog: dialog, __board: board })
+  // F3 (or ?perf) shows fps, draw calls and GPU memory; the bench reads the same numbers.
+  bindPerfKeys()
+  perf.source('overlays', () => game.overlays.count)
+  perf.source('agentes', () => state.agents.size)
 
-  // Full frame rate while the window has focus; ~20 fps in the background to save battery.
-  let last = performance.now()
+  // AO-29: draw only when it shows. Something moving: up to the fps limit; a still office: a slow
+  // tick (IDLE_FPS); another app in front: BLUR_FPS; window hidden or minimized: no drawing at all,
+  // while a timer keeps the agents walking so they are where they should be on return.
+  // Screenshot and bench runs never show their window, so they count as visible and focused.
+  const headless = new URLSearchParams(location.search).has('shots')
+  // `hidden` lets a headless run act as minimized (AGENT_OFFICE_EVAL="__loop.hidden = true")
+  const loop = { hidden: false, draws: 0 }
+  const hidden = () => loop.hidden || (!headless && document.visibilityState === 'hidden')
+  let stepped = performance.now()
+  let drawnAt = 0
+  /** Moves the world to `now` in steps of at most 50 ms; long gaps (hidden for minutes) are cut at `capS`. */
+  const advance = (now: number, capS: number): number => {
+    const dt = Math.min(capS, Math.max(0, (now - stepped) / 1000))
+    stepped = now
+    for (let left = dt; left > 1e-6; left -= 0.05) game.update(Math.min(0.05, left))
+    return dt
+  }
   const frame = (now: number) => {
     requestAnimationFrame(frame)
-    if (!document.hasFocus() && now - last < 50) return
-    const dt = Math.min(0.05, (now - last) / 1000)
-    last = now
-    game.update(dt)
+    if (hidden()) return
+    const wait = frameInterval({ fpsLimit: video.fpsLimit, busy: game.busy, focused: headless || document.hasFocus(), fullSpeed: perf.recording })
+    // 2 ms of slack: animation frames land a little early or late
+    if (now - drawnAt < wait - 2) return
+    drawnAt = now
+    perf.begin()
+    // the slow tick moves the world by its whole gap; a frame stalled longer moves it by 100 ms at most
+    const dt = advance(now, 0.1)
     radio.update()
+    game.draw(dt)
+    loop.draws++
+    perf.frame(game.engine.renderer, dt)
   }
   requestAnimationFrame(frame)
+  setInterval(() => {
+    if (hidden()) advance(performance.now(), 30)
+  }, 250)
+  document.addEventListener('visibilitychange', () => {
+    if (!hidden()) game.wake()
+  })
+
+  if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, {
+      __game: game,
+      __state: state,
+      __perf: perf,
+      __loop: loop,
+      __panel: panel,
+      __dialog: dialog,
+      __board: board,
+      // AO-28: floors, agents and the skull in a loop, reading GPU memory (dev and headless runs only)
+      __leakTest: async () => (await import('./dev/leak-test')).leakTest(game, state),
+    })
 }
 
 boot().catch((err) => {
+  window.office.reportError({ kind: 'error', message: `Falha ao iniciar: ${err instanceof Error ? err.message : String(err)}`, stack: err instanceof Error ? err.stack : undefined })
   document.body.textContent = `Falha ao iniciar: ${err instanceof Error ? err.message : String(err)}`
 })

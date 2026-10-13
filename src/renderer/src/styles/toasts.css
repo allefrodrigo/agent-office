@@ -1,0 +1,59 @@
+/* ---------- toasts ---------- */
+
+.toasts {
+  position: fixed;
+  left: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none !important;
+  z-index: 60;
+}
+
+.toast {
+  max-width: 340px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--card-solid);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow);
+  font-weight: 500;
+  animation: rise-toast 0.2s ease-out;
+  transition: opacity 0.4s, transform 0.4s;
+}
+
+.toast-ok {
+  border-left: 3px solid var(--green);
+}
+
+.toast-err {
+  border-left: 3px solid var(--red);
+}
+
+.toast-info {
+  border-left: 3px solid var(--amber);
+}
+
+.toast.out {
+  opacity: 0;
+  transform: translateX(-10px);
+}
+
+@keyframes rise-toast {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
