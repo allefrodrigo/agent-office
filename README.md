@@ -272,17 +272,18 @@ O pacote não embute o Claude Code (são ~220 MB). Ele procura o `claude` nesta 
 **Toda versão nova vira release sozinha.** Suba a versão no `package.json`, leve para a `main`, e o GitHub Actions gera e publica o `.dmg` (Apple Silicon e Intel), o `.exe` e o `.AppImage` nas [Releases](https://github.com/allefrodrigo/agent-office/releases/latest).
 
 ```bash
-npm version patch -m "Versão %s"   # 0.3.5 -> 0.3.6, cria o commit
-git push                           # na main: o release começa
+npm version patch --no-git-tag-version   # 0.3.5 -> 0.3.6
+# abra a PR, aprove e faça o merge: o build começa e espera você aprovar a publicação
 ```
 
 Como funciona (`.github/workflows/release.yml`):
 
-1. Um push na `main` que muda o `package.json` dispara o workflow. Uma tag `v*` ou o botão "Run workflow" também.
-2. Se a versão já tem release publicada, ele para ali. Pushes sem mudança de versão não geram nada.
-3. Cria a release como rascunho, builda Mac, Windows e Linux em paralelo e sobe os arquivos com os `latest*.yml` que o auto-update lê.
-4. Publica quando os builds terminam. O app nunca vê uma release pela metade. Se o Linux falhar, a release sai com Mac e Windows.
-5. Versão com sufixo (`0.4.0-beta.1`) sai como pre-release: só o canal Beta recebe.
+1. Um push na `main` que muda o `package.json` dispara o workflow. O botão "Run workflow" também.
+2. Se a versão já tem release, ele para ali. Pushes sem mudança de versão não geram nada.
+3. Builda Mac, Windows e Linux em paralelo, com os `latest*.yml` que o auto-update lê. Os arquivos ficam guardados no próprio run, fora das Releases.
+4. Espera a aprovação de quem revisa o ambiente `release` (Actions → o run → **Review deployments**). O ambiente só aceita runs da `main`.
+5. Cria e publica a release de uma vez, com os arquivos daquele run. Se o Linux falhar, a release sai com Mac e Windows.
+6. Versão com sufixo (`0.4.0-beta.1`) sai como pre-release: só o canal Beta recebe.
 
 O CI (`.github/workflows/ci.yml`) roda `typecheck`, `lint`, `test` e `build` no macOS e no Windows em todo PR e push na `main`.
 
