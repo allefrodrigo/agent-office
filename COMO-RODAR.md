@@ -4,16 +4,20 @@ Passo a passo para abrir o escritório, usar e gerar o app instalável.
 
 ## 1. Pré-requisitos
 
-- macOS com Apple Silicon (M1 ou mais novo) ou Windows 10/11.
+- macOS (Apple Silicon ou Intel), Windows 10/11 ou Linux x64.
 - Node.js 20 ou mais novo. Confira com `node -v`.
 - Claude Code instalado e logado. Confira com `claude --version`.
 
 Se ainda não tem o Claude Code:
 
 ```bash
-curl -fsSL https://claude.ai/install.sh | bash
+curl -fsSL https://claude.ai/install.sh | bash   # macOS e Linux
 claude   # rode uma vez para fazer login
 ```
+
+No Windows (PowerShell): `irm https://claude.ai/install.ps1 | iex`.
+
+Só quer usar, sem mexer no código? Baixe o instalador nas [Releases](https://github.com/allefrodrigo/agent-office/releases/latest) e pule para o passo 4.
 
 ## 2. Instalar
 
@@ -127,7 +131,7 @@ Se a sessão não fechar, o agente levanta e um aviso explica o erro. O painel d
 npm run dist:mac
 ```
 
-O instalador sai em `dist/Agent Office-<versão>-arm64.dmg`. Abra o `.dmg` e arraste o app para **Aplicativos**.
+O instalador sai em `dist/Agent-Office-<versão>-arm64.dmg`. Abra o `.dmg` e arraste o app para **Aplicativos**.
 
 O build não tem assinatura da Apple. Em outro Mac, a primeira abertura é bloqueada: clique com o botão direito no app e escolha **Abrir**.
 
@@ -140,6 +144,16 @@ npm run dist:win
 ```
 
 O instalador sai em `dist/`.
+
+### Linux
+
+Rode no próprio Linux:
+
+```bash
+npm run dist:linux
+```
+
+O AppImage sai em `dist/`. Dê permissão de execução (`chmod +x`) e rode.
 
 ## 6. Problemas comuns
 
@@ -155,6 +169,7 @@ Pasta de dados do app:
 
 - Mac: `~/Library/Application Support/agent-office/`
 - Windows: `%APPDATA%\agent-office\`
+- Linux: `~/.config/agent-office/`
 
 ## 7. Para desenvolver
 

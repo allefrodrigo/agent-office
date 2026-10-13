@@ -1,8 +1,12 @@
-# Tag v* (e.g. v0.3.4, or v0.4.0-beta.1 for the beta channel) builds the installers
-# and publishes them in a GitHub release, with the latest*.yml files the auto-update reads.
+# Every new version in package.json on main publishes a release by itself: bump the
+# version, merge, and the installers (.dmg, .exe, .AppImage) show up in GitHub Releases
+# with the latest*.yml files the auto-update reads. A tag v* (e.g. v0.4.0-beta.1 for the
+# beta channel) or "Run workflow" does the same.
 #
-# Order: a draft release first, then the Mac and Windows builds upload into it, then the
-# draft goes public. The app only ever sees a release with every file in it.
+# Order: a draft release first, then the Mac, Windows and Linux builds upload into it, then
+# the draft goes public. The app only ever sees a release with every file in it. A version
+# that already has a published release is skipped, so pushes that don't bump it cost nothing.
+# Linux is best effort: if it fails, the release still goes out with Mac and Windows.
 #
 # Secrets (Settings → Secrets and variables → Actions). All optional: without them the
 # Mac build falls back to ad-hoc signing and Windows ships unsigned.
@@ -13,46 +17,69 @@ name: Release
 
 on:
   push:
+    branches: [main]
+    paths: [package.json]
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+# One release at a time: a version bump pushed with its tag starts two runs, the second skips.
 concurrency:
-  group: release-${{ github.ref }}
-
-env:
-  TAG: ${{ github.ref_name }}
+  group: release
 
 jobs:
   draft:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      skip: ${{ steps.version.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
-      - name: Tag must match package.json
-        run: |
-          version="v$(node -p "require('./package.json').version")"
-          if [ "$version" != "$TAG" ]; then
-            echo "::error::A tag $TAG não bate com a versão do package.json ($version)."
-            exit 1
-          fi
-      - name: Create the draft release
+      - name: Version to release
+        id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --generate-notes --verify-tag
+          tag="v$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "$tag" ]; then
+            echo "::error::A tag $GITHUB_REF_NAME não bate com a versão do package.json ($tag)."
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          draft=$(gh release view "$tag" --json isDraft -q .isDraft 2>/dev/null || echo none)
+          if [ "$draft" = false ]; then
+            echo "::notice::$tag já está publicada; nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Create the draft release
+        if: steps.version.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "$TAG" --generate-notes --target "$GITHUB_SHA"
 
   build:
     needs: draft
+    if: needs.draft.outputs.skip == 'false'
     name: build (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: macos-latest
             dist: dist:mac
           - os: windows-latest
             dist: dist:win
+          - os: ubuntu-latest
+            dist: dist:linux
+            optional: true
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.optional == true }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -75,13 +102,14 @@ jobs:
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
 
   publish:
-    needs: build
+    needs: [draft, build]
     runs-on: ubuntu-latest
     steps:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.draft.outputs.tag }}
         run: |
           # A tag with a suffix (v0.4.0-beta.1) is a pre-release: only the beta channel takes it.
           if [[ "$TAG" == *-* ]]; then pre=--prerelease; else pre=--latest; fi

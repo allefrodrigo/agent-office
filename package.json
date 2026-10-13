@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "private": true,
   "description": "Escritório isométrico onde agentes do Claude Code trabalham, pedem permissão e entregam resultados.",
   "main": "./out/main/index.js",
@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc -p tsconfig.test.json",
     "dist:mac": "electron-vite build && node scripts/dist-mac.mjs",
     "dist:win": "electron-vite build && electron-builder --win",
+    "dist:linux": "electron-vite build && electron-builder --linux",
     "demo": "AGENT_OFFICE_DEMO=1 electron-vite dev",
     "bench": "electron-vite build && node scripts/bench.mjs",
     "icon": "node scripts/make-icon.mjs",

@@ -64,6 +64,12 @@ win:
     - target: nsis
       arch: [x64]
   # Code signing (SmartScreen) also comes from the environment: WIN_CSC_LINK + WIN_CSC_KEY_PASSWORD.
+linux:
+  # One AppImage runs on most distros with no install; the auto-update reads latest-linux.yml.
+  target:
+    - target: AppImage
+      arch: [x64]
+  category: Development
 nsis:
   artifactName: Agent-Office-Setup-${version}.${ext}
   oneClick: false
