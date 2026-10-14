@@ -86,7 +86,7 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     for (const d of r.desks) {
       const screen = new Screen()
       deskScreens[d.index] = screen
-      const ws = workstation(d.index + 2, screen.texture)
+      const ws = workstation(d.index + 2, screen.texture, screen.led)
       loops.push(...ws.loops)
       place(ws.group, d.x + 1, d.z + 0.5)
       grid.blockRect(d.x, d.z, 2, 1)

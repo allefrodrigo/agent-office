@@ -242,3 +242,24 @@
 .backup-list > .btn {
   align-self: flex-start;
 }
+
+.backdrop-image .modal {
+  width: auto;
+  max-width: calc(100vw - 32px);
+}
+
+.image-preview-img {
+  display: block;
+  max-width: min(1100px, calc(100vw - 68px));
+  max-height: calc(100vh - 200px);
+  margin: 0 auto;
+  border-radius: 8px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.image-preview-size {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+}

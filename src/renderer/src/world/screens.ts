@@ -4,12 +4,25 @@ import { canvas, pixelTexture } from './textures'
 export type ScreenMode = 'off' | 'boot' | 'working' | 'waiting' | 'done' | 'error' | 'idle'
 
 const CODE_COLORS = ['#82aaff', '#c792ea', '#c3e88d', '#ffcb6b', '#89ddff', '#f78c6c', '#d0d6f0']
+/** Desk status light: green free, red busy, amber waiting on you. */
+const LED: Record<ScreenMode, string> = {
+  off: '#3a3d4d',
+  boot: '#ef5b5b',
+  working: '#ef5b5b',
+  waiting: '#f5a524',
+  done: '#3ecf8e',
+  idle: '#3ecf8e',
+  error: '#ef5b5b',
+}
+
 const SW = 40
 const SH = 24
 
 /** A tiny pixel-art computer screen that reflects what its agent is doing. */
 export class Screen {
   readonly texture: THREE.CanvasTexture
+  /** The desk totem's light, colored by mode. */
+  readonly led = new THREE.MeshBasicMaterial({ color: LED.off })
   private ctx: CanvasRenderingContext2D
   private mode: ScreenMode = 'off'
   private lines: { indent: number; len: number; color: string }[] = []
@@ -28,6 +41,7 @@ export class Screen {
   setMode(mode: ScreenMode): void {
     if (mode === this.mode) return
     this.mode = mode
+    this.led.color.set(LED[mode])
     this.dirty = true
   }
 
@@ -143,6 +157,8 @@ function randomLine(): { indent: number; len: number; color: string } {
 /** Looping animated canvas for decorative screens (arcade, TV). */
 export class LoopScreen {
   readonly texture: THREE.CanvasTexture
+  /** The desk totem's light, colored by mode. */
+  readonly led = new THREE.MeshBasicMaterial({ color: LED.off })
   private ctx: CanvasRenderingContext2D
   private t = 0
   private last = -1
