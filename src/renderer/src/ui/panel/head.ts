@@ -4,6 +4,7 @@ import { formatCost, h, icon } from '../dom'
 import { STATUS_LABEL } from '../hud'
 import { EFFORTS } from '../modals'
 import { renderHelpers } from '../panel-helpers'
+import { osText } from '../os-text'
 import { portrait } from '../portrait'
 import { saveAgentAsTemplate } from '../templates'
 import { BADGE_OPEN_KEY, branchChip, contextLevel, helpersChip, modelLabel, shortPath } from './helpers'
@@ -173,8 +174,8 @@ export abstract class PanelHead extends PanelSearch {
       h(
         'div',
         { class: 'ab-stamps' },
-        h('button', { class: 'ab-stamp', title: `${a.cwd}\nMostrar no Finder`, onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 12), shortPath(a.cwd)),
-        a.worktree ? h('button', { class: 'ab-stamp', title: `Cópia isolada (worktree)\n${a.worktree.root}\nMostrar no Finder`, onclick: () => window.office.revealPath(a.worktree!.root) }, icon('branch', 12), a.worktree.branch) : null,
+        h('button', { class: 'ab-stamp', title: `${a.cwd}\n${osText(this.state.platform).revealTitle}`, onclick: () => window.office.revealPath(a.cwd) }, icon('folder', 12), shortPath(a.cwd)),
+        a.worktree ? h('button', { class: 'ab-stamp', title: `Cópia isolada (worktree)\n${a.worktree.root}\n${osText(this.state.platform).revealTitle}`, onclick: () => window.office.revealPath(a.worktree!.root) }, icon('branch', 12), a.worktree.branch) : null,
         a.model ? h('span', { class: 'ab-stamp', title: a.model }, icon('cpu', 12), modelLabel(a.model)) : null,
         effort ? h('span', { class: 'ab-stamp', title: 'Esforço' }, icon('gauge', 12), effort) : null,
         a.costUsd ? h('span', { class: 'ab-stamp', title: 'Gasto nesta sessão' }, icon('coin', 12), formatCost(a.costUsd)) : null,

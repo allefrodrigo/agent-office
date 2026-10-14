@@ -430,15 +430,24 @@ Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem pon
 <details>
 <summary><b>Notas do porte para Windows</b></summary>
 
-O código é o mesmo; o que falta validar:
+O código é o mesmo, com ramificações por `process.platform`. O porte veio do squad `windows-primeira-classe` e passa nos testes unitários, mas **ainda não rodou num Windows de verdade**.
 
-1. `npm install && npm run dev` no Windows. Para o demo no PowerShell: `$env:AGENT_OFFICE_DEMO=1; npm run dev`.
-2. `claude-path.ts`: confirmar onde o instalador nativo coloca o `claude.exe` (hoje procura no `PATH`, `%USERPROFILE%\.local\bin`, `%LOCALAPPDATA%\Programs\claude`, `%APPDATA%\npm`).
-3. Badge de pendências: `app.setBadgeCount` não funciona no Windows; usar `win.setOverlayIcon` em `index.ts` (`updateBadge`).
-4. Barra de título: no Mac usamos `hiddenInset`; no Windows fica a moldura padrão. Avaliar `titleBarOverlay`.
-5. `npm run dist:win` gera o instalador NSIS (precisa rodar no Windows).
-6. Hooks HTTP são multiplataforma, a ponte do terminal deve funcionar sem mudanças.
-7. "Fechar sessão" de um agente do terminal: no Windows o PID vem do `netstat -ano` e a checagem do `tasklist` (`session-process.ts`). Testar, porque o Windows não tem SIGHUP e o `SIGTERM` vira encerramento forçado.
+**Já no código**
+
+- `npm run demo` funciona no zsh, no PowerShell e no CMD (`scripts/demo.mjs`).
+- `claude-path.ts` acha o `claude.exe` das instalações nativa, npm global e WinGet, e procura de novo se não achar. Sem Claude Code, o agente entrega o instalador do PowerShell.
+- Pendências na barra de tarefas: overlay com o número (`win.setOverlayIcon`, imagem gerada em `badge.ts`) e `flashFrame` quando chega permissão ou resultado com a janela sem foco.
+- Central de resume: "Abrir no terminal" abre uma aba do Windows Terminal ou um console próprio (`terminal-launch.ts`, sem shell). "Copiar comando" gera o comando do PowerShell (`shared/commands.ts`).
+- Card Sistema: conta só o Claude Code, sem o app Claude Desktop, e mede a CPU dos agentes (`win-processes.ts`).
+- Textos do sistema certo: "Mostrar no Explorador", "Gerenciador de Tarefas" (`ui/os-text.ts`).
+- "Fechar sessão" confere nome, caminho e horário de criação do PID antes de encerrar. No Windows o encerramento é na hora, e a confirmação avisa ([docs/adr/0005](docs/adr/0005-encerramento-imediato-de-sessao-no-windows.md)).
+
+**Ficou de fora do porte**
+
+- Barra de título integrada (`titleBarOverlay`): o CSS do squad mirava o HUD antigo. O Windows segue com a moldura padrão.
+- Instaladores separados x64/arm64: mudariam o nome do arquivo que o auto-update lê hoje.
+
+**Falta testar no Windows**: overlay e piscar com o app minimizado, Narrador, aba real do Windows Terminal, custo de CPU no Gerenciador de Tarefas e "Fechar sessão" com a ponte conectada.
 
 </details>
 

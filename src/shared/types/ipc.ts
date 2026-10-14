@@ -17,8 +17,22 @@ export interface SystemStats {
   memTotal: number
   /** This app (the office itself). */
   app: { cpu: number; mem: number }
-  /** Every Claude Code process: office agents and terminal sessions. cpu is null where unknown (Windows). */
+  /**
+   * Claude Code processes: office agents and terminal sessions. On Windows the
+   * Claude Desktop app (also claude.exe) is left out. cpu is null until two
+   * samples exist, or where it cannot be measured.
+   */
   claude: { count: number; cpu: number | null; mem: number }
+}
+
+/** How "Open in terminal" opened the session (set only when ok). */
+export type TerminalVia = 'terminal-app' | 'windows-terminal' | 'console'
+
+export interface OpenTerminalResult {
+  ok: boolean
+  /** Error for the user (pt-BR) when ok is false. */
+  message?: string
+  via?: TerminalVia
 }
 
 export interface OfficeState {
@@ -172,8 +186,8 @@ export interface OfficeAPI {
   listSessions(): Promise<SessionEntry[]>
   /** Brings a saved session back to the office as an agent. */
   recall(sessionId: string): Promise<AgentSummary>
-  /** Opens a terminal window running `claude --resume` for the session (macOS). */
-  openInTerminal(sessionId: string): Promise<{ ok: boolean; message?: string }>
+  /** Opens `claude --resume` for the session in a terminal (macOS Terminal; Windows Terminal or a console window). */
+  openInTerminal(sessionId: string): Promise<OpenTerminalResult>
   /** Stops the claude process behind a terminal agent. */
   closeTerminal(agentId: string): Promise<{ ok: boolean; message?: string }>
   respond(decision: PermissionDecision): Promise<void>

@@ -3,6 +3,7 @@ import { query, type Query, type SDKMessage } from '@anthropic-ai/claude-agent-s
 import { describeTool, toolDetail } from '@shared/describe'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { accountEnv } from '../accounts'
+import { claudeNotFoundMessage } from '../claude-messages'
 import { findClaude } from '../claude-path'
 import { findSquad, memberAgents, orchestratorPrompt, teamGuard, type SquadDefinition } from '../squads'
 import { takeSnapshot } from '../git'
@@ -20,10 +21,7 @@ export abstract class AgentSdk extends AgentOffice {
     const claude = findClaude()
     if (!claude) {
       this.deliver(agent, {
-        text:
-          'Não encontrei o Claude Code neste computador.\n\n' +
-          'Instale com `curl -fsSL https://claude.ai/install.sh | bash` (macOS/Linux) ou veja https://code.claude.com/docs, ' +
-          'faça login rodando `claude` uma vez no terminal e tente de novo.',
+        text: claudeNotFoundMessage(process.platform),
         isError: true,
         costUsd: s.costUsd,
         durationMs: 0,

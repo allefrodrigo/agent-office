@@ -1,6 +1,7 @@
 import type { PlanUsage, UsageWindow } from '@shared/types'
 import type { State } from '../../state'
 import { h, icon, timeAgo } from '../dom'
+import { osText } from '../os-text'
 import { contextLevel } from '../panel'
 
 const INFO_OPEN_KEY = 'hud-info-open'
@@ -72,6 +73,7 @@ export class InfoCard {
   renderInfo(): void {
     const list = this.state.usage.filter((u) => u.windows.length || u.error)
     const st = this.state.system
+    const text = osText(this.state.platform)
     this.info.classList.toggle('hidden', !list.length && !st)
     this.info.classList.toggle('info-open', this.infoOpen)
     const failed = list.filter((u) => u.error)
@@ -159,7 +161,7 @@ export class InfoCard {
           h(
             'div',
             { class: 'info-sys' },
-            h('div', { class: `ctx-${contextLevel(st.cpu)}`, title: 'Uso de CPU do Mac inteiro' }, h('div', { class: 'info-sys-k' }, h('span', {}, 'CPU'), h('span', { class: 'ctx-num' }, `${st.cpu}%`)), blocks(st.cpu, 10)),
+            h('div', { class: `ctx-${contextLevel(st.cpu)}`, title: text.cpuTitle }, h('div', { class: 'info-sys-k' }, h('span', {}, 'CPU'), h('span', { class: 'ctx-num' }, `${st.cpu}%`)), blocks(st.cpu, 10)),
             h(
               'div',
               { class: `ctx-${contextLevel(memPct)}`, title: `Memória em uso: ${bytes(st.memUsed)} de ${bytes(st.memTotal, 0)}` },
@@ -172,7 +174,7 @@ export class InfoCard {
             { class: 'info-procs' },
             h('span', { title: 'Este app: o jogo e a interface' }, 'escritório'),
             h('b', {}, procText(st.app.cpu, st.app.mem)),
-            h('span', { title: 'Todos os processos claude: agentes do escritório e sessões do terminal' }, `agentes (${st.claude.count})`),
+            h('span', { title: text.agentsTitle }, `agentes (${st.claude.count})`),
             h('b', {}, procText(st.claude.cpu, st.claude.mem)),
           ),
         ]

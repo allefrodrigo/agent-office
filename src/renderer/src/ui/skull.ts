@@ -3,10 +3,11 @@ import type { State } from '../state'
 import { h } from './dom'
 import { STATUS_LABEL } from './hud'
 import { confirmDialog, modal } from './modals'
+import { osText } from './os-text'
 import { portrait } from './portrait'
 
 /** Last two folders of a path: "…/acme/api". */
-const shortCwd = (cwd: string) => `…/${cwd.split(/[\\/]/).filter(Boolean).slice(-2).join('/')}`
+const shortFolder = (cwd: string) => cwd.split(/[\\/]/).filter(Boolean).slice(-2).join('/')
 
 /**
  * The skull's list: every agent with its status. Picking one asks for confirmation;
@@ -21,7 +22,7 @@ export function openSkull(root: HTMLElement, state: State, onDismiss: (agentId: 
     const yes = await confirmDialog(root, {
       title: `Dispensar ${a.name}?`,
       text: terminal
-        ? `A sessão para e o agente sai do escritório. O Claude Code rodando no terminal em ${shortCwd(a.cwd)} vai ser encerrado, como se você fechasse aquela aba.\nA conversa fica salva: dá para voltar com claude --resume.`
+        ? `A sessão para e o agente sai do escritório. ${osText(state.platform).closeSessionText(shortFolder(a.cwd))}`
         : 'A sessão para e o agente sai do escritório.',
       warn: busy ? `${a.name} está trabalhando agora. O que estiver em andamento se perde.` : undefined,
       confirm: 'Dispensar',
