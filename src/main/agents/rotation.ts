@@ -21,15 +21,42 @@ export abstract class AgentRotation extends AgentSdk {
     }
     this.addLog(agent, 'system', `${accounts.name(from)} bateu o limite${renews}. Continuando em ${next.name}.`)
     if (agent.summary.sessionId) this.book?.switched(agent.summary, agent.summary.sessionId, next.id, from, 'failover')
-    // A CLI process is tied to one login: close it and resume on the next account.
-    agent.input?.close()
-    agent.query?.close()
-    agent.input = undefined
-    agent.query = undefined
+    this.closeProcess(agent)
     agent.summary.account = next.id
     this.setStatus(agent, 'starting', `Trocando para ${next.name}`)
     this.run(agent, CONTINUE_PROMPT)
     return true
+  }
+
+  /**
+   * A plan limit stopped the agent and the player picked another account on its card:
+   * it carries on with the same conversation there, even when that account is outside
+   * its pool. It keeps that account while the pool has no room (see Accounts.pick).
+   */
+  continueOn(id: string, accountId: string): void {
+    const agent = this.agents.get(id)
+    const accounts = this.accounts
+    if (!agent || agent.summary.source !== 'office' || agent.demo || !accounts) return
+    const next = accounts.get(accountId)
+    if (!next) throw new Error('Essa conta não existe mais. Escolha outra.')
+    if (this.busy(agent)) throw new Error(`${agent.summary.name} já voltou ao trabalho.`)
+    if (accounts.out(accountId)) throw new Error(`${next.name} também está sem espaço ou sem login agora. Escolha outra conta.`)
+    this.dropResults(id)
+    if (this.overBudget(agent)) return
+    this.addLog(agent, 'system', `Continuando em ${next.name}, a seu pedido.`)
+    this.closeProcess(agent)
+    agent.borrowed = accountId
+    this.setStatus(agent, 'starting', `Trocando para ${next.name}`)
+    this.run(agent, CONTINUE_PROMPT)
+  }
+
+  /** A CLI process is tied to one login: close it so the next run starts on another account. */
+  private closeProcess(agent: Agent): void {
+    if (agent.query) this.replaced.add(agent.query)
+    agent.input?.close()
+    agent.query?.close()
+    agent.input = undefined
+    agent.query = undefined
   }
 
   // ---------- spending cap ----------

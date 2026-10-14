@@ -40,6 +40,36 @@
   overflow-x: auto;
 }
 
+.md-code {
+  position: relative;
+  margin: 0 0 8px;
+}
+
+.md-code pre {
+  margin: 0;
+  padding-right: 36px;
+}
+
+.md-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.md-code:hover .md-copy,
+.md-copy:focus-visible,
+.md-copy.done {
+  opacity: 1;
+}
+
+.md-copy.done {
+  color: var(--green-text);
+}
+
 .md pre code {
   padding: 0;
   background: none;

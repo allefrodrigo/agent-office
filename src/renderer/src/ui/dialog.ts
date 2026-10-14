@@ -1,14 +1,24 @@
-import type { AgentResult, AgentSummary, PermissionDecision, PermissionRequest } from '@shared/types'
+import type { AccountLimit, AgentResult, AgentSummary, LogEntry, PermissionDecision, PermissionRequest } from '@shared/types'
+import { accountPool } from '@shared/accounts'
 import type { State } from '../state'
 import { asDialog, FocusReturn, isTyping, labelDialog } from './a11y'
 import { formatCost, formatDuration, h, icon } from './dom'
 import { renderMarkdown } from './markdown'
+import { cleanError } from './modals/common'
 import { portrait } from './portrait'
 
 export interface DialogActions {
   reply(agentId: string): void
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
   exportConversation(agentId: string): void
+}
+
+/** itemId prefix of the plan limit card, which has no item behind it. */
+const LIMIT_CARD = 'limit:'
+
+/** 14:30 */
+function clock(ms: number): string {
+  return new Date(ms).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
 const MOD = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl+'
@@ -31,6 +41,8 @@ export class Dialog {
   private changesFor: string | null = null
   private openDiffs = new Set<string>()
   private commitDraft: string | null = null
+  /** The card shows a result from the log again: nothing pending, so sync() leaves it open. */
+  private reread = false
   /** Who had the focus before the card took it (AO-38). */
   private focusBack = new FocusReturn()
 
@@ -71,6 +83,7 @@ export class Dialog {
     const perm = itemId ? items.permissions.find((p) => p.id === itemId) : items.permissions[0]
     const result = itemId ? items.results.find((r) => r.id === itemId) : items.results[0]
     this.keys = {}
+    this.reread = false
     this.context = perm?.context
     this.subagent = perm?.subagent
     if (perm) this.showPermission(agent, perm)
@@ -79,8 +92,47 @@ export class Dialog {
     return true
   }
 
+  /**
+   * A "Resultado entregue" from the feed as a card. Still waiting for the "Recebido": the
+   * real card, with its files. Already received: the text only, to read and copy.
+   */
+  showEntry(agentId: string, e: LogEntry): void {
+    const agent = this.state.agents.get(agentId)
+    if (!agent) return
+    const pending = this.state.itemsFor(agentId).results.find((r) => r.text === e.text)
+    if (pending && this.open(agentId, pending.id)) return
+    this.keys = { allow: () => this.close() }
+    this.reread = true
+    this.context = undefined
+    this.subagent = undefined
+    this.itemId = e.id
+    this.agentId = agentId
+    this.changesEl = null
+    this.frame(
+      agent,
+      e.isError ? 'teve um problema' : 'entregou este resultado',
+      [h('div', { class: 'dialog-scroll' }, renderMarkdown(e.text || '(sem texto)')), h('div', { class: 'dialog-meta' }, new Date(e.t).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))],
+      [
+        h('button', { class: 'btn', title: 'Copiar o resultado em Markdown', onclick: () => void navigator.clipboard.writeText(e.text).then(() => this.actions.toast('Resultado copiado.', 'ok')) }, icon('copy', 15), 'Copiar'),
+        agent.source === 'office'
+          ? h('button', {
+              class: 'btn',
+              onclick: () => {
+                this.close()
+                this.actions.reply(agent.id)
+              },
+            }, 'Responder')
+          : null,
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn btn-primary', title: 'Fechar (Enter)', onclick: () => this.close() }, 'Fechar'),
+      ].filter(Boolean) as HTMLElement[],
+      e.isError ? 'err' : 'done',
+    )
+  }
+
   close(): void {
     this.keys = {}
+    this.reread = false
     this.itemId = null
     this.agentId = null
     this.el.classList.add('hidden')
@@ -113,7 +165,7 @@ export class Dialog {
 
   /** Closes the card if its item was resolved elsewhere (terminal, other window). */
   sync(): void {
-    if (!this.itemId) return
+    if (!this.itemId || this.reread || this.itemId.startsWith(LIMIT_CARD)) return
     if (!this.state.permissions.has(this.itemId) && !this.state.results.has(this.itemId)) this.close()
   }
 
@@ -281,6 +333,71 @@ export class Dialog {
     )
   }
 
+  /**
+   * The plan limit card, opened from the log after its result card is gone. The result card
+   * itself, while pending, already offers the same choice.
+   */
+  chooseAccount(agentId: string, limit: AccountLimit): void {
+    const agent = this.state.agents.get(agentId)
+    if (!agent) return
+    const pending = this.state.itemsFor(agentId).results.find((r) => r.limit)
+    if (pending) return void this.open(agentId, pending.id)
+    this.keys = {}
+    this.reread = false
+    this.context = undefined
+    this.subagent = undefined
+    this.itemId = LIMIT_CARD + agentId
+    this.agentId = agentId
+    const renews = limit.resetsAt && limit.resetsAt > Date.now() ? ` Ela renova às ${clock(limit.resetsAt)}.` : ''
+    this.frame(
+      agent,
+      'parou no limite do plano',
+      [h('div', { class: 'dialog-title' }, `${this.state.account(limit.accountId)?.name ?? 'A conta'} chegou ao limite.${renews}`), this.accountChoice(agent, limit)],
+      [h('div', { class: 'grow' }), h('button', { class: 'btn', onclick: () => this.close() }, 'Esperar')],
+      'err',
+    )
+  }
+
+  /** Buttons to carry on the same conversation on another account, pool or not. */
+  private accountChoice(agent: AgentSummary, limit: AccountLimit): HTMLElement {
+    const others = this.state.settings.accounts.filter((a) => a.id !== limit.accountId)
+    if (!others.length) return h('div', { class: 'dialog-note' }, 'Para continuar sem esperar, adicione outra conta em Configurações › Contas.')
+    const pool = accountPool(this.state.settings, agent.cwd, agent.accounts)
+    const now = Date.now()
+    return h(
+      'div',
+      { class: 'limit-choice' },
+      h('div', { class: 'limit-choice-title' }, 'Continuar em outra conta'),
+      h(
+        'div',
+        { class: 'limit-choice-list' },
+        others.map((a) => {
+          const st = this.state.accounts.find((s) => s.id === a.id)
+          const until = st?.limitedUntil && st.limitedUntil > now ? st.limitedUntil : 0
+          const note = until ? `sem espaço até ${clock(until)}` : st?.loggedIn === false ? 'sem login' : pool.includes(a.id) ? 'deste agente' : 'fora das contas dele'
+          return h(
+            'button',
+            { class: 'btn limit-account', style: `--acct:${a.color}`, disabled: !!until || st?.loggedIn === false, onclick: () => void this.continueOn(agent, a.id) },
+            h('span', { class: 'limit-dot' }),
+            a.name,
+            h('small', {}, note),
+          )
+        }),
+      ),
+      h('div', { class: 'dialog-note' }, 'Mesma conversa, outro login. O agente volta às contas dele quando uma tiver espaço.'),
+    )
+  }
+
+  private async continueOn(agent: AgentSummary, accountId: string): Promise<void> {
+    this.close()
+    try {
+      await window.office.continueOn(agent.id, accountId)
+      this.actions.toast(`${agent.name} continua em ${this.state.account(accountId)?.name ?? 'outra conta'}.`, 'ok')
+    } catch (err) {
+      this.actions.toast(cleanError(err), 'err')
+    }
+  }
+
   private showResult(agent: AgentSummary, r: AgentResult): void {
     this.itemId = r.id
     this.agentId = agent.id
@@ -301,7 +418,12 @@ export class Dialog {
     this.frame(
       agent,
       r.isError ? 'teve um problema' : 'veio entregar o resultado',
-      [h('div', { class: 'dialog-scroll' }, renderMarkdown(r.text || '(sem texto)')), this.changesEl, meta ? h('div', { class: 'dialog-meta' }, meta) : h('span')],
+      [
+        h('div', { class: 'dialog-scroll' }, renderMarkdown(r.text || '(sem texto)')),
+        r.limit && agent.source === 'office' ? this.accountChoice(agent, r.limit) : h('span'),
+        this.changesEl,
+        meta ? h('div', { class: 'dialog-meta' }, meta) : h('span'),
+      ],
       [
         agent.source === 'office'
           ? h('button', {

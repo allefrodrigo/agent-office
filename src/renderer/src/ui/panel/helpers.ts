@@ -1,5 +1,5 @@
 import { helperActivity } from '@shared/describe'
-import type { AgentSummary, AttachmentKind } from '@shared/types'
+import type { AccountLimit, AgentSummary, AttachmentKind, LogEntry } from '@shared/types'
 import { h, icon } from '../dom'
 
 export const BADGE_OPEN_KEY = 'panel-badge-open'
@@ -22,8 +22,12 @@ export interface PanelActions {
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
   exportConversation(agentId: string): void
   copyReport(agentId: string): void
+  /** "Resultado entregue" in the feed, shown again as a card. */
+  openResult(agentId: string, entry: LogEntry): void
   /** Esc in the message box: focus the agent's open card. False when there is none. */
   focusCard(): boolean
+  /** A plan limit stopped the agent: open the card that offers another account. */
+  chooseAccount(agentId: string, limit: AccountLimit): void
 }
 
 /** Entradas que o feed mantém no DOM; a busca alcança o log inteiro (AO-36). */

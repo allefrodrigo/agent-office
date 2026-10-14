@@ -1,7 +1,7 @@
 import { ATTACH_LIMITS, formatBytes, kindFromName, limitError } from '@shared/attachments'
 import type { AttachmentInput, LogEntry } from '@shared/types'
 import { h, icon } from '../dom'
-import { cleanError } from '../modals'
+import { cleanError, modal } from '../modals'
 import { entryCategory, entryView } from './entries'
 import { toBase64 } from './helpers'
 import { PanelHead } from './head'
@@ -40,24 +40,47 @@ export abstract class PanelComposer extends PanelHead {
         h(
           'span',
           { class: 'file-chip', title: f.path || f.name },
-          icon(f.kind === 'image' ? 'image' : 'file', 13),
-          h('span', { class: 'file-chip-name' }, f.name),
-          h('span', { class: 'file-chip-size' }, formatBytes(f.file.size)),
-          h(
-            'button',
-            {
-              class: 'file-chip-x',
-              title: 'Remover anexo',
-              onclick: () => {
-                this.files = this.files.filter((x) => x.id !== f.id)
-                this.renderChips()
-              },
-            },
-            icon('x', 12),
-          ),
+          ...(f.kind === 'image'
+            ? [
+                h(
+                  'button',
+                  { class: 'file-chip-open', type: 'button', title: `Ver ${f.name}`, onclick: () => this.previewImage(f.id) },
+                  icon('image', 13),
+                  h('span', { class: 'file-chip-name' }, f.name),
+                  h('span', { class: 'file-chip-size' }, formatBytes(f.file.size)),
+                ),
+              ]
+            : [icon('file', 13), h('span', { class: 'file-chip-name' }, f.name), h('span', { class: 'file-chip-size' }, formatBytes(f.file.size))]),
+          h('button', { class: 'file-chip-x', title: 'Remover anexo', onclick: () => this.removeFile(f.id) }, icon('x', 12)),
         ),
       ),
     )
+  }
+
+  private removeFile(id: string): void {
+    this.files = this.files.filter((x) => x.id !== id)
+    this.renderChips()
+  }
+
+  /** An attached image at full size, before it goes. */
+  private previewImage(id: string): void {
+    const f = this.files.find((x) => x.id === id)
+    if (!f) return
+    const url = URL.createObjectURL(f.file)
+    const close = () => {
+      URL.revokeObjectURL(url)
+      el.remove()
+      this.input.focus()
+    }
+    const size = h('span', { class: 'image-preview-size' }, formatBytes(f.file.size))
+    const img = h('img', { class: 'image-preview-img', src: url, alt: f.name }) as HTMLImageElement
+    img.addEventListener('load', () => (size.textContent = `${img.naturalWidth} × ${img.naturalHeight} · ${formatBytes(f.file.size)}`))
+    const remove = h('button', { class: 'btn', onclick: () => (this.removeFile(id), close()) }, icon('x', 14), 'Remover anexo')
+    const ok = h('button', { class: 'btn btn-primary', onclick: close }, 'Fechar')
+    const el = modal(f.name, [img], [size, h('div', { class: 'grow' }), remove, ok], close)
+    el.classList.add('backdrop-image')
+    this.root.append(el)
+    ok.focus()
   }
 
   protected async send(): Promise<void> {
@@ -85,6 +108,11 @@ export abstract class PanelComposer extends PanelHead {
     this.feed.querySelector('.feed-loading')?.remove()
     const view = entryView(e)
     view.dataset.cat = entryCategory(e)
+    const agentId = this.agentId
+    if (e.limit && agentId && !this.helper && this.state.agents.get(agentId)?.source === 'office') {
+      const limit = e.limit
+      view.append(h('button', { class: 'btn btn-small limit-open', onclick: () => this.actions.chooseAccount(agentId, limit) }, 'Continuar em outra conta'))
+    }
     if (e.kind === 'tool') this.lastTool = view
     else if (e.kind === 'tool_result' && e.isError && this.lastTool) this.lastTool.dataset.cat += ' err'
     this.feed.append(view)

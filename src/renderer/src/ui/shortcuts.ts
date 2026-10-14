@@ -1,8 +1,8 @@
 import { h } from './dom'
 import { modal } from './modals'
 
-/** Tecla ? (AO-38): todos os atalhos do app numa janela. Pressionar ? de novo fecha. */
-export function openShortcuts(root: HTMLElement, platform: string): void {
+/** Tecla ? (AO-38): todos os atalhos do app numa janela, e o tour guiado de novo. Pressionar ? de novo fecha. */
+export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?: () => void } = {}): void {
   const open = root.querySelector('.backdrop-shortcuts')
   if (open) return void open.remove()
   const mod = platform === 'darwin' ? '⌘' : 'Ctrl+'
@@ -17,7 +17,7 @@ export function openShortcuts(root: HTMLElement, platform: string): void {
         ['I', 'Caixa de entrada: pedidos e resultados esperando você'],
         ['W A S D ou ← ↑ → ↓', 'Andar pelo escritório'],
         ['F3', 'Painel de desempenho (fps, draw calls, memória)'],
-        ['?', 'Esta lista'],
+        ['?', 'Esta lista e o botão Rever o tour'],
       ],
     ],
     [
@@ -57,7 +57,16 @@ export function openShortcuts(root: HTMLElement, platform: string): void {
     ),
   )
   const close = () => el.remove()
-  const el = modal('Atalhos do teclado', body, [h('button', { class: 'btn btn-primary', onclick: close }, 'Fechar')], close)
+  const tour = opts.tour
+    ? h('button', {
+        class: 'btn',
+        onclick: () => {
+          close()
+          opts.tour?.()
+        },
+      }, 'Rever o tour')
+    : null
+  const el = modal('Atalhos do teclado', body, [tour, h('button', { class: 'btn btn-primary', onclick: close }, 'Fechar')].filter((b) => b !== null), close)
   el.classList.add('backdrop-shortcuts')
   root.append(el)
 }

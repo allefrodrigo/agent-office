@@ -56,7 +56,7 @@ function resetText(t: number): string {
 /** The HUD's card of plan limits (per account) and the Mac's load, closed or open. */
 export class InfoCard {
   /** Plan limits and system load; see renderInfo. */
-  readonly info: HTMLDivElement = h('div', { class: 'info card hidden' })
+  readonly info: HTMLDivElement = h('div', { class: 'info card hidden', 'data-tour': 'info' })
   private infoOpen = localStorage.getItem(INFO_OPEN_KEY) === '1'
 
   constructor(

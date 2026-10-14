@@ -120,17 +120,17 @@ export class Hud {
     }, icon('compact', 14))
     this.roster = h(
       'div',
-      { class: 'roster card' + (compact ? ' compact' : '') },
+      { class: 'roster card' + (compact ? ' compact' : ''), 'data-tour': 'roster' },
       h('div', { class: 'roster-head' }, icon('users', 16), h('span', {}, 'Agentes'), this.rosterCount, compactBtn),
       this.rosterList,
     )
 
     this.inboxBadge = h('span', { class: 'badge hidden' })
-    this.inboxBtn = h('button', { class: 'dock-btn', title: 'Caixa de entrada (I)', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => this.toggleInbox() }, icon('inbox'), this.inboxBadge)
+    this.inboxBtn = h('button', { class: 'dock-btn', 'data-tour': 'inbox', title: 'Caixa de entrada (I)', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', onclick: () => this.toggleInbox() }, icon('inbox'), this.inboxBadge)
     this.gearAlert = h('span', { class: 'dock-alert hidden' })
     this.gearBtn = h('button', { class: 'dock-btn', title: 'Configurações', onclick: () => actions.settings(this.bridgeFailing() ? 'bridge' : undefined) }, icon('gear'), this.gearAlert)
     this.boardBadge = h('span', { class: 'badge badge-review hidden' })
-    this.boardBtn = h('button', { class: 'dock-btn', title: 'Quadro de tickets (T)', onclick: () => actions.board() }, icon('kanban'), this.boardBadge)
+    this.boardBtn = h('button', { class: 'dock-btn', 'data-tour': 'board', title: 'Quadro de tickets (T)', onclick: () => actions.board() }, icon('kanban'), this.boardBadge)
     this.dockName = h('span', { class: 'dock-name' })
     this.dockPortrait = h('span', { class: 'dock-portrait' })
     const dock = h(
@@ -139,12 +139,12 @@ export class Hud {
       // Identity only: Configurações has one door, the gear.
       h('span', { class: 'dock-me', title: 'Você' }, this.dockPortrait, h('span', { class: 'dot dot-you' }), this.dockName),
       h('div', { class: 'dock-sep' }),
-      h('button', { class: 'dock-primary', title: 'Conversar, dar uma tarefa ou subir um squad (N)', onclick: () => actions.newAgent() }, icon('plus'), 'Novo agente'),
+      h('button', { class: 'dock-primary', 'data-tour': 'new-agent', title: 'Conversar, dar uma tarefa ou subir um squad (N)', onclick: () => actions.newAgent() }, icon('plus'), 'Novo agente'),
       this.inboxBtn,
       this.boardBtn,
       h('button', { class: 'dock-btn', title: 'Relatórios: gasto por projeto, agente e modelo (R)', onclick: () => actions.reports() }, icon('report')),
-      h('button', { class: 'dock-btn', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
-      h('button', { class: 'dock-btn', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
+      h('button', { class: 'dock-btn', 'data-tour': 'resume', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
+      h('button', { class: 'dock-btn', 'data-tour': 'home', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
       radio.button,
       this.gearBtn,
     )
@@ -154,7 +154,7 @@ export class Hud {
       h('button', { title: 'Aproximar', onclick: () => actions.zoom(1) }, icon('zoomIn', 16)),
       h('button', { title: 'Afastar', onclick: () => actions.zoom(-1) }, icon('zoomOut', 16)),
     )
-    this.floorsEl = h('div', { class: 'floors card' })
+    this.floorsEl = h('div', { class: 'floors card', 'data-tour': 'floors' })
     // The roster ends above the elevator panel, which grows with every floor.
     new ResizeObserver(() => document.documentElement.style.setProperty('--floors-h', `${this.floorsEl.offsetHeight}px`)).observe(this.floorsEl)
     this.infoCard = new InfoCard(state, actions)

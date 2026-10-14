@@ -42,6 +42,50 @@ export function entryCategory(e: LogEntry): string {
   }
 }
 
+/** The icon beside a tool's name: what kind of work it does. */
+export function toolIcon(tool = ''): string {
+  if (tool.startsWith('mcp__office__')) return 'kanban'
+  if (tool.startsWith('mcp__')) return 'plug'
+  switch (tool) {
+    case 'Bash':
+    case 'BashOutput':
+    case 'KillShell':
+    case 'Monitor':
+      return 'terminal'
+    case 'Read':
+      return 'file'
+    case 'Edit':
+    case 'MultiEdit':
+    case 'Write':
+    case 'NotebookEdit':
+      return 'edit'
+    case 'Grep':
+    case 'Glob':
+    case 'ToolSearch':
+      return 'search'
+    case 'WebFetch':
+    case 'WebSearch':
+      return 'globe'
+    case 'Agent':
+    case 'Task':
+    case 'SendMessage':
+      return 'bot'
+    case 'TodoWrite':
+    case 'TaskCreate':
+    case 'TaskUpdate':
+      return 'list'
+    case 'AskUserQuestion':
+      return 'message'
+    case 'Skill':
+      return 'spark'
+    case 'ExitPlanMode':
+    case 'EnterPlanMode':
+      return 'report'
+    default:
+      return 'gear'
+  }
+}
+
 export function entryView(e: LogEntry): HTMLElement {
   switch (e.kind) {
     case 'user':
@@ -66,7 +110,7 @@ export function entryView(e: LogEntry): HTMLElement {
     case 'assistant':
       return h('div', { class: 'entry entry-assistant' }, renderMarkdown(e.text))
     case 'tool':
-      return h('div', { class: 'entry entry-tool' }, h('span', { class: 'tool-name' }, e.tool ?? 'tool'), h('span', { class: 'tool-text' }, e.text))
+      return h('div', { class: 'entry entry-tool' }, h('span', { class: 'tool-name' }, icon(toolIcon(e.tool), 12), e.tool ?? 'tool'), h('span', { class: 'tool-text' }, e.text))
     case 'tool_result': {
       const pre = h('pre', { class: 'entry-pre' + (e.isError ? ' err' : '') }, e.text)
       const wrap = h('div', { class: 'entry entry-result collapsed' }, pre)
@@ -76,7 +120,18 @@ export function entryView(e: LogEntry): HTMLElement {
     case 'decision':
       return h('div', { class: 'entry entry-decision' }, icon('check', 13), e.text)
     case 'result':
-      return h('div', { class: 'entry entry-final' + (e.isError ? ' err' : '') }, h('div', { class: 'final-label' }, e.isError ? 'Erro' : 'Resultado entregue'), renderMarkdown(e.text))
+      return h(
+        'div',
+        { class: 'entry entry-final' + (e.isError ? ' err' : ''), 'data-entry': e.id },
+        h(
+          'div',
+          { class: 'final-head' },
+          h('div', { class: 'final-label' }, e.isError ? 'Erro' : 'Resultado entregue'),
+          // The panel opens it as a card (delegated click in PanelBase).
+          h('button', { class: 'icon-btn final-open', type: 'button', title: 'Abrir como cartão', 'aria-label': 'Abrir como cartão' }, icon('expand', 13)),
+        ),
+        renderMarkdown(e.text),
+      )
     case 'error':
       return h('div', { class: 'entry entry-error' }, e.text)
     default:
