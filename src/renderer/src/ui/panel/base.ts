@@ -125,7 +125,7 @@ export abstract class PanelBase {
     )
     this.renderTools()
     this.helpersEl = h('div', { class: 'panel-helpers-slot' })
-    this.el = h('div', { class: 'panel card hidden', role: 'region', 'aria-label': 'Painel do agente' }, this.head, this.banner, this.helpersEl, this.tools, this.searchBar, this.feed, this.composer)
+    this.el = h('div', { class: 'panel card hidden', 'data-tour': 'panel', role: 'region', 'aria-label': 'Painel do agente' }, this.head, this.banner, this.helpersEl, this.tools, this.searchBar, this.feed, this.composer)
     this.el.addEventListener('dragover', (e) => {
       if (!e.dataTransfer?.types.includes('Files') || this.terminal) return
       e.preventDefault()

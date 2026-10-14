@@ -40,6 +40,8 @@ export interface OfficeState {
   dataNotices: DataNotice[]
   /** The Mac (or PC) runs on battery now; the scene may switch to Economia. */
   onBattery: boolean
+  /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
+  forceTour?: boolean
 }
 
 /** A data file that did not parse: what happened, for the warning in the renderer. */

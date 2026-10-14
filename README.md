@@ -125,10 +125,12 @@ Terminou? O agente entrega o relatório e vai relaxar: sofás, pufes, pebolim, f
 - **Central de resume.** Traga qualquer sessão antiga de volta como agente, com histórico.
 - **Sessões do terminal.** Os `claude` abertos no terminal também aparecem no escritório, e as permissões deles chegam até você.
 - **Caveira.** No armário ao lado da sua sala. Encerra a sessão de um agente, com estilo.
+- **Tour guiado.** Na primeira abertura, um minuto pelo que fica escondido em teclas e ícones. Reveja com `?`.
 
 <details>
 <summary><b>Referência completa de recursos</b></summary>
 
+- **Tour guiado**: na primeira abertura, um tour de um minuto destaca o que fica escondido em teclas e ícones (→ ou Enter avança, ← volta, Esc pula). Reveja pela tecla `?` ou em Configurações → Ajuda → "Rever o tour". Para conferir: `AGENT_OFFICE_TOUR=1 npm run demo` força o tour.
 - **Novo agente** (botão principal da barra, tecla `N`, ou a etiqueta "Novo agente" no seu computador): um diálogo com abas que lembra a última usada. Num andar de empresa a pasta é a do andar e não muda; a escolha livre fica no térreo.
   - **Conversar**: escolha só a pasta, sem tarefa. O agente chega e o painel abre para você digitar, como abrir o `claude` no terminal.
   - **Com tarefa**: escolha também nome e tarefa (⌘/Ctrl+Enter contrata). O agente sobe pelo elevador, senta numa mesa livre e já começa.

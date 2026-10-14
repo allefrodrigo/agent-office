@@ -1,6 +1,7 @@
 import * as THREE from 'three'
+import * as L from '../world/layout'
 import { GameMovement } from './movement'
-import type { Point } from './types'
+import { SKULL_HOME, type Point } from './types'
 
 /** Camera and input: keys, drag to pan, wheel to zoom, clicks and the hover outline. */
 export abstract class GameInput extends GameMovement {
@@ -152,6 +153,49 @@ export abstract class GameInput extends GameMovement {
     this.hover.visible = true
     this.hover.position.set(tx, 0, tz)
     ;(this.hover.material as THREE.LineBasicMaterial).color.set(grid.walkable(tx, tz) ? '#ffffff' : '#ff8a80')
+  }
+
+  // ---------- guided tour ----------
+
+  /** Spots of the ground floor the tour shows; null for one that does not exist (yet). */
+  tourSpot(id: string): THREE.Vector3 | null {
+    switch (id) {
+      case 'desk':
+        return new THREE.Vector3(3.3, 1.35, L.BOSS_DESK.z + 0.5)
+      case 'team':
+        return new THREE.Vector3(21, 1, 5.5)
+      case 'skull':
+        return new THREE.Vector3(SKULL_HOME.x, 1, SKULL_HOME.z)
+      case 'tv':
+        return this.office.tv.screen.getWorldPosition(new THREE.Vector3())
+      default:
+        return null
+    }
+  }
+
+  /** The tour points the camera at a spot of the ground floor; `instant` jumps there (reduced motion). */
+  lookAtSpot(id: string, instant: boolean): void {
+    const p = this.tourSpot(id)
+    if (!p) return
+    this.goFloor(0)
+    // after goFloor, which hands the camera back to the player
+    this.follow = false
+    this.watch = null
+    if (instant) this.engine.jumpTo(p.x, p.z)
+    else this.engine.target.set(p.x, 0, p.z)
+    this.wake(1500)
+  }
+
+  /** Where a tour spot is on the page, or null when the ground floor is not on screen. */
+  spotOnPage(id: string): Point | null {
+    const p = this.player.floor === 0 ? this.tourSpot(id) : null
+    return p ? this.engine.project(p) : null
+  }
+
+  /** The camera follows the player again (the tour ended). */
+  followPlayer(): void {
+    this.follow = true
+    this.wake(1500)
   }
 
   setPixelSize(n: number): void {

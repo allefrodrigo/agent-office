@@ -1,0 +1,78 @@
+/* Tour guiado: fundo escurecido com um recorte sobre o alvo e o balão do passo. */
+
+#ui > .tour {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  pointer-events: none;
+}
+
+.tour-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 8, 18, 0.62);
+  pointer-events: auto;
+}
+
+.tour-ring {
+  position: absolute;
+  border: 2px solid var(--accent-hi);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-hi) 25%, transparent);
+  pointer-events: none;
+}
+
+.tour-balloon {
+  position: absolute;
+  width: min(320px, calc(100vw - 24px));
+  padding: 16px 18px 14px;
+  background: var(--card-solid);
+  pointer-events: auto;
+}
+
+.tour-balloon.tour-in {
+  animation: tour-in 0.18s ease-out;
+}
+
+@keyframes tour-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.tour-count {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.tour-title {
+  margin: 4px 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.tour-text {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.tour-foot {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.tour-skip {
+  margin-right: auto;
+  color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tour-balloon.tour-in {
+    animation: none;
+  }
+}

@@ -17,6 +17,8 @@ import { showDataNotice } from './ui/data'
 import { mountUpdateNotice } from './ui/updates'
 import { announce, isTyping, mountLiveRegions } from './ui/a11y'
 import { openShortcuts } from './ui/shortcuts'
+import { Tour } from './ui/tour'
+import { autoStart, tourDone } from './ui/tour-plan'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 
 // Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
@@ -176,7 +178,7 @@ async function boot(): Promise<void> {
     },
     focusAgent: (id) => game.focusAgent(id),
     openItem: (agentId, itemId) => openItem(agentId, itemId),
-    settings: (section) => openSettings(ui, state, toast, { section }),
+    settings: (section) => openSettings(ui, state, toast, { section, tour: replayTour }),
     goHome: () => game.goHome(),
     zoom: (d) => game.zoom(d),
     newAgent: () => void newAgent(),
@@ -246,13 +248,34 @@ async function boot(): Promise<void> {
   window.addEventListener(
     'keydown',
     (e) => {
-      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping()) return
+      if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping() || tour.showing) return
       e.preventDefault()
       e.stopPropagation()
-      openShortcuts(ui, state.platform)
+      openShortcuts(ui, state.platform, { tour: replayTour })
     },
     true,
   )
+
+  // Tour guiado: aponta o que fica escondido em teclas e ícones. Ele espera atrás de um
+  // cartão, de uma janela ou do quadro e volta no mesmo passo quando eles fecham.
+  const tourBlocked = () => dialog.isOpen || board.isOpen || !!ui.querySelector('.backdrop')
+  const tour = new Tour(
+    ui,
+    {
+      hasSpot: (id) => game.tourSpot(id) !== null,
+      showSpot: (id, instant) => game.lookAtSpot(id, instant),
+      spotOnPage: (id) => game.spotOnPage(id),
+      release: () => game.followPlayer(),
+      blocked: tourBlocked,
+      paused: () => void dialog.focus(),
+      toast: (text) => toast(text),
+    },
+    state.platform,
+  )
+  // After the window that offered it is gone and has given the focus back.
+  function replayTour(): void {
+    setTimeout(() => tour.start(), 0)
+  }
 
   // Remember which card the player closed without deciding.
   const closeDialog = dialog.close.bind(dialog)
@@ -379,6 +402,7 @@ async function boot(): Promise<void> {
     const dt = advance(now, 0.1)
     radio.update()
     game.draw(dt)
+    tour.update()
     loop.draws++
     perf.frame(game.engine.renderer, dt)
   }
@@ -390,6 +414,18 @@ async function boot(): Promise<void> {
     if (!hidden()) game.wake()
   })
 
+  // First opening: the tour once, after the office shows up and with no card on screen.
+  // Screenshot and bench runs skip it; AGENT_OFFICE_TOUR=1 forces it.
+  const forceTour = !!initial.forceTour
+  if (!headless || forceTour) {
+    const tryTour = () => {
+      const go = autoStart({ done: tourDone(localStorage), forced: forceTour, blocked: tourBlocked() })
+      if (go === 'wait') setTimeout(tryTour, 500)
+      else if (go === 'start') tour.start()
+    }
+    setTimeout(tryTour, 1500)
+  }
+
   if (import.meta.env.DEV || new URLSearchParams(location.search).has('shots')) Object.assign(window, {
       __game: game,
       __state: state,
@@ -398,6 +434,7 @@ async function boot(): Promise<void> {
       __panel: panel,
       __dialog: dialog,
       __board: board,
+      __tour: tour,
       // AO-28: floors, agents and the skull in a loop, reading GPU memory (dev and headless runs only)
       __leakTest: async () => (await import('./dev/leak-test')).leakTest(game, state),
     })

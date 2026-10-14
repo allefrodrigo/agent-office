@@ -4,5 +4,5 @@
     "composite": false,
     "noEmit": true
   },
-  "include": ["vitest.config.ts", "test/**/*", "src/main/**/*", "src/shared/**/*", "src/renderer/src/world/pathfinding.ts"]
+  "include": ["vitest.config.ts", "test/**/*", "src/main/**/*", "src/shared/**/*", "src/renderer/src/world/pathfinding.ts", "src/renderer/src/ui/tour-plan.ts"]
 }

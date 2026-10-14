@@ -53,6 +53,7 @@ export function registerAppIpc(ctx: IpcContext): void {
     ledgerToday: book.today(),
     dataNotices: dataNotices(),
     onBattery: onBattery(),
+    forceTour: process.env.AGENT_OFFICE_TOUR === '1',
   }))
   ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())

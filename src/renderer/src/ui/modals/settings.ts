@@ -15,7 +15,7 @@ import { brandFields } from './brand'
 // Configurações: player, defaults, floors, accounts, data, video and the terminal bridge.
 
 /** `section: 'bridge'` opens scrolled to the terminal sessions box (the dock's gear does it when the bridge fails). */
-export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge' } = {}): void {
+export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge'; tour?: () => void } = {}): void {
   const s = state.settings
   const look: Look = { ...s.playerLook }
   const name = h('input', { class: 'input', value: s.playerName, maxlength: 24 })
@@ -233,6 +233,16 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
               }
             },
           }, icon('copy', 14), 'Copiar diagnóstico'),
+          opts.tour
+            ? h('button', {
+                class: 'btn',
+                type: 'button',
+                onclick: () => {
+                  close()
+                  opts.tour?.()
+                },
+              }, icon('walk', 14), 'Rever o tour')
+            : null,
         ),
       ),
       updates.el,
