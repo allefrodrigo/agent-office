@@ -208,6 +208,7 @@ async function boot(): Promise<void> {
     exportConversation: (id) => void exportConversation(state, id, toast),
     copyReport: (id) => void copyReport(state, id, toast),
     focusCard: () => dialog.focus(),
+    chooseAccount: (id, limit) => dialog.chooseAccount(id, limit),
   })
 
   const dialog = new Dialog(ui, state, {

@@ -13,6 +13,15 @@ export interface LogEntry {
   isError?: boolean
   /** Files sent with a user message: names only, never the content. */
   attachments?: AttachmentInfo[]
+  /** Result entries: the plan limit that stopped the agent. */
+  limit?: AccountLimit
+}
+
+/** An account ran out of plan and no other account of the agent's pool had room. */
+export interface AccountLimit {
+  accountId?: string
+  /** When it renews (ms), if known. */
+  resetsAt?: number
 }
 
 export type AttachmentKind = 'image' | 'pdf' | 'text' | 'file'
@@ -78,4 +87,6 @@ export interface AgentResult {
   createdAt: number
   /** Files the task changed; arrives a moment after the result (result:changes). */
   changes?: ResultChanges
+  /** Stopped by a plan limit: the card offers to carry on on another account. */
+  limit?: AccountLimit
 }

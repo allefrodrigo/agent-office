@@ -42,6 +42,7 @@ export function registerAgentsIpc(ctx: IpcContext): void {
   ipcMain.handle('office:closeTerminal', (_e, raw: unknown) => bridge.closeSession(id(raw)))
 
   ipcMain.handle('office:respond', (_e, d: unknown) => manager.respond(parse(permissionDecisionSchema, d, 'Resposta inválida.')))
+  ipcMain.handle('office:continueOn', (_e, raw: unknown, account: unknown) => manager.continueOn(id(raw), id(account)))
   ipcMain.handle('office:ackResult', (_e, raw: unknown) => {
     manager.ackResult(id(raw))
     updateBadge()

@@ -85,6 +85,11 @@ export abstract class PanelComposer extends PanelHead {
     this.feed.querySelector('.feed-loading')?.remove()
     const view = entryView(e)
     view.dataset.cat = entryCategory(e)
+    const agentId = this.agentId
+    if (e.limit && agentId && !this.helper && this.state.agents.get(agentId)?.source === 'office') {
+      const limit = e.limit
+      view.append(h('button', { class: 'btn btn-small limit-open', onclick: () => this.actions.chooseAccount(agentId, limit) }, 'Continuar em outra conta'))
+    }
     if (e.kind === 'tool') this.lastTool = view
     else if (e.kind === 'tool_result' && e.isError && this.lastTool) this.lastTool.dataset.cat += ' err'
     this.feed.append(view)

@@ -58,6 +58,8 @@ export interface Agent {
   compacting?: boolean
   /** The account ran out of plan during this turn; resetsAt in ms when known. */
   limitHit?: { resetsAt?: number }
+  /** Account the player picked outside the pool after a limit; used while the pool has no room. */
+  borrowed?: string
   /** Orchestrators: the squad, read again from disk before each run. */
   squad?: SquadDefinition
   /** Orchestrators: watches squads/<code>/state.json. */
