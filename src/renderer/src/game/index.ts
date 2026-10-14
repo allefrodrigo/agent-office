@@ -1,5 +1,6 @@
 import { totemView } from '@shared/routines'
 import type { State } from '../state'
+import { Aura } from '../world/aura'
 import type { Avatar } from '../world/avatar'
 import { GameInput } from './input'
 import { LOUNGE_AFTER_MS, type GameHooks } from './types'
@@ -44,6 +45,7 @@ export class Game extends GameInput {
   /** Sparks, smoke and the alarm toned down (Configurações → Vídeo, or prefers-reduced-motion). */
   setReducedEffects(on: boolean): void {
     this.effects.reduced = on
+    Aura.reduced = on
     this.office.reducedMotion = on
     for (const u of this.uppers) u.scene.reducedMotion = on
     this.reducedEffects = on

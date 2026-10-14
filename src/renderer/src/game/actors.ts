@@ -138,11 +138,12 @@ export abstract class GameActors extends GameBoards {
     return p?.uniform ? { color: p.brandColor ?? DEFAULT_BRAND, logo: p.logo } : null
   }
 
-  /** Uniform on (or off) and the account diamond over the head. */
+  /** Uniform on (or off), the account diamond over the head and the effort aura. */
   protected dress(avatar: Avatar, a: AgentSummary): void {
     avatar.setUniform(this.uniformFor(a))
     const acc = a.source === 'office' && a.account ? this.state.account(a.account) : undefined
     avatar.setGem(acc?.color ?? null)
+    avatar.setAura(a.effort, a.status === 'working' || a.status === 'starting')
   }
 
   /** The account chip on the name tag, only while there is more than one account. */

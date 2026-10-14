@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { nextRun } from '@shared/schedule'
-import type { Routine, RoutineRun, Schedule, SquadProgress } from '@shared/types'
+import type { EffortLevel, Routine, RoutineRun, Schedule, SquadProgress } from '@shared/types'
 import type { AgentManager } from './agents'
 import { permissionFromTool } from './agents'
 import type { RoutineScheduler } from './routines'
@@ -26,7 +26,13 @@ export function startDemo(manager: AgentManager, squads: SquadDefinition[] = [])
     ['WebSearch', { query: 'three.js pixel art' }],
   ]
   const names = ['Ada', 'Turing', 'Grace', 'Linus', 'Hedy', 'Radia']
-  const ids = names.map((n, i) => manager.terminalAgent(`demo-${i}`, `/Users/demo/${n}`).id)
+  // one effort each (Radia on the model's default): the aura shows from high up
+  const efforts: (EffortLevel | undefined)[] = ['low', 'medium', 'high', 'xhigh', 'max', undefined]
+  const ids = names.map((n, i) => {
+    const a = manager.terminalAgent(`demo-${i}`, `/Users/demo/${n}`)
+    a.effort = efforts[i]
+    return a.id
+  })
 
   ids.forEach((id, i) => {
     manager.terminalPrompt(id, 'Tarefa de demonstração')
