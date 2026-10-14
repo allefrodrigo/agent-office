@@ -1,10 +1,133 @@
-# Agent Office
+<p align="center">
+  <img src="docs/img/banner.jpg" alt="Agent Office: o escritório dos seus agentes do Claude Code" width="100%">
+</p>
 
-Escritório isométrico em pixel art onde agentes do Claude Code trabalham. Cada agente tem uma mesa e um computador, e a tela mostra o que ele está fazendo. Quando precisa de permissão, tem uma pergunta ou termina a tarefa, ele levanta e vai até a sua sala.
+<p align="center">
+  <a href="https://github.com/allefrodrigo/agent-office/releases/latest"><img alt="Baixar" src="https://img.shields.io/github/v/release/allefrodrigo/agent-office?label=baixar&color=d97757&style=for-the-badge"></a>
+  <img alt="macOS, Windows e Linux" src="https://img.shields.io/badge/macOS%20·%20Windows%20·%20Linux-232438?style=for-the-badge">
+  <a href="LICENSE"><img alt="Licença MIT" src="https://img.shields.io/badge/licença-MIT-232438?style=for-the-badge"></a>
+</p>
 
-Inspirado no Habbo Hotel (visual isométrico) e no Gather (escritório virtual).
+<p align="center"><b>Agentes do Claude Code viram personagens num escritório em pixel art.<br>Você vê quem está trabalhando, quem travou e quem precisa de você, sem vigiar terminal.</b></p>
 
-## O que faz
+---
+
+### Nesta edição
+
+| | |
+| --- | --- |
+| **[A ideia](#a-ideia)** | Por que um escritório |
+| **[Um dia no escritório](#um-dia-no-escritório)** | Permissões, painel, quadro, lounge |
+| **[Instalar](#instalar)** | macOS, Windows e Linux |
+| **[Rodar do código-fonte](#rodar-do-código-fonte)** | Para quem quer mexer |
+| **[Releases automáticos](#releases-automáticos)** | Cada versão vira `.dmg`, `.exe` e `.AppImage` |
+| **[Por dentro](#por-dentro)** | Arquitetura, segurança e ferramentas |
+
+---
+
+## A ideia
+
+Quem roda vários agentes ao mesmo tempo conhece a rotina: cinco terminais abertos, um deles parado há dez minutos esperando um "sim" que ninguém viu.
+
+O Agent Office troca os terminais por um escritório. Cada agente ganha mesa, computador e avatar. A tela do computador mostra o que ele faz agora. Quando ele precisa de permissão, tem uma pergunta ou termina a tarefa, **levanta e vai até a sua sala**.
+
+> *"Ninguém precisa vigiar terminais. Quem precisa de você vem até você."*
+
+Inspirado no Habbo Hotel (o visual isométrico) e no Gather (o escritório virtual).
+
+<p align="center">
+  <img src="docs/img/escritorio.jpg" alt="Visão geral do escritório: sua sala, a copa, o time de agentes e o lounge" width="100%">
+  <br><sub><b>O térreo inteiro.</b> No alto, a sua sala. À direita, as mesas do time. Embaixo, o lounge e a copa.</sub>
+</p>
+
+---
+
+## Um dia no escritório
+
+### 1. O agente vem pedir permissão
+
+<img src="docs/img/permissao.jpg" alt="Turing na sala do usuário pedindo para rodar npm install" width="100%">
+
+No modo **Pedir permissão**, antes de editar um arquivo ou rodar um comando o agente atravessa o escritório até a sua mesa. O cartão mostra o comando ou o diff, com três saídas: **Permitir**, **Sempre permitir** ou **Negar**. Negar aceita uma instrução do que fazer no lugar.
+
+Perguntas (`AskUserQuestion`) chegam como cartão de opções. Planos (`ExitPlanMode`) chegam para você aprovar ou pedir mudanças.
+
+### 2. O time trabalha, e dá para ver
+
+<table>
+<tr>
+<td width="55%"><img src="docs/img/time.jpg" alt="Mesas do time com balões do que cada agente faz"></td>
+<td>
+
+**Cada balão é uma ferramenta em uso.** "Lendo app.tsx", "Rodando npm test", "Buscando useEffect".
+
+Quando um agente chama subagentes, os ajudantes aparecem do lado da mesa dele, cada um com o próprio balão.
+
+Os diamantes sobre as cabeças mostram em qual conta do Claude cada agente roda.
+
+</td>
+</tr>
+</table>
+
+### 3. O painel do agente
+
+<table>
+<tr>
+<td>
+
+**Clique num agente e o log abre ao vivo:** ferramentas, mensagens, erros e os ajudantes que ele chamou.
+
+Mande novas instruções pelo campo de baixo. A sessão continua de onde parou, mesmo depois de reiniciar o app.
+
+O painel também mostra quanto da janela de contexto a conversa ocupa (como o `/context`), com **Compactar** e **Limpar** a um clique.
+
+</td>
+<td width="55%"><img src="docs/img/painel.jpg" alt="Painel do agente Linus com log ao vivo e três ajudantes"></td>
+</tr>
+</table>
+
+### 4. Um quadro de tickets que os agentes também usam
+
+<img src="docs/img/quadro.jpg" alt="Quadro kanban com colunas Backlog, A fazer, Fazendo, Revisão e Feito" width="100%">
+
+Kanban com Backlog, A fazer, Fazendo, Revisão e Feito (tecla `T`). **Delegar** entrega o ticket a um agente: ele recebe contexto e critérios de aceite, trabalha, comenta e move o ticket para Revisão. Os agentes abrem e atualizam tickets sozinhos pelas ferramentas `mcp__office__*`. Só pessoas movem para Feito.
+
+### 5. Contratar é um clique
+
+<table>
+<tr>
+<td width="55%"><img src="docs/img/novo-agente.jpg" alt="Diálogo Novo agente com abas Conversar, Com tarefa e Modelos"></td>
+<td>
+
+**Novo agente** (tecla `N`) tem três jeitos de começar:
+
+- **Conversar:** escolha a pasta e fale com ele, como abrir o `claude` no terminal.
+- **Com tarefa:** ele sobe pelo elevador, senta numa mesa livre e começa.
+- **Modelos:** tarefas prontas que você salvou.
+
+Escolha modelo, esforço e modo de permissão no mesmo lugar.
+
+</td>
+</tr>
+</table>
+
+### 6. Hora do lounge
+
+<img src="docs/img/lounge.jpg" alt="Lounge com sofás, pebolim e a TV da Claude FM" width="100%">
+
+Terminou? O agente entrega o relatório e vai relaxar: sofás, pufes, pebolim, fliperama e pingue-pongue. A TV do lounge toca a **Claude FM** (lo-fi ao vivo) ou qualquer playlist do YouTube que você colar.
+
+### E mais
+
+- **Andares por projeto.** Cada andar é uma pasta, com logo, cor e farda da empresa. Agentes pegam o elevador até você.
+- **Limites do plano.** Janelas de 5h, da semana e por modelo, como no `/usage`, sem gastar tokens.
+- **Várias contas do Claude.** Cada andar escolhe a conta; com duas ou mais, o agente troca de conta quando uma bate o limite.
+- **Central de resume.** Traga qualquer sessão antiga de volta como agente, com histórico.
+- **Sessões do terminal.** Os `claude` abertos no terminal também aparecem no escritório, e as permissões deles chegam até você.
+- **Caveira.** No armário ao lado da sua sala. Encerra a sessão de um agente, com estilo.
+
+<details>
+<summary><b>Referência completa de recursos</b></summary>
 
 - **Novo agente** (botão principal da barra, tecla `N`, ou a etiqueta "Novo agente" no seu computador): um diálogo com abas que lembra a última usada. Num andar de empresa a pasta é a do andar e não muda; a escolha livre fica no térreo.
   - **Conversar**: escolha só a pasta, sem tarefa. O agente chega e o painel abre para você digitar, como abrir o `claude` no terminal.
@@ -31,42 +154,141 @@ Inspirado no Habbo Hotel (visual isométrico) e no Gather (escritório virtual).
 - **Caveira**: no armário ao lado da sua sala. Clique nela, escolha um agente na lista e confirme. A câmera vai até ele, em qualquer andar, a caveira o derruba e a sessão é encerrada: um agente contratado sai do escritório; o `claude` de um agente do terminal fecha (a conversa fica salva para `claude --resume`).
 - **Sessões do terminal**: em Configurações → "Conectar", cada `claude` aberto no terminal também aparece no escritório, e os pedidos de permissão dele chegam até você no app. Se a ponte parar, um ponto âmbar aparece na engrenagem, que abre Configurações direto nessa seção.
 
-Controles: clique no chão para andar, WASD ou setas, arraste com o botão direito para mover a câmera, roda do mouse para zoom. O botão da casinha leva você de volta à sua cadeira.
+Controles: clique no chão para andar, WASD ou setas, arraste com o botão direito para mover a câmera, roda do mouse para zoom. O botão da casinha leva você de volta à sua cadeira. Tecla `?` lista todos os atalhos.
 
-## Rodar
+</details>
 
-Passo a passo completo, com uso e solução de problemas: [COMO-RODAR.md](COMO-RODAR.md).
+---
 
-Requisitos: Node 20+, e o Claude Code instalado e logado (`claude` funcionando no terminal).
+## Instalar
+
+**Antes de tudo: o Claude Code.** O app usa o `claude` instalado na sua máquina, já logado.
 
 ```bash
+# macOS e Linux
+curl -fsSL https://claude.ai/install.sh | bash
+
+# Windows (PowerShell)
+irm https://claude.ai/install.ps1 | iex
+```
+
+Depois rode `claude` uma vez para fazer login.
+
+Baixe o instalador na **[página de releases](https://github.com/allefrodrigo/agent-office/releases/latest)**.
+
+| Sistema | Arquivo | Como instalar |
+| --- | --- | --- |
+| **macOS** Apple Silicon | `Agent-Office-<versão>-arm64.dmg` | Abra o `.dmg` e arraste para Aplicativos |
+| **macOS** Intel | `Agent-Office-<versão>-x64.dmg` | Igual |
+| **Windows** 10/11 | `Agent-Office-Setup-<versão>.exe` | Rode o instalador |
+| **Linux** x64 | `Agent-Office-<versão>-x86_64.AppImage` | `chmod +x` e rode |
+
+O app procura versão nova ao abrir e a cada 6 horas. No Windows e no Linux ele se atualiza sozinho; no Mac, só quando o build é assinado com Developer ID. Até lá, baixe o `.dmg` novo e substitua o app.
+
+<details>
+<summary><b>macOS: "o app está danificado" ou "não pode ser aberto"</b></summary>
+
+Sem certificado Developer ID, o build é assinado ad-hoc e o Gatekeeper bloqueia a primeira abertura. Abra mesmo assim em **Ajustes do Sistema → Privacidade e Segurança → Abrir Mesmo Assim**, ou rode:
+
+```bash
+xattr -dr com.apple.quarantine "/Applications/Agent Office.app"
+```
+
+</details>
+
+<details>
+<summary><b>Windows: "O Windows protegeu o computador"</b></summary>
+
+O SmartScreen avisa sobre instaladores sem assinatura de código. Clique em **Mais informações → Executar assim mesmo**.
+
+</details>
+
+<details>
+<summary><b>Linux: o AppImage não abre</b></summary>
+
+```bash
+chmod +x Agent-Office-*.AppImage
+./Agent-Office-*.AppImage
+```
+
+Se reclamar de FUSE, instale a `libfuse2` (Ubuntu 24.04: `sudo apt install libfuse2t64`; 22.04: `sudo apt install libfuse2`). O Linux é suportado em regime de melhor esforço: o build sai a cada versão, mas é testado menos que Mac e Windows.
+
+</details>
+
+---
+
+## Rodar do código-fonte
+
+Requisitos: **Node 20+**, **git** e o **Claude Code** logado.
+
+<table>
+<tr><th>macOS e Linux</th><th>Windows (PowerShell)</th></tr>
+<tr>
+<td>
+
+```bash
+git clone https://github.com/allefrodrigo/agent-office.git
+cd agent-office
 npm install
-npm run dev        # abre o app
-npm run demo       # abre com agentes simulados, sem gastar tokens
+npm run dev      # abre o app
+npm run demo     # agentes simulados, sem gastar tokens
 ```
 
-Se aparecer `Error: Electron uninstall`, o binário do Electron não baixou no install:
+</td>
+<td>
+
+```powershell
+git clone https://github.com/allefrodrigo/agent-office.git
+cd agent-office
+npm install
+npm run dev
+$env:AGENT_OFFICE_DEMO=1; npm run dev   # demo
+```
+
+</td>
+</tr>
+</table>
+
+No Linux, o Electron precisa das bibliotecas gráficas de sempre. Num Ubuntu sem desktop: `sudo apt install libgtk-3-0 libnss3 libasound2t64 libgbm1`.
+
+Se aparecer `Error: Electron uninstall`, o binário do Electron não baixou: `node node_modules/electron/install.js`.
+
+Passo a passo de uso e solução de problemas: **[COMO-RODAR.md](COMO-RODAR.md)**.
+
+### Gerar o instalador na sua máquina
 
 ```bash
-node node_modules/electron/install.js
+npm run dist:mac     # dist/Agent-Office-<versão>-arm64.dmg e -x64.dmg (+ .zip do auto-update)
+npm run dist:win     # no Windows: dist/Agent-Office-Setup-<versão>.exe
+npm run dist:linux   # no Linux: dist/Agent-Office-<versão>-x86_64.AppImage
 ```
 
-Checar tipos: `npm run typecheck`. Lint: `npm run lint` (ESLint com typescript-eslint, `eslint.config.js`).
+O pacote não embute o Claude Code (são ~220 MB). Ele procura o `claude` nesta ordem: variável `AGENT_OFFICE_CLAUDE`, binário do SDK em `node_modules` (só em dev), `PATH` e pastas comuns (`~/.local/bin`, `/opt/homebrew/bin`, ...). Veja `src/main/claude-path.ts`.
 
-Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem ponto e vírgula, aspas simples), mas o projeto ainda não foi todo formatado. Rode só nos arquivos que você mexeu: `npm run format -- src/main/updater.ts`. Reformatar tudo, se um dia for feito, vai num commit separado.
+---
 
-## Gerar o app
+## Releases automáticos
+
+**Toda versão nova vira release sozinha.** Suba a versão no `package.json`, leve para a `main`, e o GitHub Actions gera e publica o `.dmg` (Apple Silicon e Intel), o `.exe` e o `.AppImage` nas [Releases](https://github.com/allefrodrigo/agent-office/releases/latest).
 
 ```bash
-npm run dist:mac   # dist/Agent-Office-<versão>-arm64.dmg e -x64.dmg (+ .zip para o auto-update)
-npm run dist:win   # rodar no Windows: dist/Agent-Office-Setup-<versão>.exe (NSIS)
+npm version patch --no-git-tag-version   # 0.3.5 -> 0.3.6
+# abra a PR, aprove e faça o merge: o build começa e espera você aprovar a publicação
 ```
 
-O pacote não embute o Claude Code (são ~220 MB). Ele usa o `claude` instalado na máquina, procurado nesta ordem: variável `AGENT_OFFICE_CLAUDE`, binário do SDK em `node_modules` (só em dev), `PATH` e pastas comuns (`~/.local/bin`, `/opt/homebrew/bin`, ...). Veja `src/main/claude-path.ts`.
+Como funciona (`.github/workflows/release.yml`):
 
-O Mac sai em dois builds, Apple Silicon (`arm64`) e Intel (`x64`), não um universal. Nada nativo vai no pacote (o binário do SDK, que é por CPU, fica de fora), então os dois saem de qualquer Mac e cada download tem metade do tamanho de um universal.
+1. Um push na `main` que muda o `package.json` dispara o workflow. O botão "Run workflow" também.
+2. Se a versão já tem release, ele para ali. Pushes sem mudança de versão não geram nada.
+3. Builda Mac, Windows e Linux em paralelo, com os `latest*.yml` que o auto-update lê. Os arquivos ficam guardados no próprio run, fora das Releases.
+4. Espera a aprovação de quem revisa o ambiente `release` (Actions → o run → **Review deployments**). O ambiente só aceita runs da `main`.
+5. Cria e publica a release de uma vez, com os arquivos daquele run. Se o Linux falhar, a release sai com Mac e Windows.
+6. Versão com sufixo (`0.4.0-beta.1`) sai como pre-release: só o canal Beta recebe.
 
-### Assinatura e notarização (Mac)
+O CI (`.github/workflows/ci.yml`) roda `typecheck`, `lint`, `test` e `build` no macOS e no Windows em todo PR e push na `main`.
+
+<details>
+<summary><b>Assinatura e notarização (Mac e Windows)</b></summary>
 
 Sem credenciais, `npm run dist:mac` assina ad-hoc (`scripts/dist-mac.mjs`): o app roda na sua máquina, mas o Gatekeeper bloqueia em outras e o auto-update não instala. Para distribuir:
 
@@ -90,24 +312,23 @@ No CI, as mesmas variáveis vêm dos secrets `MAC_CSC_LINK`, `MAC_CSC_KEY_PASSWO
 
 **Windows:** sem certificado, o SmartScreen avisa "editor desconhecido" nas primeiras instalações. Com um certificado de assinatura de código (OV/EV, ou Azure Trusted Signing), defina `WIN_CSC_LINK` e `WIN_CSC_KEY_PASSWORD` (secrets de mesmo nome no CI).
 
-### Atualização automática
+</details>
+
+<details>
+<summary><b>Atualização automática</b></summary>
 
 O app instalado procura versão nova nas Releases do GitHub (`publish` no `electron-builder.yml`) ao abrir e a cada 6 horas, baixa em segundo plano e mostra no alto da tela "Versão X pronta. Reiniciar agora?". Se houver agente trabalhando ou permissão esperando, pergunta antes. Antes de reiniciar grava `office.json` e `tickets.json`. "Depois" instala quando você fechar o app. Em Configurações → Atualizações: canal Estável ou Beta (beta recebe também tags como `v0.4.0-beta.1`) e "Verificar agora". Código em `src/main/updater.ts`.
 
 Requisitos: as Releases precisam ser públicas (repositório público ou um repositório só de releases), e no Mac o app precisa estar assinado com Developer ID. Em dev nada é verificado; `AGENT_OFFICE_FAKE_UPDATE=0.9.0 npm run dev` simula uma versão baixada para testar o aviso e a confirmação (o "Reiniciar" só grava e fecha).
 
-### CI e releases
+</details>
 
-- `.github/workflows/ci.yml`: em todo PR e push na `main`, roda `npm ci`, `typecheck`, `lint`, `test` e `build` no macOS e no Windows.
-- `.github/workflows/release.yml`: ao subir uma tag `v*` igual à versão do `package.json`, cria a release como rascunho, gera Mac e Windows com `--publish always` e publica quando os dois terminam. Tag com sufixo (`v0.4.0-beta.1`) vira pre-release.
+---
 
-  ```bash
-  npm version 0.3.4 -m "Versão %s" && git push --follow-tags
-  ```
+## Por dentro
 
-- **Proteção da `main`** (o dono faz no GitHub): Settings → Branches → Add branch ruleset (ou "Add rule") para `main` → marque "Require a pull request before merging" e "Require status checks to pass", adicione `check (macos-latest)` e `check (windows-latest)` (aparecem depois do primeiro CI) e, se quiser, "Require branches to be up to date before merging".
-
-## Arquitetura
+<details>
+<summary><b>Arquitetura</b></summary>
 
 ```
 src/
@@ -163,15 +384,36 @@ Fluxo de um pedido de permissão: o SDK chama `canUseTool` → `AgentManager.req
 
 Sessões do terminal usam o mesmo caminho: o hook `PermissionRequest` (HTTP) fica pendurado até você decidir, com timeout de 10 minutos. Se o app estiver fechado, o hook falha rápido e o Claude Code pergunta no terminal como sempre.
 
-## Segurança
+</details>
+
+### Segurança
 
 - O renderer roda com `contextIsolation`, `sandbox` e CSP sem scripts inline; não navega nem abre janelas. Links só abrem se forem `http(s)`.
-- Saída dos agentes é renderizada como Markdown com HTML escapado e passada pelo DOMPurify.
-- A ponte do terminal escuta só em `127.0.0.1`, exige um token aleatório (salvo em `userData/bridge-token`, permissão 600) e recusa requisições com `Origin` (vindas de navegador). O token também fica em `~/.claude/settings.json`.
-- Instalar a ponte faz backup em `~/.claude/settings.json.agent-office.bak`, preserva seus hooks e nunca sobrescreve um arquivo que não consegue ler. "Desconectar" remove só as entradas do app.
-- O modo "Sem pedir nada" (`bypassPermissions`) deixa o agente rodar qualquer comando. O app avisa e pede confirmação; use só em pastas descartáveis.
+- A saída dos agentes vira Markdown com HTML escapado e passa pelo DOMPurify.
+- A ponte do terminal escuta só em `127.0.0.1`, exige um token aleatório (`userData/bridge-token`, permissão 600) e recusa requisições com `Origin` (vindas de navegador).
+- Conectar a ponte faz backup do `~/.claude/settings.json`, preserva seus hooks e nunca sobrescreve um arquivo que não consegue ler. "Desconectar" remove só o que o app adicionou.
+- O modo "Sem pedir nada" (`bypassPermissions`) deixa o agente rodar qualquer comando. O app avisa e pede confirmação. Use só em pastas descartáveis.
 
-## Porte para Windows (para o sócio)
+<details>
+<summary><b>Ferramentas de desenvolvimento</b></summary>
+
+Checar tipos: `npm run typecheck`. Lint: `npm run lint`. Testes: `npm test`.
+
+Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem ponto e vírgula, aspas simples), mas o projeto ainda não foi todo formatado. Rode só nos arquivos que você mexeu: `npx prettier --write src/main/updater.ts`.
+
+- `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis. Um trecho `keys:N Enter Alt+Right =texto ;; js` aperta teclas de verdade antes (Enter clica o botão em foco, Tab anda; `=texto` digita, `_` é espaço) e depois roda o js: serve para testar o app só pelo teclado. No modo demo, quem você contrata ou chama finge o trabalho (pede para rodar os testes e entrega um resultado) sem abrir o Claude Code.
+- `npm run contrast` mostra a razão de contraste dos textos do HUD, lida de `src/renderer/src/styles/`; `npm test` falha se algum par ficar abaixo de AA (4,5:1).
+- Tecla `?` no app lista todos os atalhos.
+- Log do app em `userData/logs/main-<data>.log` (gira em 5 MB, guarda 5 arquivos; sem prompts nem tokens). `AGENT_OFFICE_DEBUG=1` inclui o nível debug.
+- Só em dev: `AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error` quebra algo 6 s depois de abrir, para testar o tratamento de erros. `AGENT_OFFICE_LOG_MAX_KB=20` gira o log mais cedo.
+- `npm run bench` com `AGENT_OFFICE_DEMO=` (vazio) mede o escritório vazio e parado; `AGENT_OFFICE_BENCH_LIVE=1` mantém o ritmo do loop (passo lento com a cena parada, limite de fps), e o `fps` do relatório vira frames desenhados por segundo. Num headless, `__loop.hidden = true` simula a janela minimizada e `__loop.draws` conta os frames desenhados.
+- Só em dev: `AGENT_OFFICE_BATTERY=1` começa como se estivesse na bateria; `=flip` alterna bateria e tomada a cada 5 s, para testar a economia automática sem tirar o cabo.
+- `npm run icon` regenera `resources/icon.png` a partir do desenho em `scripts/make-icon.mjs`.
+
+</details>
+
+<details>
+<summary><b>Notas do porte para Windows</b></summary>
 
 O código é o mesmo; o que falta validar:
 
@@ -183,13 +425,8 @@ O código é o mesmo; o que falta validar:
 6. Hooks HTTP são multiplataforma, a ponte do terminal deve funcionar sem mudanças.
 7. "Fechar sessão" de um agente do terminal: no Windows o PID vem do `netstat -ano` e a checagem do `tasklist` (`session-process.ts`). Testar, porque o Windows não tem SIGHUP e o `SIGTERM` vira encerramento forçado.
 
-## Ferramentas de desenvolvimento
+</details>
 
-- `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis. Um trecho `keys:N Enter Alt+Right =texto ;; js` aperta teclas de verdade antes (Enter clica o botão em foco, Tab anda; `=texto` digita, `_` é espaço) e depois roda o js: serve para testar o app só pelo teclado. No modo demo, quem você contrata ou chama finge o trabalho (pede para rodar os testes e entrega um resultado) sem abrir o Claude Code.
-- `npm run contrast` mostra a razão de contraste dos textos do HUD, lida de `src/renderer/src/styles/`; `npm test` falha se algum par ficar abaixo de AA (4,5:1).
-- Tecla `?` no app lista todos os atalhos.
-- Log do app em `userData/logs/main-<data>.log` (gira em 5 MB, guarda 5 arquivos; sem prompts nem tokens). `AGENT_OFFICE_DEBUG=1` inclui o nível debug.
-- Só em dev: `AGENT_OFFICE_CRASH=main|rejection|renderer|hang|page-error` quebra algo 6 s depois de abrir, para testar o tratamento de erros. `AGENT_OFFICE_LOG_MAX_KB=20` gira o log mais cedo.
-- `npm run bench` com `AGENT_OFFICE_DEMO=` (vazio) mede o escritório vazio e parado; `AGENT_OFFICE_BENCH_LIVE=1` mantém o ritmo do loop (passo lento com a cena parada, limite de fps), e o `fps` do relatório vira frames desenhados por segundo. Num headless, `__loop.hidden = true` simula a janela minimizada e `__loop.draws` conta os frames desenhados.
-- Só em dev: `AGENT_OFFICE_BATTERY=1` começa como se estivesse na bateria; `=flip` alterna bateria e tomada a cada 5 s, para testar a economia automática sem tirar o cabo.
-- `npm run icon` regenera `resources/icon.png` a partir do desenho em `scripts/make-icon.mjs`.
+---
+
+<p align="center"><sub>Feito com Claude Code, por gente que cansou de vigiar terminal. Licença <a href="LICENSE">MIT</a>.</sub></p>

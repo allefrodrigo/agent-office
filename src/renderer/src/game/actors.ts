@@ -106,7 +106,9 @@ export abstract class GameActors extends GameBoards {
     if (actor.avatar.look !== a.look && JSON.stringify(actor.avatar.look) !== JSON.stringify(a.look)) actor.avatar.setLook(a.look)
     this.dress(actor.avatar, a)
     this.showAccount(actor, a)
-    this.screenFor(a)?.setMode(screenMode(a))
+    const items = this.state.itemsFor(a.id)
+    // a permission or result for you turns the desk amber too
+    this.screenFor(a)?.setMode(items.permissions.length || items.results.length ? 'waiting' : screenMode(a))
 
     // Moved to another floor or desk: head there even if the goal stays the same.
     if (seatKey(a) !== actor.seat) {
