@@ -207,6 +207,7 @@ async function boot(): Promise<void> {
     toast,
     exportConversation: (id) => void exportConversation(state, id, toast),
     copyReport: (id) => void copyReport(state, id, toast),
+    openResult: (id, entry) => dialog.showEntry(id, entry),
     focusCard: () => dialog.focus(),
   })
 

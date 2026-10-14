@@ -53,6 +53,11 @@ export abstract class PanelBase {
     this.head = h('div', { class: 'panel-head' })
     this.banner = h('div', { class: 'panel-banner hidden' })
     this.feed = h('div', { class: 'panel-feed' })
+    this.feed.addEventListener('click', (e) => {
+      const card = (e.target as HTMLElement).closest('.final-open')?.closest<HTMLElement>('.entry-final')
+      const entry = card && this.log.find((x) => x.id === card.dataset.entry)
+      if (entry && this.agentId) this.actions.openResult(this.agentId, entry)
+    })
     this.feed.addEventListener('scroll', () => {
       this.stickToBottom = this.feed.scrollTop + this.feed.clientHeight >= this.feed.scrollHeight - 30
     })

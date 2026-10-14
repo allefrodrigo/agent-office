@@ -1,4 +1,4 @@
-import type { AgentResult, AgentSummary, PermissionDecision, PermissionRequest } from '@shared/types'
+import type { AgentResult, AgentSummary, LogEntry, PermissionDecision, PermissionRequest } from '@shared/types'
 import type { State } from '../state'
 import { asDialog, FocusReturn, isTyping, labelDialog } from './a11y'
 import { formatCost, formatDuration, h, icon } from './dom'
@@ -31,6 +31,8 @@ export class Dialog {
   private changesFor: string | null = null
   private openDiffs = new Set<string>()
   private commitDraft: string | null = null
+  /** The card shows a result from the log again: nothing pending, so sync() leaves it open. */
+  private reread = false
   /** Who had the focus before the card took it (AO-38). */
   private focusBack = new FocusReturn()
 
@@ -71,6 +73,7 @@ export class Dialog {
     const perm = itemId ? items.permissions.find((p) => p.id === itemId) : items.permissions[0]
     const result = itemId ? items.results.find((r) => r.id === itemId) : items.results[0]
     this.keys = {}
+    this.reread = false
     this.context = perm?.context
     this.subagent = perm?.subagent
     if (perm) this.showPermission(agent, perm)
@@ -79,8 +82,47 @@ export class Dialog {
     return true
   }
 
+  /**
+   * A "Resultado entregue" from the feed as a card. Still waiting for the "Recebido": the
+   * real card, with its files. Already received: the text only, to read and copy.
+   */
+  showEntry(agentId: string, e: LogEntry): void {
+    const agent = this.state.agents.get(agentId)
+    if (!agent) return
+    const pending = this.state.itemsFor(agentId).results.find((r) => r.text === e.text)
+    if (pending && this.open(agentId, pending.id)) return
+    this.keys = { allow: () => this.close() }
+    this.reread = true
+    this.context = undefined
+    this.subagent = undefined
+    this.itemId = e.id
+    this.agentId = agentId
+    this.changesEl = null
+    this.frame(
+      agent,
+      e.isError ? 'teve um problema' : 'entregou este resultado',
+      [h('div', { class: 'dialog-scroll' }, renderMarkdown(e.text || '(sem texto)')), h('div', { class: 'dialog-meta' }, new Date(e.t).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))],
+      [
+        h('button', { class: 'btn', title: 'Copiar o resultado em Markdown', onclick: () => void navigator.clipboard.writeText(e.text).then(() => this.actions.toast('Resultado copiado.', 'ok')) }, icon('copy', 15), 'Copiar'),
+        agent.source === 'office'
+          ? h('button', {
+              class: 'btn',
+              onclick: () => {
+                this.close()
+                this.actions.reply(agent.id)
+              },
+            }, 'Responder')
+          : null,
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn btn-primary', title: 'Fechar (Enter)', onclick: () => this.close() }, 'Fechar'),
+      ].filter(Boolean) as HTMLElement[],
+      e.isError ? 'err' : 'done',
+    )
+  }
+
   close(): void {
     this.keys = {}
+    this.reread = false
     this.itemId = null
     this.agentId = null
     this.el.classList.add('hidden')
@@ -113,7 +155,7 @@ export class Dialog {
 
   /** Closes the card if its item was resolved elsewhere (terminal, other window). */
   sync(): void {
-    if (!this.itemId) return
+    if (!this.itemId || this.reread) return
     if (!this.state.permissions.has(this.itemId) && !this.state.results.has(this.itemId)) this.close()
   }
 
