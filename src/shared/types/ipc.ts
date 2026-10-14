@@ -6,7 +6,7 @@ import type { AgentResult, AttachmentInput, LogEntry, PermissionDecision, Permis
 import type { Ledger, LedgerQuery, LedgerToday } from './ledger'
 import type { BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
 import type { SquadInfo } from './squads'
-import type { Routine, RoutineDraft } from './routines'
+import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
@@ -43,6 +43,8 @@ export interface OfficeState {
   onBattery: boolean
   /** Scheduled tasks, shown on the ground floor totem. */
   routines: Routine[]
+  /** Jobs the Mac schedules itself (launchd), shown beside the routines. Empty off macOS. */
+  macJobs: MacJob[]
   /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
   forceTour?: boolean
 }
@@ -108,6 +110,8 @@ export type OfficeEvent =
   | { type: 'power'; onBattery: boolean }
   /** A routine changed, ran or finished: the whole list. */
   | { type: 'routines'; routines: Routine[] }
+  /** The Mac's own scheduled jobs changed (read every minute). */
+  | { type: 'macJobs'; jobs: MacJob[] }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -251,5 +255,13 @@ export interface OfficeAPI {
   duplicateRoutine(id: string): Promise<Routine>
   /** One run now, outside the schedule. */
   runRoutineNow(id: string): Promise<Routine>
+  /** Reads the Mac's scheduled jobs again. */
+  listMacJobs(): Promise<MacJob[]>
+  /** Starts a Mac job now (launchctl kickstart); launchd still owns it. */
+  runMacJobNow(label: string): Promise<MacJob[]>
+  /** The last lines of a Mac job's log. */
+  macJobLog(label: string): Promise<string>
+  /** Opens a Mac job's log in the default app. */
+  openMacJobLog(label: string): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

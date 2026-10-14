@@ -102,3 +102,29 @@ export const RUN_STATUS_LABEL: Record<RoutineRunStatus, string> = {
   missed: 'perdida',
   skipped: 'pulada',
 }
+
+/**
+ * A job the Mac itself schedules (launchd, ~/Library/LaunchAgents), listed beside the
+ * routines. Read only: the office shows it and can start it now, launchd keeps owning it.
+ */
+export interface MacJob {
+  label: string
+  /** "mochilinho · agente · manha", from the label. */
+  name: string
+  /** StartCalendarInterval as cron schedules; empty for an interval job. */
+  schedules: Schedule[]
+  /** StartInterval, in seconds. */
+  everySec?: number
+  /** What it runs, as one line. */
+  command: string
+  /** StandardOutPath (or StandardErrorPath). */
+  log?: string
+  /** launchd knows it (launchctl list); a plist left unloaded never runs. */
+  loaded: boolean
+  running: boolean
+  /** Exit status of the last run; null before the first one. Negative: killed by that signal. */
+  lastExit: number | null
+  /** When the log was last written: the closest thing to "last run" launchd keeps. */
+  lastLogAt?: number
+  nextAt: number | null
+}

@@ -102,7 +102,7 @@ export class Game extends GameInput {
     this.totemIn -= dt
     if (this.totemIn > 0) return
     this.totemIn = 1
-    const view = totemView(this.state.routines)
+    const view = totemView(this.state.routines, Date.now(), this.state.macJobs)
     // the tag is HTML: it only touches the DOM when its text changes
     this.totem.tag.setDot(`routine-${view.led}`)
     // the screen is pixel art: the balloon carries the line in letters people can read

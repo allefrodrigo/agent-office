@@ -76,6 +76,10 @@ const api: OfficeAPI = {
   setRoutineEnabled: (id, enabled) => ipcRenderer.invoke('office:setRoutineEnabled', id, enabled),
   duplicateRoutine: (id) => ipcRenderer.invoke('office:duplicateRoutine', id),
   runRoutineNow: (id) => ipcRenderer.invoke('office:runRoutineNow', id),
+  listMacJobs: () => ipcRenderer.invoke('office:listMacJobs'),
+  runMacJobNow: (label) => ipcRenderer.invoke('office:runMacJobNow', label),
+  macJobLog: (label) => ipcRenderer.invoke('office:macJobLog', label),
+  openMacJobLog: (label) => ipcRenderer.invoke('office:openMacJobLog', label),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

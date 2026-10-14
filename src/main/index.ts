@@ -15,6 +15,7 @@ import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
 import { captureConsole, initLog, log, secret } from './log'
 import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env'
 import { isDir, loadSquads, squadInfo } from './squads'
+import { MacJobs } from './mac-jobs'
 import { RoutineScheduler, RoutineStore } from './routines'
 import { Store } from './store'
 import { SystemMonitor } from './system'
@@ -259,6 +260,9 @@ app.whenReady().then(async () => {
   })
   // Timers stop while the Mac sleeps: runs whose time passed follow the routine's choice.
   powerMonitor.on('resume', () => routines.check())
+  // launchd's own schedules (Mochilinho, backups…), read only, beside the routines
+  const macJobs = new MacJobs()
+  macJobs.on('jobs', (jobs) => broadcast({ type: 'macJobs', jobs }))
   book.on('today', (today) => broadcast({ type: 'ledger:today', today }))
 
   const system = new SystemMonitor()
@@ -360,6 +364,7 @@ app.whenReady().then(async () => {
     book,
     desk,
     routines,
+    macJobs,
     bridge,
     usage,
     accounts,
@@ -407,6 +412,7 @@ app.whenReady().then(async () => {
   }
   // After the demo is in place: what was due while the app was closed runs (or is skipped) now.
   routines.start()
+  macJobs.start()
   if (stress) startStress(manager)
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
@@ -426,6 +432,7 @@ app.whenReady().then(async () => {
     manager.shutdown()
     book.stop()
     routines.stop()
+    macJobs.stop()
     store.flush()
     board.flush()
     routineStore.flush()

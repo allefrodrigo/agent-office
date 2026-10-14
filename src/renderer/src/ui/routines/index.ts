@@ -1,7 +1,8 @@
+import { describeMacJob, macJobState } from '@shared/mac-jobs'
 import { lastFinished } from '@shared/routines'
 import { countdown, describeSchedule, formatWhen, nextRuns } from '@shared/schedule'
 import { RUN_STATUS_LABEL } from '@shared/types'
-import type { ProjectFloor, Routine, RoutineRun } from '@shared/types'
+import type { MacJob, ProjectFloor, Routine, RoutineRun } from '@shared/types'
 import type { State } from '../../state'
 import { arrowList, keepFocus } from '../a11y'
 import { h, icon } from '../dom'
@@ -49,6 +50,27 @@ function nextText(r: Routine, now = Date.now()): string {
   return `Próxima: ${formatWhen(r.nextAt, now)} (${countdown(r.nextAt, now)})`
 }
 
+const MAC_CHIP: Record<ReturnType<typeof macJobState>, [string, string]> = {
+  ok: ['chip-done', 'rodou'],
+  fail: ['chip-err', 'falhou'],
+  run: ['chip-run', 'rodando'],
+  none: ['chip-muted', 'nunca rodou'],
+  off: ['chip-muted', 'não carregado'],
+}
+
+function macChip(j: MacJob): HTMLElement {
+  const st = macJobState(j)
+  const [cls, text] = MAC_CHIP[st]
+  return h('span', { class: `chip ${cls}`, title: j.lastExit !== null ? `Código de saída da última vez: ${j.lastExit}` : '' }, st === 'fail' ? `${text} (código ${j.lastExit})` : text)
+}
+
+/** "Próxima: hoje, 13:00 (em 2h14)"; interval jobs only know it from the log. */
+function macNextText(j: MacJob, now = Date.now()): string {
+  if (!j.loaded) return 'Não carregado no launchd: não roda'
+  if (j.nextAt !== null) return `Próxima: ${formatWhen(j.nextAt, now)} (${countdown(j.nextAt, now)})`
+  return j.lastLogAt ? `Último registro no log: ${formatWhen(j.lastLogAt, now)}` : 'Sem próxima execução conhecida'
+}
+
 /** Who runs it, in a few words. */
 function whoText(state: State, r: Routine): string {
   const who = r.who
@@ -68,7 +90,7 @@ function whoText(state: State, r: Routine): string {
 export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHooks): void {
   const content = h('div', { class: 'rt-body' })
   const foot = h('div', { class: 'rt-foot' })
-  let view: { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'edit' } = { kind: 'list' }
+  let view: { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'mac'; label: string } | { kind: 'edit' } = { kind: 'list' }
   let stopped = false
   const close = () => {
     stopped = true
@@ -110,6 +132,90 @@ export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHoo
     if (view.kind === 'detail' && view.id === r.id) show({ kind: 'list' })
   }
 
+  // ---------- the Mac's own jobs (launchd): shown and started, never changed ----------
+  const runMac = (j: MacJob) =>
+    act(async () => {
+      state.macJobs = await window.office.runMacJobNow(j.label)
+      hooks.toast(`${j.name} começou a rodar pelo launchd.`, 'ok')
+      if (view.kind !== 'edit') show(view)
+    })
+  const openMacLog = (j: MacJob) => act(() => window.office.openMacJobLog(j.label))
+  const macActions = (j: MacJob, labels: boolean): HTMLElement[] => {
+    const btn = (label: string, ic: string, fn: () => void, disabled = false) =>
+      h('button', { class: 'btn btn-small', type: 'button', title: label, 'aria-label': `${label}: ${j.name}`, disabled, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ic, 14), labels ? label : null)
+    return [btn('Rodar agora', 'send', () => void runMac(j), !j.loaded || j.running), btn('Abrir log', 'file', () => void openMacLog(j), !j.log)]
+  }
+  const macSection = (): HTMLElement | null => {
+    if (!state.macJobs.length) return null
+    const rows = state.macJobs.map((j) => {
+      const st = macJobState(j)
+      const led = st === 'off' ? 'none' : st
+      return h(
+        'div',
+        { class: `rt-item${j.loaded ? '' : ' rt-paused'}`, 'data-focus-key': `mac:${j.label}` },
+        h(
+          'button',
+          { class: 'rt-item-main', type: 'button', 'data-focus-key': `open-mac:${j.label}`, onclick: () => show({ kind: 'mac', label: j.label }) },
+          h('span', { class: `rt-led rt-led-${led}`, 'aria-hidden': 'true' }),
+          h(
+            'span',
+            { class: 'rt-item-text' },
+            h('span', { class: 'rt-item-name' }, j.name),
+            h('span', { class: 'rt-item-when' }, describeMacJob(j)),
+            h('span', { class: 'rt-item-next', 'data-mac-next': j.label }, macNextText(j)),
+          ),
+          h('span', { class: 'rt-item-status' }, macChip(j)),
+        ),
+        h('div', { class: 'rt-item-actions' }, ...macActions(j, false)),
+      )
+    })
+    const list = h('div', { class: 'rt-list' }, ...rows)
+    arrowList(list, '.rt-item-main')
+    return h(
+      'section',
+      { class: 'rt-mac', 'aria-label': 'Agendadas no Mac' },
+      h('div', { class: 'rt-section-head' }, h('span', { class: 'field-label' }, 'Agendadas no Mac'), h('span', { class: 'chip chip-muted' }, 'launchd')),
+      h('div', { class: 'field-hint' }, 'O macOS roda estas sozinho, mesmo com o app fechado. Aqui você acompanha e roda na hora; para mudar o horário, edite o plist em ~/Library/LaunchAgents.'),
+      list,
+    )
+  }
+
+  const macView = (label: string) => {
+    const j = state.macJobs.find((x) => x.label === label)
+    if (!j) return show({ kind: 'list' })
+    title.textContent = j.name
+    const now = Date.now()
+    const upcoming = j.schedules
+      .flatMap((s) => nextRuns(s, now, 3))
+      .sort((a, b) => a - b)
+      .slice(0, 3)
+    const logBox = h('pre', { class: 'rt-log', tabindex: '0', 'aria-label': 'Fim do log' }, 'Lendo o log…')
+    content.replaceChildren(
+      h(
+        'div',
+        { class: 'rt-detail' },
+        h('div', { class: 'rt-sentence' }, describeMacJob(j)),
+        h('div', { class: 'rt-item-next', 'data-mac-next': j.label }, macNextText(j)),
+        upcoming.length ? h('div', { class: 'field-hint' }, `Próximas: ${upcoming.map((t) => formatWhen(t)).join(' · ')}`) : null,
+        h('div', { class: 'rt-run-head' }, macChip(j), j.lastLogAt ? h('span', { class: 'rt-run-when' }, `log escrito ${formatWhen(j.lastLogAt)}`) : null),
+        h('div', { class: 'field-label' }, 'Comando'),
+        h('div', { class: 'rt-prompt rt-mono' }, j.command || '(sem comando no plist)'),
+        h('div', { class: 'field-hint' }, `${j.label}${j.log ? ` · log em ${j.log}` : ''}`),
+        h('div', { class: 'rt-item-actions' }, ...macActions(j, true)),
+        h('div', { class: 'field-label' }, 'Fim do log'),
+        logBox,
+      ),
+    )
+    foot.replaceChildren(h('button', { class: 'btn', onclick: () => show({ kind: 'list' }) }, 'Voltar'))
+    void window.office.macJobLog(j.label).then(
+      (text) => {
+        logBox.textContent = text
+        logBox.scrollTop = logBox.scrollHeight
+      },
+      (err) => (logBox.textContent = cleanError(err)),
+    )
+  }
+
   const actions = (r: Routine, labels: boolean, withEdit = true): HTMLElement[] => {
     const btn = (label: string, ic: string, fn: () => void, extra = '') =>
       h('button', { class: `btn btn-small ${extra}`, type: 'button', title: label, 'aria-label': `${label}: ${r.name}`, onclick: (e: Event) => (e.stopPropagation(), fn()) }, icon(ic, 14), labels ? label : null)
@@ -138,6 +244,7 @@ export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHoo
             h('button', { class: 'rt-example', type: 'button', onclick: () => edit(x.draft as Partial<Routine>) }, h('span', { class: 'rt-example-title' }, x.title), h('span', { class: 'rt-example-hint' }, x.hint)),
           ),
         ),
+        macSection() ?? '',
       )
       foot.replaceChildren(h('button', { class: 'btn', onclick: close }, 'Fechar'), add)
       return
@@ -168,7 +275,7 @@ export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHoo
     })
     const list = h('div', { class: 'rt-list' }, ...rows)
     arrowList(list, '.rt-item-main')
-    content.replaceChildren(list)
+    content.replaceChildren(list, macSection() ?? '')
     foot.replaceChildren(h('button', { class: 'btn', onclick: close }, 'Fechar'), add)
   }
 
@@ -258,21 +365,35 @@ export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHoo
     view = v
     if (v.kind === 'list') listView()
     else if (v.kind === 'detail') detailView(v.id)
+    else if (v.kind === 'mac') macView(v.label)
   }
 
   // Runs move along while the window is open; the form is never redrawn under the cursor.
   let seen = state.routines
+  let seenJobs = state.macJobs
   const off = state.onChange(() => {
-    if (stopped || state.routines === seen) return
+    if (stopped || (state.routines === seen && state.macJobs === seenJobs)) return
     seen = state.routines
-    if (view.kind !== 'edit') keepFocus(content, () => show(view))
+    seenJobs = state.macJobs
+    // the log tail would reload on every minute's read: the job view redraws on demand only
+    if (view.kind === 'list' || view.kind === 'detail') keepFocus(content, () => show(view))
   })
   const ticker = setInterval(() => {
     for (const span of content.querySelectorAll<HTMLElement>('[data-next]')) {
       const r = state.routines.find((x) => x.id === span.dataset.next)
       if (r) span.textContent = nextText(r)
     }
+    for (const span of content.querySelectorAll<HTMLElement>('[data-mac-next]')) {
+      const j = state.macJobs.find((x) => x.label === span.dataset.macNext)
+      if (j) span.textContent = macNextText(j)
+    }
   }, 1000)
+  // the minute's read may be up to 60 s old: read the Mac's jobs again on opening
+  void window.office.listMacJobs().then((jobs) => {
+    if (stopped) return
+    state.macJobs = jobs
+    if (view.kind === 'list') keepFocus(content, () => show(view))
+  }, () => undefined)
 
   show({ kind: 'list' })
   root.append(el)
