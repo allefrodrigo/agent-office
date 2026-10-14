@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import type { Look } from '@shared/types'
+import type { EffortLevel, Look } from '@shared/types'
+import { Aura } from './aura'
 import { patchTexture } from './brand'
 import { blob, box, mat, panel } from './kit'
 import { disposeTree, shared } from './dispose'
@@ -56,6 +57,8 @@ export class Avatar {
   /** The Sims-style diamond over the head, tinted with the agent's account color. */
   private gem: THREE.Mesh | null = null
   private gemOn = false
+  /** Effort aura, built on first use. */
+  private aura: Aura | null = null
 
   pose: Pose = 'stand'
   prop: Prop = 'none'
@@ -248,6 +251,16 @@ export class Avatar {
     m.emissive.set(color).multiplyScalar(0.35)
   }
 
+  /** Aura in the color of the effort level (missing hides it); flares while `working`. */
+  setAura(effort: EffortLevel | undefined, working: boolean): void {
+    if (!effort && !this.aura) return
+    if (!this.aura) {
+      this.aura = new Aura(this.id)
+      this.root.add(this.aura.group)
+    }
+    this.aura.set(effort, working)
+  }
+
   setProp(prop: Prop, force = false): void {
     if (prop === this.prop && !force) return
     this.prop = prop
@@ -400,6 +413,7 @@ export class Avatar {
       this.gem.position.y = GEM_Y + Math.sin(this.t * 2.4) * 0.03 + this.body.position.y
     }
     this.animate()
+    this.aura?.update(this.t, this.body.position.y, this.downT < 0)
   }
 
   private animate(): void {

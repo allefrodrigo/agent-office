@@ -1,12 +1,14 @@
 import { execFile } from 'node:child_process'
-import { createReadStream, existsSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { createReadStream, existsSync, readdirSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve as resolvePath } from 'node:path'
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSessions, listSubagents, type SessionMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { LogEntry, SessionEntry, SubagentInfo } from '@shared/types'
+import type { LogEntry, OpenTerminalResult, SessionEntry, SubagentInfo } from '@shared/types'
 import { toolDetail } from '@shared/describe'
 import { agentCallsFromTranscript, SUB_DONE_KEEP, subagentStep } from './subagent-log'
 import { findClaude } from './claude-path'
+import { createOpenGuard } from './resume-guard'
+import { launchOnWindows } from './terminal-launch'
 
 /**
  * Resume center: recent Claude Code sessions saved on this machine
@@ -126,18 +128,29 @@ export async function subagentLogs(sessionId: string, parent: SessionMessage[], 
   )
 }
 
-/** Opens a new Terminal window running `claude --resume <id>` in the session's folder (macOS). */
-export function openInTerminal(sessionId: string, cwd: string): Promise<{ ok: boolean; message?: string }> {
+// One terminal per click burst (throttle of 1.5 s), see resume-guard.ts.
+const guardOpen = createOpenGuard()
+
+/**
+ * Runs `claude --resume <id>` in the session's folder: a new Terminal window on
+ * macOS; a Windows Terminal tab or a console window of its own on Windows.
+ * `cwd` comes from ~/.claude, so it is untrusted: absolute, existing, no control
+ * characters; on Windows only a .exe runs (a .cmd/.ps1 would need a shell).
+ */
+export function openInTerminal(sessionId: string, cwd: string): Promise<OpenTerminalResult> {
   if (!isSessionId(sessionId)) return Promise.resolve({ ok: false, message: 'ID de sessão inválido.' })
-  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) return Promise.resolve({ ok: false, message: `A pasta ${cwd} não existe mais.` })
-  if (process.platform !== 'darwin') return Promise.resolve({ ok: false, message: 'Abrir no terminal ainda só funciona no Mac. Use "Copiar comando".' })
+  const guard = guardOpen(cwd, process.platform, findClaude)
+  if (!guard.ok) return Promise.resolve(guard)
+
+  if (process.platform === 'win32' && guard.exe) return launchOnWindows(resolvePath(cwd), guard.exe, sessionId)
+  if (process.platform !== 'darwin') return Promise.resolve({ ok: false, message: 'Abrir no terminal funciona no Mac e no Windows. Use "Copiar comando".' })
   // A .command file opens in Terminal without needing Automation permission.
   // Paths go in single quotes; the session id is a validated UUID.
   const q = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`
   const file = join(tmpdir(), `agent-office-resume-${sessionId}.command`)
   writeFileSync(file, `#!/bin/zsh -l\ncd -- ${q(cwd)} && exec ${q(findClaude() ?? 'claude')} --resume ${sessionId}\n`, { mode: 0o700 })
   return new Promise((resolve) => {
-    execFile('open', ['-a', 'Terminal', file], (err) => resolve(err ? { ok: false, message: err.message } : { ok: true }))
+    execFile('open', ['-a', 'Terminal', file], (err) => resolve(err ? { ok: false, message: err.message } : { ok: true, via: 'terminal-app' }))
   })
 }
 

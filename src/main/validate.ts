@@ -4,12 +4,14 @@ import { z } from 'zod'
 import { ATTACH_LIMITS } from '@shared/attachments'
 import { HAIR_STYLES } from '@shared/describe'
 import { floorNameFor, MAX_PROJECT_FLOORS } from '@shared/projects'
+import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
-import { EFFORT_LEVELS } from '@shared/types'
+import { EFFORT_LEVELS, ROUTINE_LIMITS } from '@shared/types'
 import type { VideoSettings } from '@shared/video'
 import type {
   Account,
   AgentBrain,
+  AgentSummary,
   AttachmentInput,
   DelegateTarget,
   EffortLevel,
@@ -18,6 +20,9 @@ import type {
   OfficePermissionMode,
   PermissionDecision,
   ProjectFloor,
+  RoutineDraft,
+  RoutineWho,
+  Schedule,
   Settings,
   TicketDraft,
   TicketPatch,
@@ -336,4 +341,94 @@ export function cleanSettings(raw: unknown, current: Settings): Settings {
   if (Object.hasOwn(patch, 'projects')) next.projects = cleanProjects(patch.projects, current.projects)
   if (Object.hasOwn(patch, 'video')) next.video = cleanVideo(patch.video, current.video)
   return next
+}
+
+// ---------- routines ----------
+
+const hhmmSchema = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+/** Shape only: schedule.ts says what is wrong with the values, in words the form shows. */
+export const scheduleSchema: z.ZodType<Schedule> = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('once'), at: z.string().max(20) }),
+  z.object({ kind: z.literal('daily'), time: hhmmSchema }),
+  z.object({ kind: z.literal('weekly'), days: z.array(z.number().int().min(0).max(6)).max(7), time: hhmmSchema }),
+  z.object({
+    kind: z.literal('interval'),
+    every: z.number().int().min(1).max(10_080),
+    unit: z.enum(['minutes', 'hours']),
+    anchor: z.number().int().min(0).max(8_640_000_000_000).optional(),
+  }),
+  z.object({ kind: z.literal('cron'), expr: z.string().max(200) }),
+])
+
+const routineWhoSchema: z.ZodType<RoutineWho> = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('new'),
+    name: z.string().max(40).optional(),
+    model: z.union([z.literal(''), z.string().regex(MODEL_RE)]).optional(),
+    effort: z.enum(EFFORT_LEVELS as [EffortLevel, ...EffortLevel[]]).optional(),
+  }),
+  z.object({ kind: z.literal('template'), templateId: idSchema }),
+  z.object({ kind: z.literal('agent'), agentId: idSchema }),
+])
+
+export const routineDraftSchema = z.object({
+  id: z.string().regex(/^[\w-]{1,64}$/).optional(),
+  name: z.string().max(2000),
+  prompt: z.string().max(ROUTINE_LIMITS.prompt),
+  who: routineWhoSchema,
+  cwd: pathSchema.optional(),
+  floor: z.string().min(1).max(40).optional(),
+  permissionMode: permissionModeSchema.optional(),
+  schedule: scheduleSchema,
+  enabled: z.boolean().optional(),
+  missed: z.enum(['run', 'skip']).optional(),
+})
+
+/** A routine draft that passed every check: one place to run (cwd, or the floor's), defaults filled. */
+export type CleanRoutineDraft = Required<Pick<RoutineDraft, 'name' | 'prompt' | 'who' | 'permissionMode' | 'schedule' | 'enabled' | 'missed'>> & Pick<RoutineDraft, 'id' | 'cwd' | 'floor'>
+
+/**
+ * A routine from the renderer. Throws a message the form can show: a name, a task, a
+ * schedule that runs, a runner that exists and a folder or floor for agents it hires.
+ * Nothing says "Sem pedir nada" unless the form sent it (the default is "Pedir permissão").
+ */
+export function cleanRoutineDraft(raw: unknown, ctx: { settings: Pick<Settings, 'projects' | 'templates'>; agents: AgentSummary[]; now?: number }): CleanRoutineDraft {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const name = typeof r.name === 'string' ? r.name.trim() : ''
+  if (!name || name.length > ROUTINE_LIMITS.name) throw new Error(`Dê um nome à rotina (até ${ROUTINE_LIMITS.name} letras).`)
+  const d = parse(routineDraftSchema, raw, 'Rotina inválida. Feche e abra o formulário de novo.')
+  const who = d.who
+  const prompt = d.prompt.trim()
+  const template = who.kind === 'template' ? ctx.settings.templates.find((t) => t.id === who.templateId) : undefined
+  if (who.kind === 'template' && !template) throw new Error('Esse modelo salvo não existe mais. Escolha outro.')
+  if (!prompt && !template?.instruction) throw new Error('Descreva a tarefa da rotina.')
+  const problem = scheduleError(d.schedule)
+  if (problem) throw new Error(problem)
+  const schedule: Schedule = d.schedule.kind === 'interval' ? { ...d.schedule, anchor: d.schedule.anchor ?? Math.floor((ctx.now ?? Date.now()) / 60_000) * 60_000 } : d.schedule
+  if (schedule.kind === 'weekly') schedule.days = [...new Set(schedule.days)].sort((a, b) => a - b)
+  if (schedule.kind === 'cron') schedule.expr = schedule.expr.trim().replace(/\s+/g, ' ')
+
+  const out: CleanRoutineDraft = {
+    ...(d.id ? { id: d.id } : {}),
+    name,
+    prompt,
+    who: who.kind === 'new' ? { kind: 'new', ...(who.name?.trim() ? { name: who.name.trim() } : {}), ...(who.model ? { model: who.model } : {}), ...(who.effort ? { effort: who.effort } : {}) } : who,
+    permissionMode: d.permissionMode ?? 'default',
+    schedule,
+    enabled: d.enabled ?? true,
+    missed: d.missed ?? 'run',
+  }
+  if (who.kind === 'agent') {
+    const a = ctx.agents.find((x) => x.id === who.agentId)
+    if (!a) throw new Error('Esse agente não está mais no escritório. Escolha outro.')
+    if (a.source !== 'office') throw new Error('Sessões do terminal não recebem tarefas do escritório. Escolha um agente do escritório.')
+    if (a.role === 'orchestrator') throw new Error(`${a.name} só roda o ciclo do squad. Escolha outro agente.`)
+    return out
+  }
+  if (d.floor) {
+    if (!ctx.settings.projects.some((p) => p.id === d.floor)) throw new Error('Esse andar não existe mais. Escolha outro.')
+    return { ...out, floor: d.floor }
+  }
+  if (!d.cwd || !isAbsolute(d.cwd) || !isDir(d.cwd)) throw new Error('Escolha a pasta (ou o andar) onde a rotina roda.')
+  return { ...out, cwd: d.cwd }
 }

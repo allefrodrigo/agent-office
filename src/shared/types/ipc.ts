@@ -6,6 +6,7 @@ import type { AgentResult, AttachmentInput, LogEntry, PermissionDecision, Permis
 import type { Ledger, LedgerQuery, LedgerToday } from './ledger'
 import type { BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
 import type { SquadInfo } from './squads'
+import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
@@ -16,8 +17,22 @@ export interface SystemStats {
   memTotal: number
   /** This app (the office itself). */
   app: { cpu: number; mem: number }
-  /** Every Claude Code process: office agents and terminal sessions. cpu is null where unknown (Windows). */
+  /**
+   * Claude Code processes: office agents and terminal sessions. On Windows the
+   * Claude Desktop app (also claude.exe) is left out. cpu is null until two
+   * samples exist, or where it cannot be measured.
+   */
   claude: { count: number; cpu: number | null; mem: number }
+}
+
+/** How "Open in terminal" opened the session (set only when ok). */
+export type TerminalVia = 'terminal-app' | 'windows-terminal' | 'console'
+
+export interface OpenTerminalResult {
+  ok: boolean
+  /** Error for the user (pt-BR) when ok is false. */
+  message?: string
+  via?: TerminalVia
 }
 
 export interface OfficeState {
@@ -40,6 +55,10 @@ export interface OfficeState {
   dataNotices: DataNotice[]
   /** The Mac (or PC) runs on battery now; the scene may switch to Economia. */
   onBattery: boolean
+  /** Scheduled tasks, shown on the ground floor totem. */
+  routines: Routine[]
+  /** Jobs the Mac schedules itself (launchd), shown beside the routines. Empty off macOS. */
+  macJobs: MacJob[]
   /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
   forceTour?: boolean
 }
@@ -103,6 +122,10 @@ export type OfficeEvent =
   | { type: 'update'; update: UpdateStatus }
   /** The charger was plugged in or pulled out. */
   | { type: 'power'; onBattery: boolean }
+  /** A routine changed, ran or finished: the whole list. */
+  | { type: 'routines'; routines: Routine[] }
+  /** The Mac's own scheduled jobs changed (read every minute). */
+  | { type: 'macJobs'; jobs: MacJob[] }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -163,8 +186,8 @@ export interface OfficeAPI {
   listSessions(): Promise<SessionEntry[]>
   /** Brings a saved session back to the office as an agent. */
   recall(sessionId: string): Promise<AgentSummary>
-  /** Opens a terminal window running `claude --resume` for the session (macOS). */
-  openInTerminal(sessionId: string): Promise<{ ok: boolean; message?: string }>
+  /** Opens `claude --resume` for the session in a terminal (macOS Terminal; Windows Terminal or a console window). */
+  openInTerminal(sessionId: string): Promise<OpenTerminalResult>
   /** Stops the claude process behind a terminal agent. */
   closeTerminal(agentId: string): Promise<{ ok: boolean; message?: string }>
   respond(decision: PermissionDecision): Promise<void>
@@ -236,5 +259,23 @@ export interface OfficeAPI {
    * refuses while agents work or permissions wait, and says how many.
    */
   installUpdate(force?: boolean): Promise<UpdateInstallResult>
+  listRoutines(): Promise<Routine[]>
+  /** Creates (no id) or replaces a routine; throws a message for the form when something is off. */
+  saveRoutine(draft: RoutineDraft): Promise<Routine>
+  deleteRoutine(id: string): Promise<void>
+  /** Pause (false) or resume (true); resuming counts from now. */
+  setRoutineEnabled(id: string, enabled: boolean): Promise<Routine>
+  /** A paused copy, without history. */
+  duplicateRoutine(id: string): Promise<Routine>
+  /** One run now, outside the schedule. */
+  runRoutineNow(id: string): Promise<Routine>
+  /** Reads the Mac's scheduled jobs again. */
+  listMacJobs(): Promise<MacJob[]>
+  /** Starts a Mac job now (launchctl kickstart); launchd still owns it. */
+  runMacJobNow(label: string): Promise<MacJob[]>
+  /** The last lines of a Mac job's log. */
+  macJobLog(label: string): Promise<string>
+  /** Opens a Mac job's log in the default app. */
+  openMacJobLog(label: string): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

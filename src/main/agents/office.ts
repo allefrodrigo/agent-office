@@ -167,6 +167,42 @@ export abstract class AgentOffice extends AgentBase {
     return summary
   }
 
+  /** Demo mode: an office agent with no session behind it; demo.ts plays its runs (routines). */
+  demoAgent(name: string, cwd: string): AgentSummary {
+    const id = randomUUID()
+    const summary: AgentSummary = {
+      id,
+      name,
+      source: 'office',
+      cwd,
+      permissionMode: 'default',
+      status: 'idle',
+      activity: 'Aguardando instruções',
+      ...this.seat(cwd),
+      look: lookFromSeed(`demo:${name}`),
+      costUsd: 0,
+      createdAt: Date.now(),
+    }
+    const agent: Agent = { summary, log: [], started: true, demo: true }
+    this.agents.set(id, agent)
+    this.upsert(agent)
+    return summary
+  }
+
+  /**
+   * A routine's own agent before its next run: freedom and brain as the routine says now.
+   * They count from the next start of the CLI (the routine clears the context first).
+   */
+  configure(id: string, patch: { permissionMode?: OfficePermissionMode; model?: string; effort?: AgentBrain['effort'] }): void {
+    const agent = this.agents.get(id)
+    if (!agent || agent.summary.source !== 'office' || this.busy(agent)) return
+    const s = agent.summary
+    if (patch.permissionMode) s.permissionMode = patch.permissionMode
+    if ('model' in patch) s.model = patch.model || undefined
+    if ('effort' in patch) s.effort = patch.effort || undefined
+    this.upsert(agent)
+  }
+
   /** Demo mode: moves a simulated cycle along. */
   demoStep(agentId: string, step: SquadProgress | undefined, status: AgentStatus, activity: string): void {
     const agent = this.agents.get(agentId)

@@ -164,6 +164,7 @@ const LABELS: Record<string, string> = {
   'office.json': 'agentes, configurações e gastos',
   'tickets.json': 'quadro de tickets',
   'tickets-closed.json': 'arquivo de tickets fechados',
+  'routines.json': 'rotinas',
 }
 
 /** The warning the renderer shows for a restored or lost file; null when there is nothing to say. */

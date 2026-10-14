@@ -154,6 +154,12 @@ Terminou? O agente entrega o relatório e vai relaxar: sofás, pufes, pebolim, f
 - **Lounge**: agentes livres sentam nos sofás e pufes ou jogam pebolim, fliperama e pingue-pongue.
 - **Conversar**: clique no agente para abrir o painel com o log ao vivo e mandar novas instruções. A sessão continua de onde parou, inclusive depois de reiniciar o app.
 - **Caveira**: no armário ao lado da sua sala. Clique nela, escolha um agente na lista e confirme. A câmera vai até ele, em qualquer andar, a caveira o derruba e a sessão é encerrada: um agente contratado sai do escritório; o `claude` de um agente do terminal fecha (a conversa fica salva para `claude --resume`).
+- **Rotinas** (o totem do lado de fora da sua sala): tarefas que um agente roda sozinho num horário, como "todo dia às 9h, um resumo do repositório". A tela do totem mostra o contador da próxima (ou "!" quando uma espera você), o balão diz qual é ("Relatório diário · em 2h14") e o LED resume tudo: verde tudo certo, amarelo alguma esperando você, vermelho a última execução de alguma falhou, cinza nenhuma rotina. Clique no totem para criar, editar, pausar, rodar agora, duplicar ou apagar, e para ver o histórico das últimas 20 execuções com link para o resultado e para o agente.
+  - **Agenda**: uma vez, todo dia, dias da semana, a cada N horas ou minutos (mínimo 15) ou uma expressão cron de 5 campos, sempre no fuso do computador. O formulário mostra a frase ("Roda de segunda a sexta às 09:00") e as próximas 3 execuções; um cron inválido diz o que corrigir.
+  - **Quem roda**: um agente novo ou um modelo salvo, contratado na primeira execução e reaproveitado nas seguintes, cada vez com a conversa limpa; ou um agente que já está no escritório, que recebe a tarefa na conversa atual dele. Agente ocupado na hora: a execução é pulada, nunca interrompida. A permissão padrão é "Pedir permissão"; o teto de custo por agente e o revezamento de contas valem como em qualquer tarefa.
+  - **Execução**: a tarefa chega com o cabeçalho `Rotina "X" · execução de <data>`, e o resultado vem até a sua sala como qualquer outro. Um pedido de permissão deixa a execução "esperando você". Duas execuções da mesma rotina nunca rodam juntas: se a anterior ainda roda, a nova fica registrada como pulada.
+  - **App fechado ou Mac dormindo no horário**: cada rotina escolhe entre rodar uma vez ao abrir (ou ao acordar) e pular, registrando a execução como perdida. Quando uma rotina falha ou fica esperando você, chega uma notificação do sistema.
+  - Ficam em `userData/routines.json`, com o mesmo cuidado dos outros arquivos (gravação atômica, arquivo corrompido guardado à parte, backup diário). Rotinas importadas de outra máquina chegam pausadas e nunca no modo "Sem pedir nada".
 - **Sessões do terminal**: em Configurações → "Conectar", cada `claude` aberto no terminal também aparece no escritório, e os pedidos de permissão dele chegam até você no app. Se a ponte parar, um ponto âmbar aparece na engrenagem, que abre Configurações direto nessa seção.
 
 Controles: clique no chão para andar, WASD ou setas, arraste com o botão direito para mover a câmera, roda do mouse para zoom. O botão da casinha leva você de volta à sua cadeira. Tecla `?` lista todos os atalhos.
@@ -233,7 +239,7 @@ git clone https://github.com/allefrodrigo/agent-office.git
 cd agent-office
 npm install
 npm run dev      # abre o app
-npm run demo     # agentes simulados, sem gastar tokens
+npm run demo     # agentes e rotinas simulados, sem gastar tokens
 ```
 
 </td>
@@ -353,14 +359,19 @@ src/
     session-process.ts  descobre o PID do claude de cada sessão do terminal (pela conexão do hook) e o encerra
     squads.ts           squads do Opensquad: lê squad.yaml e o pipeline, monta o orquestrador e fecha a equipe
     store.ts            persistência (userData/office.json)
+    routines/           rotinas agendadas: store.ts grava userData/routines.json; scheduler.ts tem um
+                        timer para a próxima execução de todas, trata as perdidas ao abrir e ao acordar
+                        (powerMonitor 'resume'), entrega a tarefa ao agente e acompanha a execução
+                        pelos eventos do AgentManager (resultado, permissão, agente dispensado)
     env.ts              carrega o PATH do shell de login (apps abertos pelo Finder não têm)
-    demo.ts             agentes simulados (npm run demo)
+    demo.ts             agentes e 3 rotinas simulados (npm run demo); as rotinas demo não são gravadas
     index.ts            janela, notificações, badge do Dock; monta o contexto dos handlers IPC
     ipc/                handlers IPC por área (estado, contas, agentes, worktrees, sessões,
-                        configurações, tickets, squads); cada argumento passa por validate.ts
+                        configurações, tickets, squads, rotinas); cada argumento passa por validate.ts
     dev-hooks.ts        capturas (AGENT_OFFICE_SHOTS), teclas, bench, seed e falhas forçadas
   preload/index.ts      expõe window.office (API tipada em shared/types/ipc.ts)
-  shared/               tipos e textos compartilhados
+  shared/               tipos e textos compartilhados; schedule.ts lê as agendas (presets e cron),
+                        calcula a próxima execução e escreve a frase; routines.ts resume o LED e a tela do totem
   renderer/src/
     world/              three.js
       engine.ts         câmera ortográfica 2:1, luz, sombras, RenderPixelatedPass (o visual pixel art)
@@ -373,11 +384,13 @@ src/
       pathfinding.ts    A* em 8 direções com paredes finas
       overlays.ts       crachás com nome e balões de fala (HTML sobre o canvas)
       skull.ts          caveira em voxel (a do armário e a que cai sobre o agente)
+      totem.ts          totem das rotinas: tela em canvas redesenhada só quando muda, e o LED
       effects.ts        golpe da caveira, fumaça, faíscas, fantasma e efeitos sonoros
     game/               comportamento: status do agente -> onde ele vai e o que faz
                         (cada parte estende a anterior: base, floors, boards, actors, lounge,
                         deliveries, subagents, squads, skull, movement, input; index.ts monta o Game)
     ui/                 HUD, painel do agente, cartões de permissão/resultado, modais
+                        (ui/routines/: a janela do totem e o formulário da rotina)
     styles/             CSS, um arquivo por componente; index.css importa na ordem da cascata,
                         tokens.css tem as cores e fontes
 ```
@@ -417,15 +430,24 @@ Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem pon
 <details>
 <summary><b>Notas do porte para Windows</b></summary>
 
-O código é o mesmo; o que falta validar:
+O código é o mesmo, com ramificações por `process.platform`. O porte veio do squad `windows-primeira-classe` e passa nos testes unitários, mas **ainda não rodou num Windows de verdade**.
 
-1. `npm install && npm run dev` no Windows. Para o demo no PowerShell: `$env:AGENT_OFFICE_DEMO=1; npm run dev`.
-2. `claude-path.ts`: confirmar onde o instalador nativo coloca o `claude.exe` (hoje procura no `PATH`, `%USERPROFILE%\.local\bin`, `%LOCALAPPDATA%\Programs\claude`, `%APPDATA%\npm`).
-3. Badge de pendências: `app.setBadgeCount` não funciona no Windows; usar `win.setOverlayIcon` em `index.ts` (`updateBadge`).
-4. Barra de título: no Mac usamos `hiddenInset`; no Windows fica a moldura padrão. Avaliar `titleBarOverlay`.
-5. `npm run dist:win` gera o instalador NSIS (precisa rodar no Windows).
-6. Hooks HTTP são multiplataforma, a ponte do terminal deve funcionar sem mudanças.
-7. "Fechar sessão" de um agente do terminal: no Windows o PID vem do `netstat -ano` e a checagem do `tasklist` (`session-process.ts`). Testar, porque o Windows não tem SIGHUP e o `SIGTERM` vira encerramento forçado.
+**Já no código**
+
+- `npm run demo` funciona no zsh, no PowerShell e no CMD (`scripts/demo.mjs`).
+- `claude-path.ts` acha o `claude.exe` das instalações nativa, npm global e WinGet, e procura de novo se não achar. Sem Claude Code, o agente entrega o instalador do PowerShell.
+- Pendências na barra de tarefas: overlay com o número (`win.setOverlayIcon`, imagem gerada em `badge.ts`) e `flashFrame` quando chega permissão ou resultado com a janela sem foco.
+- Central de resume: "Abrir no terminal" abre uma aba do Windows Terminal ou um console próprio (`terminal-launch.ts`, sem shell). "Copiar comando" gera o comando do PowerShell (`shared/commands.ts`).
+- Card Sistema: conta só o Claude Code, sem o app Claude Desktop, e mede a CPU dos agentes (`win-processes.ts`).
+- Textos do sistema certo: "Mostrar no Explorador", "Gerenciador de Tarefas" (`ui/os-text.ts`).
+- "Fechar sessão" confere nome, caminho e horário de criação do PID antes de encerrar. No Windows o encerramento é na hora, e a confirmação avisa ([docs/adr/0005](docs/adr/0005-encerramento-imediato-de-sessao-no-windows.md)).
+
+**Ficou de fora do porte**
+
+- Barra de título integrada (`titleBarOverlay`): o CSS do squad mirava o HUD antigo. O Windows segue com a moldura padrão.
+- Instaladores separados x64/arm64: mudariam o nome do arquivo que o auto-update lê hoje.
+
+**Falta testar no Windows**: overlay e piscar com o app minimizado, Narrador, aba real do Windows Terminal, custo de CPU no Gerenciador de Tarefas e "Fechar sessão" com a ponte conectada.
 
 </details>
 

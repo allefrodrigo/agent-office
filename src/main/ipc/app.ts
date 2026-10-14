@@ -23,7 +23,7 @@ async function radioVideo(): Promise<string> {
 
 /** State, log and diagnostics, clipboard and export, links and the folder picker. */
 export function registerAppIpc(ctx: IpcContext): void {
-  const { win, store, manager, board, book, bridge, usage, accounts, system, stats, squads, onBattery } = ctx
+  const { win, store, manager, board, book, bridge, usage, accounts, system, stats, squads, onBattery, routines, macJobs } = ctx
   ipcMain.on('office:rendererError', (e, payload: unknown) => {
     if (e.sender === win()?.webContents) rendererError(payload)
   })
@@ -53,6 +53,8 @@ export function registerAppIpc(ctx: IpcContext): void {
     ledgerToday: book.today(),
     dataNotices: dataNotices(),
     onBattery: onBattery(),
+    routines: routines.list(),
+    macJobs: macJobs.list(),
     forceTour: process.env.AGENT_OFFICE_TOUR === '1',
   }))
   ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))

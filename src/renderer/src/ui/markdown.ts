@@ -29,7 +29,7 @@ export function renderMarkdown(md: string): HTMLDivElement {
   div.className = 'md'
   // Defense in depth: sanitize the rendered HTML even though raw HTML is already escaped.
   div.innerHTML = DOMPurify.sanitize(marked.parse(md, { async: false }) as string, { ADD_ATTR: ['data-href'] })
-  for (const pre of div.querySelectorAll('pre')) pre.replaceWith(copyable(pre))
+  for (const pre of div.querySelectorAll('pre')) copyable(pre)
   div.addEventListener('click', (e) => {
     const a = (e.target as HTMLElement).closest('a[data-href]')
     if (!a) return
@@ -39,8 +39,8 @@ export function renderMarkdown(md: string): HTMLDivElement {
   return div
 }
 
-/** A code block with a copy button in its corner; the icon turns into a check for a moment. */
-function copyable(pre: HTMLPreElement): HTMLDivElement {
+/** Wraps a code block in place with a copy button in its corner; the icon turns into a check for a moment. */
+function copyable(pre: HTMLPreElement): void {
   const wrap = document.createElement('div')
   wrap.className = 'md-code'
   const btn = document.createElement('button')
@@ -65,6 +65,8 @@ function copyable(pre: HTMLPreElement): HTMLDivElement {
       () => (btn.title = 'Não consegui copiar. Selecione o texto e use ⌘C.'),
     )
   })
+  // The wrapper takes the block's place before the block moves in: moving it first leaves
+  // nothing to replace, and replaceWith throws, which kept result cards from opening.
+  pre.replaceWith(wrap)
   wrap.append(pre, btn)
-  return wrap
 }

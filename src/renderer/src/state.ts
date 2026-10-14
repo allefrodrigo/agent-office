@@ -1,4 +1,4 @@
-import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, LedgerToday, LogEntry, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
+import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, LedgerToday, LogEntry, MacJob, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Routine, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -26,6 +26,10 @@ export class State {
   ledgerToday: LedgerToday
   /** Running on battery (the scene may be in Economia). */
   onBattery: boolean
+  /** Scheduled tasks (the totem on the ground floor). */
+  routines: Routine[]
+  /** The Mac's own scheduled jobs (launchd), beside the routines. */
+  macJobs: MacJob[]
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
   private subLogListeners = new Set<(agentId: string, subId: string, entries: LogEntry[]) => void>()
@@ -44,6 +48,8 @@ export class State {
     this.squads = initial.squads
     this.ledgerToday = initial.ledgerToday ?? { day: '', costByCwd: {}, agents: {} }
     this.onBattery = initial.onBattery ?? false
+    this.routines = initial.routines ?? []
+    this.macJobs = initial.macJobs ?? []
   }
 
   onChange(cb: Listener): () => void {
@@ -142,6 +148,12 @@ export class State {
         break
       case 'ledger:today':
         this.ledgerToday = e.today
+        break
+      case 'routines':
+        this.routines = e.routines
+        break
+      case 'macJobs':
+        this.macJobs = e.jobs
         break
     }
     this.changed()

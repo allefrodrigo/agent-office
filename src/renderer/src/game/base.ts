@@ -8,7 +8,8 @@ import { buildOffice, type GroundFloor, type Office } from '../world/office'
 import { Overlays, Tag } from '../world/overlays'
 import { Effects } from '../world/effects'
 import { FACE_CAMERA, skeleton } from '../world/skull'
-import { center, OVERFLOW_TILES, SKULL_HOME, tileOf, type Actor, type GameHooks, type Helper, type Member, type Upper } from './types'
+import { totem, type Totem } from '../world/totem'
+import { center, OVERFLOW_TILES, SKULL_HOME, TOTEM_TILE, tileOf, type Actor, type GameHooks, type Helper, type Member, type Upper } from './types'
 
 /**
  * State shared by every part of the office (game/*.ts), the floor lookups and the
@@ -46,6 +47,10 @@ export abstract class GameBase {
   protected wheelAcc = 0
   protected effects: Effects
   protected skull: { root: THREE.Group; tag: Tag; eyes: THREE.MeshBasicMaterial }
+  /** The routines totem by the boss office and its "Rotinas" tag. */
+  protected totem: { view: Totem; tag: Tag }
+  /** Seconds until the totem's text is worked out again (at most once a second). */
+  protected totemIn = 0
   /** Agents picked at the skull, waiting for the camera (or the elevator) before the strike. */
   protected doomed = new Map<string, { at: number; done: () => void }>()
   /** performance.now() until which the scene draws at full rate even if nothing walks (input, events). */
@@ -106,6 +111,16 @@ export abstract class GameBase {
     const skullTag = this.overlays.add(new Tag(skullAnchor, 'Caveira', false, () => hooks.onSkull()))
     skullTag.setDot('skull')
     this.skull = { root: sk.group, tag: skullTag, eyes: sk.eyes }
+
+    // the routines totem outside the boss office: next routine, countdown and a status LED
+    const tt = totem()
+    tt.group.position.set(TOTEM_TILE[0] + 0.6, 0, TOTEM_TILE[1] + 0.5)
+    tt.group.rotation.y = FACE_CAMERA
+    this.office.group.add(tt.group)
+    const totemTag = this.overlays.add(new Tag(tt.anchor, 'Rotinas', false, () => hooks.onRoutines()))
+    totemTag.el.classList.add('tag-totem')
+    totemTag.setDot('routine-none')
+    this.totem = { view: tt, tag: totemTag }
 
     // the player's own computer calls a new agent
     const pc = new THREE.Object3D()
