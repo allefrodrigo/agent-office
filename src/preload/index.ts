@@ -70,6 +70,12 @@ const api: OfficeAPI = {
   updateStatus: () => ipcRenderer.invoke('office:updateStatus'),
   checkForUpdates: () => ipcRenderer.invoke('office:checkForUpdates'),
   installUpdate: (force) => ipcRenderer.invoke('office:installUpdate', force === true),
+  listRoutines: () => ipcRenderer.invoke('office:listRoutines'),
+  saveRoutine: (draft) => ipcRenderer.invoke('office:saveRoutine', draft),
+  deleteRoutine: (id) => ipcRenderer.invoke('office:deleteRoutine', id),
+  setRoutineEnabled: (id, enabled) => ipcRenderer.invoke('office:setRoutineEnabled', id, enabled),
+  duplicateRoutine: (id) => ipcRenderer.invoke('office:duplicateRoutine', id),
+  runRoutineNow: (id) => ipcRenderer.invoke('office:runRoutineNow', id),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

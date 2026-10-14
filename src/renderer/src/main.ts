@@ -11,6 +11,7 @@ import type { DataNotice, ProjectFloor } from '@shared/types'
 import { DEFAULT_VIDEO, effectiveVideo, frameInterval } from '@shared/video'
 import { openAccounts } from './ui/accounts'
 import { openSkull } from './ui/skull'
+import { openRoutines } from './ui/routines'
 import { openReports } from './ui/reports'
 import { copyReport, exportConversation } from './ui/export'
 import { showDataNotice } from './ui/data'
@@ -169,6 +170,19 @@ async function boot(): Promise<void> {
     onRunSquad: (project) => hireSquad(project),
     onFloor: (n) => hud.setFloors(game.floors, n),
     onTv: () => void radio.toggle(),
+    onRoutines: () =>
+      openRoutines(ui, state, {
+        toast,
+        openAgent: (id) => {
+          panel.open(id)
+          game.focusAgent(id)
+        },
+        openResult: (agentId, resultId) => {
+          game.focusAgent(agentId)
+          openItem(agentId, resultId)
+        },
+        project: () => game.currentProject,
+      }),
   })
 
   const hud = new Hud(ui, state, {

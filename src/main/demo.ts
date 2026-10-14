@@ -1,6 +1,9 @@
-import type { SquadProgress } from '@shared/types'
+import { randomUUID } from 'node:crypto'
+import { nextRun } from '@shared/schedule'
+import type { Routine, RoutineRun, Schedule, SquadProgress } from '@shared/types'
 import type { AgentManager } from './agents'
 import { permissionFromTool } from './agents'
+import type { RoutineScheduler } from './routines'
 import type { SquadDefinition } from './squads'
 import type { Store } from './store'
 
@@ -89,6 +92,72 @@ Sua orientação: ${d.message}` : ''}`)
 - Rodei os testes: 42 passaram.`), 2500)
     })
   }, 2500)
+}
+
+/**
+ * Demo routines, one per status the totem shows: a daily report that ran fine, a weekly
+ * check whose last run failed, and a triage that starts now and stops to ask you
+ * (yellow LED). Their agents are simulated and nothing is saved.
+ */
+export function startRoutineDemo(manager: AgentManager, routines: RoutineScheduler): void {
+  routines.demoSend = (agentId, text) => {
+    manager.terminalPrompt(agentId, text)
+    simulateRun(manager, agentId, text)
+  }
+  const now = Date.now()
+  const DAY = 86_400_000
+  // days back to the last Monday before today
+  const lastMonday = ((new Date(now).getDay() + 6) % 7) || 7
+  const rita = manager.demoAgent('Rita', '/Users/demo/relatorios')
+  const otto = manager.demoAgent('Otto', '/Users/demo/loja')
+  const vera = manager.demoAgent('Vera', '/Users/demo/suporte')
+  /** A past run at hh:mm, `daysAgo` days back (0 = today, a few minutes back when that time has not come yet). */
+  const ran = (daysAgo: number, hhmm: string, agent: { id: string; name: string }, status: RoutineRun['status'], costUsd: number, error?: string): RoutineRun => {
+    const [h, m] = hhmm.split(':').map(Number)
+    const d = new Date(now - daysAgo * DAY)
+    const startedAt = Math.min(now - 10 * 60_000, new Date(d.getFullYear(), d.getMonth(), d.getDate(), h, m).getTime())
+    return { id: randomUUID(), scheduledFor: startedAt, startedAt, endedAt: startedAt + 4 * 60_000, status, costUsd, agentId: agent.id, agentName: agent.name, ...(error ? { error } : {}) }
+  }
+  const routine = (name: string, prompt: string, agent: { id: string }, schedule: Schedule, history: RoutineRun[]): Routine => ({
+    id: randomUUID(),
+    name,
+    prompt,
+    who: { kind: 'agent', agentId: agent.id },
+    permissionMode: 'default',
+    schedule,
+    enabled: true,
+    missed: 'run',
+    createdAt: now - 30 * DAY,
+    updatedAt: now - 30 * DAY,
+    nextAt: nextRun(schedule, now),
+    history,
+  })
+  const triage = routine(
+    'Triagem de tickets',
+    'Leia os tickets novos do quadro, marque prioridade e tipo e diga quais precisam de mim hoje.',
+    vera,
+    { kind: 'interval', every: 2, unit: 'hours', anchor: now - 30 * 60_000 },
+    [ran(0, '00:00', vera, 'ok', 0.12)],
+  )
+  routines.addDemo([
+    routine(
+      'Relatório diário',
+      'Resuma o que mudou no repositório desde ontem: commits, PRs abertos e testes falhando. Entregue em tópicos curtos.',
+      rita,
+      { kind: 'daily', time: '09:00' },
+      [ran(1, '09:00', rita, 'ok', 0.42), ran(2, '09:00', rita, 'ok', 0.38), ran(3, '09:00', rita, 'ok', 0.51)],
+    ),
+    routine(
+      'Revisar dependências',
+      'Liste as dependências desatualizadas ou com falhas de segurança conhecidas (npm outdated, npm audit) e diga quais atualizar primeiro. Não altere arquivos.',
+      otto,
+      { kind: 'weekly', days: [1], time: '10:00' },
+      [ran(lastMonday, '10:00', otto, 'failed', 0.07, 'npm audit não conseguiu falar com o registro: sem rede (falha simulada).'), ran(lastMonday + 7, '10:00', otto, 'ok', 0.21)],
+    ),
+    triage,
+  ])
+  // The triage runs for real (simulated agent): it walks over to ask, and its run waits for you.
+  setTimeout(() => void routines.runNow(triage.id).catch(() => undefined), 4000)
 }
 
 /** Stress mode: 50 agents spread over the ground floor and three project floors. */

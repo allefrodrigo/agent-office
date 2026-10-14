@@ -1,0 +1,403 @@
+/* ---------- Rotinas: the totem's window ---------- */
+
+.backdrop-routines .modal {
+  width: min(680px, calc(100vw - 32px));
+}
+
+.rt-foot {
+  display: contents;
+}
+
+.rt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* the totem's tag: its dot is the LED */
+.dot-routine-ok {
+  background: var(--green);
+  box-shadow: 0 0 0 2px rgba(62, 207, 142, 0.25);
+}
+
+.dot-routine-wait {
+  background: var(--amber);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.dot-routine-fail {
+  background: var(--red);
+}
+
+.dot-routine-none {
+  background: #6b6a7d;
+}
+
+.chip-run {
+  background: rgba(91, 156, 240, 0.16);
+  color: #a8c8ff;
+}
+
+.chip-muted {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+}
+
+/* ---------- list ---------- */
+
+.rt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rt-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.rt-paused {
+  opacity: 0.7;
+}
+
+.rt-item-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rt-item-main:hover,
+.rt-item-main:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.rt-item-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.rt-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+}
+
+.rt-item-when,
+.rt-item-next {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rt-item-next {
+  font-variant-numeric: tabular-nums;
+}
+
+.rt-item-status {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.rt-item-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rt-cost {
+  color: var(--board-amber);
+  font: 12px var(--mono);
+}
+
+.rt-led {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: #6b6a7d;
+}
+
+.rt-led-ok {
+  background: var(--green);
+}
+
+.rt-led-run {
+  background: var(--blue);
+}
+
+.rt-led-wait {
+  background: var(--amber);
+}
+
+.rt-led-fail {
+  background: var(--red);
+}
+
+/* ---------- empty state ---------- */
+
+.rt-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rt-empty-title {
+  font-weight: 650;
+}
+
+.rt-examples {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.rt-example {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 12px;
+  background: rgba(217, 119, 87, 0.06);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rt-example:hover,
+.rt-example:focus-visible {
+  border-color: rgba(217, 119, 87, 0.7);
+}
+
+.rt-example-title {
+  font-weight: 650;
+}
+
+.rt-example-hint {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- one routine ---------- */
+
+.rt-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rt-sentence {
+  font-weight: 600;
+}
+
+.rt-prompt {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.25);
+  font-size: 13px;
+  white-space: pre-wrap;
+  max-height: 140px;
+  overflow-y: auto;
+  user-select: text;
+}
+
+.rt-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rt-run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.rt-run-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rt-run-when {
+  font-variant-numeric: tabular-nums;
+}
+
+.rt-run-meta {
+  color: var(--dim);
+  font-size: 12px;
+}
+
+.rt-run-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rt-run-links {
+  display: flex;
+  gap: 12px;
+}
+
+.rt-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-hi);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.rt-danger {
+  color: var(--red-text);
+}
+
+/* ---------- the form ---------- */
+
+.rt-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.rt-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rt-wrap {
+  flex-wrap: wrap;
+}
+
+.rt-row > select.input {
+  width: auto;
+}
+
+.rt-time {
+  width: 110px;
+}
+
+.rt-date {
+  width: 160px;
+}
+
+.rt-every {
+  width: 80px;
+}
+
+.rt-unit {
+  width: auto;
+}
+
+.rt-cron {
+  font-family: var(--mono);
+}
+
+.rt-days {
+  display: flex;
+  gap: 4px;
+}
+
+.rt-day {
+  position: relative;
+  cursor: pointer;
+}
+
+.rt-day input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  cursor: pointer;
+}
+
+.rt-day span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 38px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.rt-day input:checked + span {
+  border-color: rgba(217, 119, 87, 0.8);
+  background: rgba(217, 119, 87, 0.2);
+  color: var(--text);
+}
+
+.rt-day input:focus-visible + span {
+  box-shadow: 0 0 0 3px rgba(217, 119, 87, 0.35);
+}
+
+.rt-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.rt-next-label {
+  color: var(--dim);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rt-next {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.rt-error {
+  color: var(--red-text);
+  font-size: 13px;
+}
+
+/* the totem's balloon: the routine's name and countdown, wider than an agent's */
+.tag-totem .bubble {
+  max-width: 260px;
+}

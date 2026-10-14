@@ -128,6 +128,8 @@ export function buildOffice(): GroundFloor {
   // ---------- corridor ----------
   place(F.plant('tall', '#e9edf2'), 10.5, 0.5)
   grid.block(10, 0)
+  // the routines totem stands here, against the boss office glass (added by the game; TOTEM_TILE)
+  grid.block(9, 2)
   place(F.art('mountains', 1.0, 0.75), 0.04, 9.9, Math.PI / 2, 1.6)
 
   // ---------- café: counter and fridge on the side wall, tables, the spending board ----------

@@ -5,6 +5,7 @@ import type { AgentManager } from '../agents'
 import type { Bridge } from '../bridge'
 import type { TicketDesk } from '../delegate'
 import type { CostBook } from '../ledger'
+import type { RoutineScheduler } from '../routines'
 import type { StatsReader } from '../stats'
 import type { Store } from '../store'
 import type { SystemMonitor } from '../system'
@@ -21,6 +22,7 @@ export interface IpcContext {
   board: TicketBoard
   book: CostBook
   desk: TicketDesk
+  routines: RoutineScheduler
   bridge: Bridge
   usage: UsageMonitor
   accounts: Accounts

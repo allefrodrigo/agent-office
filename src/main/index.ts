@@ -8,13 +8,14 @@ import { Accounts } from './accounts'
 import { AgentManager } from './agents'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
-import { prepareStress, startDemo, startStress } from './demo'
+import { prepareStress, startDemo, startRoutineDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
 import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
 import { captureConsole, initLog, log, secret } from './log'
 import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env'
 import { isDir, loadSquads, squadInfo } from './squads'
+import { RoutineScheduler, RoutineStore } from './routines'
 import { Store } from './store'
 import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
@@ -30,6 +31,7 @@ import { registerAppIpc } from './ipc/app'
 import { registerSessionsIpc } from './ipc/sessions'
 import { registerSettingsIpc } from './ipc/settings'
 import { registerSquadsIpc } from './ipc/squads'
+import { registerRoutinesIpc } from './ipc/routines'
 import { registerTicketsIpc } from './ipc/tickets'
 import { registerWorktreesIpc } from './ipc/worktrees'
 
@@ -191,10 +193,12 @@ app.whenReady().then(async () => {
   const book = new CostBook(store)
   manager.book = book
   const board = new TicketBoard(app.getPath('userData'))
+  const routineStore = new RoutineStore(app.getPath('userData'))
   // A fatal error saves what is in memory before asking what to do.
   onFatalFlush(() => {
     store.flush()
     board.flush()
+    routineStore.flush()
   })
   manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects)
   const desk = new TicketDesk(board, manager, () => store.settings)
@@ -216,6 +220,11 @@ app.whenReady().then(async () => {
   }
 
   const nameOf = (agentId: string) => manager.list().find((a) => a.id === agentId)?.name ?? 'Agente'
+  /** "Ada (rotina Relatório diário)" while the agent runs a routine, so the notification says why it calls. */
+  const callerOf = (agentId: string) => {
+    const r = routines.activeRun(agentId)?.routine
+    return r ? `${nameOf(agentId)} (rotina ${r.name})` : nameOf(agentId)
+  }
 
   // Each project floor shows the squads of its folder.
   const squadDefs = () => store.settings.projects.flatMap((p) => (isDir(p.cwd) ? loadSquads(p.cwd) : []))
@@ -225,16 +234,31 @@ app.whenReady().then(async () => {
   manager.on('event', (e: OfficeEvent) => {
     broadcast(e)
     if (e.type === 'permission:new') {
-      notifyPermission(store, manager, e.request, nameOf(e.request.agentId), manager.list().find((a) => a.id === e.request.agentId)?.cwd)
+      notifyPermission(store, manager, e.request, callerOf(e.request.agentId), manager.list().find((a) => a.id === e.request.agentId)?.cwd)
       if (process.platform === 'darwin' && !win?.isFocused()) app.dock?.bounce('informational')
     } else if (e.type === 'result:new') {
-      notify(store, `${nameOf(e.result.agentId)} terminou`, e.result.text.slice(0, 140), { agentId: e.result.agentId, itemId: e.result.id })
+      // Runs before the scheduler's own listener, so the run is still on.
+      const routine = routines.activeRun(e.result.agentId)?.routine
+      const title = !routine ? `${nameOf(e.result.agentId)} terminou` : e.result.isError ? `Rotina ${routine.name} falhou` : `Rotina ${routine.name}: ${nameOf(e.result.agentId)} terminou`
+      notify(store, title, e.result.text.slice(0, 140), { agentId: e.result.agentId, itemId: e.result.id })
     } else if (e.type === 'permission:resolved') dropNotice(e.requestId)
     else if (e.type === 'result:acked') dropNotice(e.resultId)
     if (e.type.startsWith('permission:') || e.type.startsWith('result:')) updateBadge()
   })
 
   board.on('event', broadcast)
+
+  // Scheduled routines (the totem on the ground floor). Made after the listener above, so
+  // the notifications there still see a run that the scheduler is about to close.
+  const routines = new RoutineScheduler({
+    store: routineStore,
+    manager,
+    settings: () => store.settings,
+    broadcast: (list) => broadcast({ type: 'routines', routines: list }),
+    notify: (title, body, target) => notify(store, title, body, target),
+  })
+  // Timers stop while the Mac sleeps: runs whose time passed follow the routine's choice.
+  powerMonitor.on('resume', () => routines.check())
   book.on('today', (today) => broadcast({ type: 'ledger:today', today }))
 
   const system = new SystemMonitor()
@@ -296,6 +320,7 @@ app.whenReady().then(async () => {
     flush: () => {
       store.flush()
       board.flush()
+      routineStore.flush()
     },
     broadcast,
   })
@@ -305,6 +330,7 @@ app.whenReady().then(async () => {
   const flushAll = () => {
     store.flush()
     board.flush()
+    routineStore.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
@@ -314,8 +340,10 @@ app.whenReady().then(async () => {
     flush: flushAll,
     stopAll: () => stopAll(),
     lock: () => {
+      routines.stop()
       store.lock()
       board.lock()
+      routineStore.lock()
     },
   })
 
@@ -331,6 +359,7 @@ app.whenReady().then(async () => {
     board,
     book,
     desk,
+    routines,
     bridge,
     usage,
     accounts,
@@ -353,6 +382,7 @@ app.whenReady().then(async () => {
   registerSettingsIpc(ipc)
   registerTicketsIpc(ipc)
   registerSquadsIpc(ipc)
+  registerRoutinesIpc(ipc)
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (d, cb) => {
@@ -371,7 +401,12 @@ app.whenReady().then(async () => {
     checkedAt = Date.now()
     void accounts.check().then(() => usage.refresh())
   })
-  if (process.env.AGENT_OFFICE_DEMO === '1') startDemo(manager, squadDefs())
+  if (process.env.AGENT_OFFICE_DEMO === '1') {
+    startDemo(manager, squadDefs())
+    startRoutineDemo(manager, routines)
+  }
+  // After the demo is in place: what was due while the app was closed runs (or is skipped) now.
+  routines.start()
   if (stress) startStress(manager)
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
   if (process.env.AGENT_OFFICE_SHOTS) captureShots(win, process.env.AGENT_OFFICE_SHOTS)
@@ -390,8 +425,10 @@ app.whenReady().then(async () => {
     system.stop()
     manager.shutdown()
     book.stop()
+    routines.stop()
     store.flush()
     board.flush()
+    routineStore.flush()
   }
   app.on('before-quit', stopAll)
 }).catch((err) => {

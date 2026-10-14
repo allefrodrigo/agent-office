@@ -14,7 +14,7 @@ import { parseJson, writeFileAtomic, writeJsonAtomic } from './fs-safe'
  * stats.json stays out: it is rebuilt from the transcripts and can be large.
  */
 
-export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json'] as const
+export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json'] as const
 export type DataFile = (typeof DATA_FILES)[number]
 
 export const KEEP_DAILY = 14
@@ -42,6 +42,7 @@ export const DATA_SHAPES: Record<DataFile, (v: unknown) => boolean> = {
   'office.json': (v) => isObj(v) && isMap(v.settings) && isList(v.agents) && isList(v.results) && isMap(v.ledger) && isMap(v.ledgerSessions),
   'tickets.json': (v) => isObj(v) && (v.seq === undefined || (typeof v.seq === 'number' && Number.isFinite(v.seq))) && isList(v.tickets),
   'tickets-closed.json': (v) => isObj(v) && isList(v.tickets),
+  'routines.json': (v) => isObj(v) && isList(v.routines),
 }
 
 /** The `valid` option of loadJson for a data file. */
@@ -279,11 +280,27 @@ export function sanitizeImportedOffice(office: unknown, home = homedir()): unkno
   return { ...o, settings }
 }
 
+/**
+ * Routines from an export run prompts on their own, on a timer: whoever wrote them, they
+ * arrive paused and never with "Sem pedir nada". The player turns each one on here.
+ */
+export function sanitizeImportedRoutines(data: unknown): unknown {
+  if (!data || typeof data !== 'object' || !Array.isArray((data as { routines?: unknown }).routines)) return data
+  const routines = (data as { routines: unknown[] }).routines.map((r) => {
+    if (!r || typeof r !== 'object') return r
+    const o: Record<string, unknown> = { ...(r as Record<string, unknown>), enabled: false, nextAt: null }
+    if (o.permissionMode === 'bypassPermissions') o.permissionMode = 'default'
+    return o
+  })
+  return { ...(data as object), routines }
+}
+
 /** The files an export (already checked by parseExport) puts in place. */
 export function importSet(exp: ExportFile, home = homedir()): DataSet {
   const files: DataSet = {}
   for (const name of DATA_FILES) {
-    const v = name === 'office.json' ? sanitizeImportedOffice(exp.files[name], home) : exp.files[name]
+    const v =
+      name === 'office.json' ? sanitizeImportedOffice(exp.files[name], home) : name === 'routines.json' ? sanitizeImportedRoutines(exp.files[name]) : exp.files[name]
     if (v !== undefined) files[name] = JSON.stringify(v)
   }
   return files

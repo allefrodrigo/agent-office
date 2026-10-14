@@ -6,6 +6,7 @@ import type { AgentResult, AttachmentInput, LogEntry, PermissionDecision, Permis
 import type { Ledger, LedgerQuery, LedgerToday } from './ledger'
 import type { BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
 import type { SquadInfo } from './squads'
+import type { Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
@@ -40,6 +41,8 @@ export interface OfficeState {
   dataNotices: DataNotice[]
   /** The Mac (or PC) runs on battery now; the scene may switch to Economia. */
   onBattery: boolean
+  /** Scheduled tasks, shown on the ground floor totem. */
+  routines: Routine[]
   /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
   forceTour?: boolean
 }
@@ -103,6 +106,8 @@ export type OfficeEvent =
   | { type: 'update'; update: UpdateStatus }
   /** The charger was plugged in or pulled out. */
   | { type: 'power'; onBattery: boolean }
+  /** A routine changed, ran or finished: the whole list. */
+  | { type: 'routines'; routines: Routine[] }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -236,5 +241,15 @@ export interface OfficeAPI {
    * refuses while agents work or permissions wait, and says how many.
    */
   installUpdate(force?: boolean): Promise<UpdateInstallResult>
+  listRoutines(): Promise<Routine[]>
+  /** Creates (no id) or replaces a routine; throws a message for the form when something is off. */
+  saveRoutine(draft: RoutineDraft): Promise<Routine>
+  deleteRoutine(id: string): Promise<void>
+  /** Pause (false) or resume (true); resuming counts from now. */
+  setRoutineEnabled(id: string, enabled: boolean): Promise<Routine>
+  /** A paused copy, without history. */
+  duplicateRoutine(id: string): Promise<Routine>
+  /** One run now, outside the schedule. */
+  runRoutineNow(id: string): Promise<Routine>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

@@ -12,6 +12,7 @@ const WHAT: Record<DataFile, string> = {
   'office.json': 'agentes, configurações e gastos',
   'tickets.json': 'tickets',
   'tickets-closed.json': 'arquivo de tickets fechados',
+  'routines.json': 'rotinas',
 }
 
 /** What a restore or import leaves as it is, for the confirmation (AO-25). */
