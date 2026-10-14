@@ -257,6 +257,23 @@
   background: rgba(0, 0, 0, 0.2);
 }
 
+.file-chip-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: zoom-in;
+}
+
+.file-chip-open:hover .file-chip-name {
+  text-decoration: underline;
+}
+
 .file-chip-name {
   overflow: hidden;
   text-overflow: ellipsis;
