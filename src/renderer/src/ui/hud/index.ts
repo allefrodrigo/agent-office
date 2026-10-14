@@ -32,6 +32,24 @@ export interface HudActions {
   reports(): void
 }
 
+const COMPACT_KEY = 'roster-compact'
+
+/** Roster order: amber (waiting on you) on top, then red (failed, busy), grey, and green (free) at the bottom. */
+function rosterRank(a: AgentSummary, pending: boolean): number {
+  if (pending || a.status === 'waiting') return 0
+  switch (a.status) {
+    case 'error':
+      return 1
+    case 'working':
+    case 'starting':
+      return 2
+    case 'stopped':
+      return 3
+    default:
+      return 4
+  }
+}
+
 export const STATUS_LABEL: Record<AgentStatus, string> = {
   starting: 'Chegando',
   working: 'Trabalhando',
@@ -89,10 +107,21 @@ export class Hud {
       const row = (e.target as HTMLElement).closest<HTMLElement>('.roster-row')
       if (row) this.rosterActive = row.dataset.focusKey ?? null
     })
+    const compact = localStorage.getItem(COMPACT_KEY) === '1'
+    const compactBtn = h('button', {
+      class: 'icon-btn roster-compact-btn',
+      title: 'Modo compacto',
+      'aria-pressed': String(compact),
+      onclick: () => {
+        const on = this.roster.classList.toggle('compact')
+        compactBtn.setAttribute('aria-pressed', String(on))
+        localStorage.setItem(COMPACT_KEY, on ? '1' : '0')
+      },
+    }, icon('compact', 14))
     this.roster = h(
       'div',
-      { class: 'roster card' },
-      h('div', { class: 'roster-head' }, icon('users', 16), h('span', {}, 'Agentes'), this.rosterCount),
+      { class: 'roster card' + (compact ? ' compact' : '') },
+      h('div', { class: 'roster-head' }, icon('users', 16), h('span', {}, 'Agentes'), this.rosterCount, compactBtn),
       this.rosterList,
     )
 
@@ -158,7 +187,11 @@ export class Hud {
   }
 
   render(): void {
-    const agents =[...this.state.agents.values()].sort((a, b) => a.desk - b.desk)
+    const rank = (a: AgentSummary) => {
+      const items = this.state.itemsFor(a.id)
+      return rosterRank(a, items.permissions.length + items.results.length > 0)
+    }
+    const agents = [...this.state.agents.values()].sort((a, b) => rank(a) - rank(b) || a.desk - b.desk)
     const working = agents.filter((a) => a.status === 'working' || a.status === 'starting').length
     const waiting = this.state.inboxCount
     this.stats.textContent = agents.length

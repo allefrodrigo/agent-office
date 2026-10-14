@@ -11,6 +11,9 @@ import { AgentOffice } from './office'
 
 /** Runs on the Claude Agent SDK: starting the query and turning its messages into status, activity and log. */
 export abstract class AgentSdk extends AgentOffice {
+  /** CLI processes closed on purpose to move to another account: their end is not an error. */
+  protected replaced = new WeakSet<Query>()
+
   protected run(agent: Agent, prompt: Prompt): void {
     const s = agent.summary
     if (this.simulate) return this.simulate(s.id, typeof prompt === 'string' ? prompt : '(mensagem com anexos)')
@@ -81,7 +84,7 @@ export abstract class AgentSdk extends AgentOffice {
     const wt = s.worktree
     // Each run starts a new CLI process, so it can move to another account between turns.
     const before = s.account
-    const account = this.accounts?.pick(s)
+    const account = this.accounts?.pick(s, agent.borrowed)
     if (account) s.account = account.id
     const resumed = agent.started
     if (s.sessionId) {
@@ -153,7 +156,7 @@ export abstract class AgentSdk extends AgentOffice {
       for await (const msg of q) this.handle(agent, msg)
     } catch (err) {
       // Closed on purpose to move to another account: the new process carries on.
-      if (agent.query && agent.query !== q) return
+      if (this.replaced.has(q) || (agent.query && agent.query !== q)) return
       const text = err instanceof Error ? err.message : String(err)
       this.addLog(agent, 'error', text)
       if (this.agents.has(agent.summary.id)) {
@@ -255,7 +258,8 @@ export abstract class AgentSdk extends AgentOffice {
           return
         }
         if (hit && this.failover(agent, hit)) return
-        this.deliver(agent, { text, isError, costUsd: msg.total_cost_usd, durationMs: msg.duration_ms, turns: msg.num_turns })
+        const limit = hit ? { accountId: agent.summary.account, resetsAt: hit.resetsAt } : undefined
+        this.deliver(agent, { text, isError, costUsd: msg.total_cost_usd, durationMs: msg.duration_ms, turns: msg.num_turns, limit })
         return
       }
       default:

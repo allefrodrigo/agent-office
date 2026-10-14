@@ -167,6 +167,8 @@ export interface OfficeAPI {
   closeTerminal(agentId: string): Promise<{ ok: boolean; message?: string }>
   respond(decision: PermissionDecision): Promise<void>
   ackResult(resultId: string): Promise<void>
+  /** After a plan limit: carry on the same conversation on this account, even outside the agent's pool. */
+  continueOn(agentId: string, accountId: string): Promise<void>
   pickFolder(defaultPath?: string): Promise<string | null>
   installBridge(): Promise<BridgeStatus>
   uninstallBridge(): Promise<BridgeStatus>

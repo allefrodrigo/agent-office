@@ -132,7 +132,7 @@ export abstract class AgentDecisions extends AgentSubagents {
     const result: AgentResult = { ...r, id: randomUUID(), agentId: agent.summary.id, createdAt: Date.now() }
     this.results.push(result)
     this.store.results = this.results
-    this.addLog(agent, 'result', r.text, undefined, r.isError)
+    this.addLog(agent, 'result', r.text, undefined, r.isError, undefined, r.limit)
     this.setStatus(agent, r.isError ? 'error' : 'done', r.isError ? 'Deu problema' : 'Trazendo o resultado')
     this.send({ type: 'result:new', result })
     const task = agent.task

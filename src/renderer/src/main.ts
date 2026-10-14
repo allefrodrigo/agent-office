@@ -209,6 +209,7 @@ async function boot(): Promise<void> {
     copyReport: (id) => void copyReport(state, id, toast),
     openResult: (id, entry) => dialog.showEntry(id, entry),
     focusCard: () => dialog.focus(),
+    chooseAccount: (id, limit) => dialog.chooseAccount(id, limit),
   })
 
   const dialog = new Dialog(ui, state, {

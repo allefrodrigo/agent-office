@@ -154,3 +154,42 @@
   background: color-mix(in srgb, var(--acct) 22%, transparent);
   color: var(--text);
 }
+
+/* Plan limit card: carry on in another account. */
+.limit-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.limit-choice-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.limit-choice-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.limit-account {
+  gap: 7px;
+}
+
+.limit-account small {
+  color: var(--dim);
+  font-size: 11px;
+}
+
+.limit-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--acct);
+}
+
+.limit-open {
+  margin-top: 8px;
+  align-self: flex-start;
+}

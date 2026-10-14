@@ -88,10 +88,12 @@ export class Accounts extends EventEmitter {
   /**
    * Account for an agent's next run. It stays on its current account while that one
    * has room (the prompt cache lives there), otherwise takes the least used one in the
-   * 5-hour window. When every account is out, the first one: its error says when it renews.
+   * 5-hour window. While the whole pool is out, the account the player borrowed for it
+   * (from outside the pool) if that one has room. Else the first one: its error says when it renews.
    */
-  pick(agent: Pick<AgentSummary, 'cwd' | 'accounts' | 'account'>): Account {
-    return this.next(agent) ?? this.get(this.poolFor(agent)[0]) ?? mainAccount()
+  pick(agent: Pick<AgentSummary, 'cwd' | 'accounts' | 'account'>, borrowed?: string): Account {
+    const lent = borrowed && !this.out(borrowed) ? this.get(borrowed) : undefined
+    return this.next(agent) ?? lent ?? this.get(this.poolFor(agent)[0]) ?? mainAccount()
   }
 
   /** An account of the agent's pool with room, other than `avoid`; undefined when none has. */
@@ -171,7 +173,8 @@ export class Accounts extends EventEmitter {
     })
   }
 
-  private out(id: string): boolean {
+  /** Out of plan, logged out or at 100% of a window: agents skip it. */
+  out(id: string): boolean {
     const until = this.limited.get(id)
     if (until && until > Date.now()) return true
     if (this.status.get(id)?.loggedIn === false) return true

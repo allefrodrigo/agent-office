@@ -32,6 +32,7 @@ const api: OfficeAPI = {
   openInTerminal: (id) => ipcRenderer.invoke('office:openInTerminal', id),
   respond: (d) => ipcRenderer.invoke('office:respond', d),
   ackResult: (id) => ipcRenderer.invoke('office:ackResult', id),
+  continueOn: (id, accountId) => ipcRenderer.invoke('office:continueOn', id, accountId),
   pickFolder: (defaultPath) => ipcRenderer.invoke('office:pickFolder', defaultPath),
   installBridge: () => ipcRenderer.invoke('office:installBridge'),
   uninstallBridge: () => ipcRenderer.invoke('office:uninstallBridge'),

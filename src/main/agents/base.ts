@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentResult, AgentStatus, AgentSummary, AttachmentInfo, LogEntry, OfficeEvent, PermissionDecision, PermissionRequest, SubagentInfo } from '@shared/types'
+import type { AccountLimit, AgentResult, AgentStatus, AgentSummary, AttachmentInfo, LogEntry, OfficeEvent, PermissionDecision, PermissionRequest, SubagentInfo } from '@shared/types'
 import { AGENT_NAMES } from '@shared/describe'
 import { projectFor } from '@shared/projects'
 import { type Accounts } from '../accounts'
@@ -150,8 +150,8 @@ export abstract class AgentBase extends EventEmitter {
     if (agent.summary.source === 'office') this.persist()
   }
 
-  protected addLog(agent: Agent, kind: LogEntry['kind'], text: string, tool?: string, isError?: boolean, attachments?: AttachmentInfo[]): void {
-    const entry: LogEntry = { id: randomUUID(), t: Date.now(), kind, text, tool, isError, attachments }
+  protected addLog(agent: Agent, kind: LogEntry['kind'], text: string, tool?: string, isError?: boolean, attachments?: AttachmentInfo[], limit?: AccountLimit): void {
+    const entry: LogEntry = { id: randomUUID(), t: Date.now(), kind, text, tool, isError, attachments, limit }
     agent.log.push(entry)
     if (agent.log.length > LOG_LIMIT) agent.log.splice(0, agent.log.length - LOG_LIMIT)
     this.send({ type: 'agent:log', agentId: agent.summary.id, entry })
