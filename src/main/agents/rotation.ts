@@ -37,16 +37,28 @@ export abstract class AgentRotation extends AgentSdk {
   /** The agent already spent its cap: hands a card saying so instead of starting. */
   protected overBudget(agent: Agent): boolean {
     const cap = this.store.settings.agentBudgetUsd
-    if (!(cap > 0) || (agent.summary.spentUsd ?? 0) < cap) return false
+    if (!this.dailyCapHit() && (!(cap > 0) || (agent.summary.spentUsd ?? 0) < cap)) return false
     this.deliver(agent, { text: this.budgetText(agent), isError: true, costUsd: agent.summary.costUsd, durationMs: 0, turns: 0 })
     return true
   }
 
+  /** The office spent its daily cap (a cent of slack: the SDK stops just past it). */
+  protected dailyCapHit(): boolean {
+    const daily = this.store.settings.dailyBudgetUsd
+    return daily > 0 && (this.book?.spentToday() ?? 0) >= daily - 0.01
+  }
+
   protected budgetText(agent: Agent): string {
+    if (this.dailyCapHit()) {
+      return (
+        `Parei: o escritório chegou ao teto de custo do dia (${usd(this.store.settings.dailyBudgetUsd)}). O teto zera à meia-noite.\n\n` +
+        'Para eu continuar hoje, aumente o teto em Configurações › Economia de tokens, ou deixe em 0 para tirar o limite.'
+      )
+    }
     const cap = this.store.settings.agentBudgetUsd
     return (
       `Parei: cheguei ao teto de custo por agente (${usd(cap)}). Já gastei ${usd(agent.summary.spentUsd ?? 0)} neste escritório.\n\n` +
-      'Para eu continuar, aumente o teto em Configurações › Limites dos agentes, ou deixe em 0 para tirar o limite.'
+      'Para eu continuar, aumente o teto em Configurações › Economia de tokens, ou deixe em 0 para tirar o limite.'
     )
   }
 }

@@ -54,6 +54,11 @@ const settings = (): Settings => ({
   ticketAutoCloseDays: 7,
   maxSubagents: 10,
   agentBudgetUsd: 0,
+  dailyBudgetUsd: 0,
+  freshTicketSession: true,
+  freshSquadCycle: true,
+  contextWarnTokens: 200_000,
+  coldConfirm: true,
   templates: [],
   video: { ...DEFAULT_VIDEO },
 })
@@ -299,6 +304,18 @@ describe('cleanSettings', () => {
       maxSubagents: 3,
       agentBudgetUsd: 2.5,
     })
+  })
+  it('economia: aplica tetos, aviso e chaves válidos; mantém os inválidos', () => {
+    const before = settings()
+    expect(cleanSettings({ dailyBudgetUsd: '12.345', contextWarnTokens: 300_000, freshTicketSession: false, freshSquadCycle: false, coldConfirm: false }, before)).toMatchObject({
+      dailyBudgetUsd: 12.35,
+      contextWarnTokens: 300_000,
+      freshTicketSession: false,
+      freshSquadCycle: false,
+      coldConfirm: false,
+    })
+    const out = cleanSettings({ dailyBudgetUsd: -1, contextWarnTokens: 1.5, freshTicketSession: 'não', coldConfirm: 0 }, before)
+    expect([out.dailyBudgetUsd, out.contextWarnTokens, out.freshTicketSession, out.coldConfirm]).toEqual([0, 200_000, true, true])
   })
   it('video: aplica os campos válidos e mantém os inválidos', () => {
     const out = cleanSettings({ video: { ...QUALITY_PRESETS.saver, batterySaver: false } }, settings())

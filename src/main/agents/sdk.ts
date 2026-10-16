@@ -89,7 +89,12 @@ export abstract class AgentSdk extends AgentOffice {
       this.book?.switched(s, s.sessionId, s.account ?? MAIN_ACCOUNT, before, 'start')
     }
     const limits = this.store.settings
-    const budget = limits.agentBudgetUsd > 0 ? limits.agentBudgetUsd - (s.spentUsd ?? 0) : undefined
+    // Counts only what this query spends, so it gets what is left of the tighter cap.
+    const left = [
+      limits.agentBudgetUsd > 0 ? limits.agentBudgetUsd - (s.spentUsd ?? 0) : Infinity,
+      limits.dailyBudgetUsd > 0 ? limits.dailyBudgetUsd - (this.book?.spentToday() ?? 0) : Infinity,
+    ]
+    const budget = Math.min(...left) < Infinity ? Math.max(0.01, Math.min(...left)) : undefined
     this.setStatus(agent, 'starting', s.status === 'starting' ? s.activity : 'Voltando ao trabalho')
 
     const q = query({
@@ -103,7 +108,6 @@ export abstract class AgentSdk extends AgentOffice {
         // Subagent text comes too (not only tools), for the helper's own log (AO-46).
         forwardSubagentText: true,
         allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
-        // Counts only what this query spends, so it gets what is left of the agent's cap.
         ...(budget !== undefined ? { maxBudgetUsd: budget } : {}),
         ...(agent.started ? { resume: s.sessionId } : { sessionId: s.sessionId }),
         systemPrompt: {
@@ -245,6 +249,7 @@ export abstract class AgentSdk extends AgentOffice {
               ? this.budgetText(agent)
               : msg.errors.join('\n') || `Parei: ${msg.subtype}`
         agent.summary.costUsd = msg.total_cost_usd
+        agent.summary.lastTurnAt = Date.now()
         this.readContext(agent)
         // The turn is over, so no foreground subagent can still be running (covers an interrupt that lost its notification).
         for (const sub of agent.summary.subagents ?? []) if (!sub.background) this.retire(agent, sub, 'completed')

@@ -293,6 +293,13 @@ const settingsFields = {
   agentBudgetUsd: numberField
     .pipe(z.number().finite().min(0).max(100_000))
     .transform((n) => Math.round(n * 100) / 100),
+  dailyBudgetUsd: numberField
+    .pipe(z.number().finite().min(0).max(100_000))
+    .transform((n) => Math.round(n * 100) / 100),
+  freshTicketSession: z.boolean(),
+  freshSquadCycle: z.boolean(),
+  contextWarnTokens: numberField.pipe(z.number().int().min(0).max(10_000_000)),
+  coldConfirm: z.boolean(),
   updateChannel: z.enum(['stable', 'beta']),
 } satisfies { [K in keyof Settings]?: z.ZodType<unknown> }
 

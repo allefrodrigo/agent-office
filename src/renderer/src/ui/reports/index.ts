@@ -10,6 +10,8 @@ import { slug } from '@shared/export-md'
 import { portrait } from '../portrait'
 import { dayKey, dateOf, dayLong, usd, int, workTime, modelName, type Group, zero, type Report, add, sum, variation, tokens } from './data'
 import { reportMarkdown } from './markdown'
+import { economy } from './economy'
+import { spendSplit } from '@shared/economy'
 
 // Relatórios: what the office spent, read from the cost book (AO-16), shown like the
 // results screen at the end of a level, not a spreadsheet.
@@ -128,7 +130,16 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
     const days = Array.from({ length: period }, (_, i) => dayKey(i - period + 1))
     const first = days[0]
     const prevFirst = dayKey(-(2 * period) + 1)
-    const r: Report = { days, total: zero(), prevCost: 0, byDay: new Map(days.map((d) => [d, new Map()])), groups: new Map(), agents: new Map(), models: new Map() }
+    const r: Report = {
+      days,
+      total: zero(),
+      prevCost: 0,
+      byDay: new Map(days.map((d) => [d, new Map()])),
+      groups: new Map(),
+      agents: new Map(),
+      models: new Map(),
+      split: { read: 0, write: 0, output: 0, input: 0, readTokens: 0 },
+    }
     for (const [cwd, byDay] of Object.entries(book.days)) {
       const g = groupOf(cwd)
       if (filter !== ALL && g.key !== filter) continue
@@ -156,6 +167,12 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
           r.models.set(name, mt)
           mt.cost += m.costUsd
           mt.output += m.outputTokens
+          const sp = spendSplit(name, m)
+          r.split.read += sp.read
+          r.split.write += sp.write
+          r.split.output += sp.output
+          r.split.input += sp.input
+          r.split.readTokens += m.cacheReadTokens
         }
       }
     }
@@ -216,6 +233,7 @@ export function openReports(root: HTMLElement, state: State, opts: ReportsOption
       return
     }
     parts.push(highlights(r, per.prev, filter === ALL))
+    parts.push(economy(root, state, r, filter === ALL ? null : filter, groupOf))
     if (period > 1) parts.push(dayChart(r))
     if (filter === ALL) parts.push(projectList(r))
     parts.push(h('div', { class: 'rep-ranks' }, agentRank(r, ledger.agents, filter === ALL), modelRank(r)))

@@ -1,3 +1,4 @@
+import type { SpendSplit } from '@shared/economy'
 import { formatCost } from '../dom'
 
 /** Numbers of the Relatórios: totals, dates, money and token formats. */
@@ -61,6 +62,8 @@ export interface Report {
   groups: Map<string, Totals & { byDay: Map<string, number> }>
   agents: Map<string, Totals & { groups: Set<string> }>
   models: Map<string, { cost: number; output: number }>
+  /** Where the money went (cache reads, cache writes, output, plain input) and the tokens read from the cache. */
+  split: SpendSplit & { readTokens: number }
 }
 
 export function add(t: Totals, d: { costUsd: number; turns: number; durationMs: number; results: number }): void {

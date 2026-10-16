@@ -4,10 +4,17 @@ import { PanelComposer } from './composer'
 
 export type { PanelActions } from './helpers'
 export { contextLevel, helpersChip, modelLabel } from './helpers'
+export { tokensLabel, warnTokens } from './economy'
 export { entryCategory } from './entries'
 
 /** Right-hand drawer with an agent's live log and a message box. */
 export class AgentPanel extends PanelComposer {
+  /** An idle agent goes cold with no event: look again every minute while the panel is open. */
+  readonly adviceTimer = setInterval(() => {
+    const a = this.agentId ? this.state.agents.get(this.agentId) : undefined
+    if (a) this.renderAdvice(a)
+  }, 60_000)
+
   /** `helper` opens the log of one of the agent's subagents instead of its own. */
   async open(agentId: string, helper: string | null = null): Promise<void> {
     const changed = agentId !== this.agentId || helper !== this.helper

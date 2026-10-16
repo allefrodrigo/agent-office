@@ -33,6 +33,16 @@ export interface Settings {
   maxSubagents: number
   /** Most an office agent may spend, in USD, counted from the cost book; 0 = no cap. */
   agentBudgetUsd: number
+  /** Most the whole office may spend in a local day, in USD; 0 = no cap. */
+  dailyBudgetUsd: number
+  /** Delegating a ticket to an agent already here starts a new conversation instead of piling onto the old one. */
+  freshTicketSession: boolean
+  /** Each squad cycle starts the orchestrator on a new conversation; the squad keeps its memory in files. */
+  freshSquadCycle: boolean
+  /** A conversation this big (tokens) gets a warning and the advice to clear or compact; 0 = off. */
+  contextWarnTokens: number
+  /** Ask before a message wakes an agent whose cache went cold with a big conversation. */
+  coldConfirm: boolean
   /** Saved hiring templates, global and per floor. Changed only through saveTemplate/deleteTemplate. */
   templates: AgentTemplate[]
   /** Which releases the auto-update follows. Missing = 'stable'. */

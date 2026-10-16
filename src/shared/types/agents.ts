@@ -62,6 +62,8 @@ export interface AgentSummary {
   sessionId?: string
   /** How full the conversation is, as in /context. Unknown until the first turn ends. */
   context?: ContextUsage
+  /** When the last turn ended (ms): past an hour the prompt cache is cold and the next message rewrites it. */
+  lastTurnAt?: number
   /** Subagents (Agent tool) running for this agent right now. */
   subagents?: SubagentInfo[]
   /** Subagents that already ended, newest last (a few, with their logs kept in memory). */

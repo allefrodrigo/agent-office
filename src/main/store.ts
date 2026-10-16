@@ -6,6 +6,7 @@ import { lookFromSeed } from '@shared/describe'
 import { floorNameFor } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { DEFAULT_VIDEO } from '@shared/video'
+import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { mainAccount } from './accounts'
 import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
@@ -45,6 +46,11 @@ const DEFAULT_SETTINGS: Settings = {
   ticketAutoCloseDays: 7,
   maxSubagents: 10,
   agentBudgetUsd: 0,
+  dailyBudgetUsd: 0,
+  freshTicketSession: true,
+  freshSquadCycle: true,
+  contextWarnTokens: DEFAULT_CONTEXT_WARN_TOKENS,
+  coldConfirm: true,
   templates: [],
   video: DEFAULT_VIDEO,
 }

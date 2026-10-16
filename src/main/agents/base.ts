@@ -39,6 +39,8 @@ export abstract class AgentBase extends EventEmitter {
         activity: 'Aguardando instruções',
         subagents: undefined,
         subagentsDone: undefined,
+        // Saved before lastTurnAt existed: the last log line is close enough.
+        lastTurnAt: p.summary.lastTurnAt ?? p.log.at(-1)?.t,
       }
       const agent: Agent = { summary, log: p.log, started: true }
       this.agents.set(summary.id, agent)

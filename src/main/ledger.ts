@@ -104,6 +104,13 @@ export class CostBook extends EventEmitter {
     return { day, costByCwd, agents }
   }
 
+  /** What the whole office spent today (local day), for the daily cap. */
+  spentToday(): number {
+    let usd = 0
+    for (const v of Object.values(this.today().costByCwd)) usd += v
+    return usd
+  }
+
   /**
    * A run is about to start. A brand-new session starts from zero. A resumed one we
    * never saw stays unmarked until markResumed() (or its first result) says where it stood.
