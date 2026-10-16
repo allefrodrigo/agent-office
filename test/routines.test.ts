@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AgentResult, AgentSummary, AgentTemplate, HireRequest, OfficeEvent, PermissionRequest, Routine, RoutineDraft, Settings } from '@shared/types'
-import { routinesLed, totemView } from '@shared/routines'
+import { routinesLed, routinesView } from '@shared/routines'
 import { RoutineScheduler, RoutineStore, type RoutineHost } from '../src/main/routines'
 import { cleanRoutineDraft } from '../src/main/validate'
 import { importSet, parseExport } from '../src/main/backups'
@@ -157,12 +157,13 @@ describe('running on time', () => {
     const id = scheduler.get(r.id)!.history[0].agentId!
     manager.ask(id)
     expect(scheduler.get(r.id)!.history[0].status).toBe('waiting')
-    expect(totemView(scheduler.list()).led).toBe('wait')
+    expect(routinesView(scheduler.list())).toMatchObject({ led: 'wait', dots: ['wait'] })
     manager.answer(id)
     expect(scheduler.get(r.id)!.history[0].status).toBe('running')
     manager.finish(id, true)
     expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'failed', error: 'Deu errado' })
     expect(routinesLed(scheduler.list())).toBe('fail')
+    expect(routinesView(scheduler.list()).dots).toEqual(['fail'])
   })
 
   it('an agent that leaves mid-run fails it and notifies', async () => {

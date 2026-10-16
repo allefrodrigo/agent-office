@@ -1,10 +1,11 @@
 // What crosses the IPC bridge: the full state, the events and window.office.
 
 import type { AccountStatus, PlanUsage } from './accounts'
+import type { BgProcess, ToolsView } from './backstage'
 import type { AgentBrain, AgentSummary, AgentTemplate, HireRequest, OfficePermissionMode, ResultChanges, SessionEntry } from './agents'
 import type { AgentResult, AttachmentInput, LogEntry, PermissionDecision, PermissionRequest } from './conversation'
 import type { Ledger, LedgerQuery, LedgerToday } from './ledger'
-import type { BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
+import type { AppInfo, BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
 import type { SquadInfo } from './squads'
 import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
@@ -55,7 +56,9 @@ export interface OfficeState {
   dataNotices: DataNotice[]
   /** The Mac (or PC) runs on battery now; the scene may switch to Economia. */
   onBattery: boolean
-  /** Scheduled tasks, shown on the ground floor totem. */
+  /** Background processes of the agents, as last scanned (Bastidores). */
+  backstage: BgProcess[]
+  /** Scheduled tasks, shown on the routines board of every floor. */
   routines: Routine[]
   /** Jobs the Mac schedules itself (launchd), shown beside the routines. Empty off macOS. */
   macJobs: MacJob[]
@@ -122,6 +125,7 @@ export type OfficeEvent =
   | { type: 'update'; update: UpdateStatus }
   /** The charger was plugged in or pulled out. */
   | { type: 'power'; onBattery: boolean }
+  | { type: 'backstage'; processes: BgProcess[] }
   /** A routine changed, ran or finished: the whole list. */
   | { type: 'routines'; routines: Routine[] }
   /** The Mac's own scheduled jobs changed (read every minute). */
@@ -277,5 +281,25 @@ export interface OfficeAPI {
   macJobLog(label: string): Promise<string>
   /** Opens a Mac job's log in the default app. */
   openMacJobLog(label: string): Promise<void>
+  /** Version, package.json fields and this machine, for the "Sobre" window. */
+  appInfo(): Promise<AppInfo>
+  /**
+   * Hires an agent that downloads the newest release from GitHub and installs it.
+   * One at a time: while it is in the office, a new call returns it instead.
+   */
+  selfUpdate(): Promise<AgentSummary>
+  /** Stops a background process (a BgProcess id); an office agent's task stops through its CLI. */
+  stopProcess(id: string): Promise<void>
+  /** The end of what a background task printed (office agents only). */
+  processOutput(id: string): Promise<string>
+  /** MCP servers, skills and plugins, with the last 7 days of use. */
+  toolsView(): Promise<ToolsView>
+  /** Turns an MCP server on or off for every office agent, now and on the next start. */
+  toggleMcp(name: string, enabled: boolean): Promise<ToolsView>
+  reconnectMcp(name: string): Promise<ToolsView>
+  /** Writes enabledPlugins in ~/.claude/settings.json and reloads the running agents. */
+  togglePlugin(id: string, enabled: boolean): Promise<ToolsView>
+  /** Shows a skill's SKILL.md in the file manager. */
+  revealSkill(name: string): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

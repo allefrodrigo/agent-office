@@ -37,6 +37,8 @@ export interface Settings {
   templates: AgentTemplate[]
   /** Which releases the auto-update follows. Missing = 'stable'. */
   updateChannel?: UpdateChannel
+  /** MCP servers turned off in Bastidores: every office agent starts with them off. */
+  disabledMcp?: string[]
   /** Configurações → Vídeo: shadows, fps limit, effects, battery saver. */
   video: VideoSettings
 }
@@ -57,6 +59,33 @@ export interface UpdateStatus {
   message?: string
   /** Last finished check (ms). */
   checkedAt?: number
+}
+
+/** The "Sobre" window (click on the version chip): package.json fields plus this machine. */
+export interface AppInfo {
+  version: string
+  description?: string
+  author?: string
+  license?: string
+  /** Project page, from package.json homepage (or repository). */
+  homepage?: string
+  /** https://github.com/<owner>/<repo>, where the releases are published. */
+  repo?: string
+  /** false = running from the source checkout (npm run dev). */
+  packaged: boolean
+  /** The .app bundle or install folder; the source checkout in dev. */
+  location: string
+  /** userData: office.json, tickets, logs and backups. */
+  dataDir: string
+  /** "macOS 26.0 (arm64)". */
+  os: string
+  platform: string
+  arch: string
+  electron: string
+  chrome: string
+  node: string
+  /** `claude --version`, or why it could not be read. */
+  claude: string
 }
 
 /** installUpdate's answer: what keeps the app from restarting right now. */

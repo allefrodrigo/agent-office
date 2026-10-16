@@ -1,7 +1,8 @@
 import { app, clipboard, dialog, ipcMain, shell } from 'electron'
-import { existsSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { OfficeState } from '@shared/types'
+import type { AgentSummary, OfficeState } from '@shared/types'
+import { appInfo, selfUpdateBrief } from '../about'
 import { dataNotices } from '../fs-safe'
 import { diagnostics, rendererError } from '../crash'
 import { logDir } from '../log'
@@ -23,7 +24,7 @@ async function radioVideo(): Promise<string> {
 
 /** State, log and diagnostics, clipboard and export, links and the folder picker. */
 export function registerAppIpc(ctx: IpcContext): void {
-  const { win, store, manager, board, book, bridge, usage, accounts, system, stats, squads, onBattery, routines, macJobs } = ctx
+  const { win, store, manager, board, book, bridge, usage, accounts, system, stats, squads, onBattery, routines, macJobs, defaultBrain, backstage } = ctx
   ipcMain.on('office:rendererError', (e, payload: unknown) => {
     if (e.sender === win()?.webContents) rendererError(payload)
   })
@@ -53,6 +54,7 @@ export function registerAppIpc(ctx: IpcContext): void {
     ledgerToday: book.today(),
     dataNotices: dataNotices(),
     onBattery: onBattery(),
+    backstage: backstage.current(),
     routines: routines.list(),
     macJobs: macJobs.list(),
     forceTour: process.env.AGENT_OFFICE_TOUR === '1',
@@ -96,4 +98,38 @@ export function registerAppIpc(ctx: IpcContext): void {
     if (path.success && existsSync(path.data)) shell.showItemInFolder(path.data)
   })
   ipcMain.handle('office:radioVideo', () => radioVideo())
+
+  ipcMain.handle('office:appInfo', () => appInfo())
+  // Sobre → "Pedir para um agente me atualizar": one agent at a time; a second click gets the same one.
+  let updaterId: string | null = null
+  let hiring: Promise<AgentSummary> | null = null
+  ipcMain.handle('office:selfUpdate', async () => {
+    const current = manager.list().find((a) => a.id === updaterId)
+    if (current) return current
+    hiring ??= (async () => {
+      const info = await appInfo()
+      const repo = info.repo
+      if (!repo) throw new Error('Este build não diz onde ficam as versões novas (falta "repository" no package.json). Baixe a versão nova na página do projeto.')
+      // Packaged: downloads go to a temp folder. From source: the checkout itself, never a worktree.
+      const cwd = info.packaged ? join(app.getPath('temp'), 'agent-office-update') : info.location
+      mkdirSync(cwd, { recursive: true })
+      const mode = store.settings.defaultPermissionMode
+      const channel = store.settings.updateChannel === 'beta' ? 'beta' : 'stable'
+      return manager.hire(
+        {
+          name: '',
+          cwd,
+          task: selfUpdateBrief({ ...info, repo }, channel, process.pid, cwd),
+          ...defaultBrain(),
+          // It downloads and replaces the app: never "bypass", like tickets and squads.
+          permissionMode: mode === 'bypassPermissions' ? 'default' : mode,
+          worktree: false,
+        },
+        'Atualize o Agent Office para a versão mais nova.',
+      )
+    })().finally(() => (hiring = null))
+    const agent = await hiring
+    updaterId = agent.id
+    return agent
+  })
 }

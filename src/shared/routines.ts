@@ -2,7 +2,7 @@ import { macJobState } from './mac-jobs'
 import { countdown } from './schedule'
 import type { MacJob, Routine, RoutineRun } from './types'
 
-/** The totem's LED: green all fine, yellow one waits for you, red the last run of one failed, grey none. */
+/** The routines board's LED: green all fine, yellow one waits for you, red the last run of one failed, grey none. */
 export type RoutineLed = 'ok' | 'wait' | 'fail' | 'none'
 
 /** The newest run that actually ran (not missed or skipped) and has ended. */
@@ -28,19 +28,33 @@ export function nextRoutine(list: Routine[]): Routine | undefined {
   return best
 }
 
-export interface TotemView {
+export interface RoutinesView {
   /** Routine name, or what is going on when none is next. */
   title: string
   /** "em 2h14" */
   detail: string
   led: RoutineLed
-  /** What the pixel screen draws: a short countdown ("2H14"), or a symbol for the state. */
+  /** The board's big line: a short countdown ("2H14"), or a symbol for the state. */
   screen: { kind: 'count'; text: string } | { kind: 'wait' | 'run' | 'add' | 'idle' }
   /** "Relatório diário · em 2h14", for the tag's balloon. */
   line: string
+  /** The board's row of lights: one per routine, then one per Mac job. */
+  dots: RoutineLed[]
 }
 
-/** "2H14", "14M", "40S", "3D4H": the countdown in as few glyphs as the totem screen fits. */
+/** One routine's light, in the LED's order: waiting, then failed, then paused (grey). */
+function routineDot(r: Routine): RoutineLed {
+  if (r.history[0]?.status === 'waiting') return 'wait'
+  if (lastFinished(r)?.status === 'failed') return 'fail'
+  return r.enabled ? 'ok' : 'none'
+}
+
+function jobDot(j: MacJob): RoutineLed {
+  const state = macJobState(j)
+  return state === 'fail' ? 'fail' : state === 'off' ? 'none' : 'ok'
+}
+
+/** "2H14", "14M", "40S", "3D4H": the countdown in as few letters as the board's big line fits. */
 export function shortCountdown(t: number, now = Date.now()): string {
   const s = Math.max(0, Math.floor((t - now) / 1000))
   if (s < 60) return `${s}S`
@@ -52,10 +66,10 @@ export function shortCountdown(t: number, now = Date.now()): string {
 }
 
 /**
- * What the totem screen shows now. The Mac's own jobs (launchd) count too: one running
+ * What the routines boards show now. The Mac's own jobs (launchd) count too: one running
  * or due sooner shows up, and a failed last run turns the LED red like a routine's.
  */
-export function totemView(list: Routine[], now = Date.now(), jobs: MacJob[] = []): TotemView {
+export function routinesView(list: Routine[], now = Date.now(), jobs: MacJob[] = []): RoutinesView {
   let led = routinesLed(list)
   if (led !== 'wait' && jobs.some((j) => macJobState(j) === 'fail')) led = 'fail'
   else if (led === 'none' && jobs.length) led = 'ok'
@@ -67,11 +81,11 @@ export function totemView(list: Routine[], now = Date.now(), jobs: MacJob[] = []
   for (const j of jobs) if (j.nextAt !== null && j.nextAt > now && (!next || j.nextAt < next.at)) next = { name: j.name, at: j.nextAt }
   let title: string
   let detail: string
-  let screen: TotemView['screen']
+  let screen: RoutinesView['screen']
   if (!list.length && !jobs.length) [title, detail, screen] = ['Nenhuma rotina', 'clique para criar', { kind: 'add' }]
   else if (waiting) [title, detail, screen] = [waiting.name, 'esperando você', { kind: 'wait' }]
   else if (running ?? jobRunning) [title, detail, screen] = [(running ?? jobRunning)!.name, 'rodando agora', { kind: 'run' }]
   else if (next) [title, detail, screen] = [next.name, countdown(next.at, now), { kind: 'count', text: shortCountdown(next.at, now) }]
   else [title, detail, screen] = [list.length && list.every((r) => !r.enabled) ? 'Tudo pausado' : 'Sem próxima execução', '', { kind: 'idle' }]
-  return { title, detail, led, screen, line: detail ? `${title} · ${detail}` : title }
+  return { title, detail, led, screen, line: detail ? `${title} · ${detail}` : title, dots: [...list.map(routineDot), ...jobs.map(jobDot)] }
 }

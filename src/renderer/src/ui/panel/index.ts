@@ -32,6 +32,7 @@ export class AgentPanel extends PanelComposer {
   }
 
   close(): void {
+    this.interruptAsk?.abort()
     this.agentId = null
     this.helper = null
     this.memMenuOpen = false

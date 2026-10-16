@@ -64,6 +64,7 @@ export abstract class GameFloors extends GameBase {
       if (u.boardTag) this.overlays.remove(u.boardTag)
       this.overlays.remove(u.alarmTag)
       this.overlays.remove(u.moneyTag)
+      this.overlays.remove(u.routinesTag)
       for (const t of u.stepTags) this.overlays.remove(t)
     })
     this.uppers = projects.map((project, i) => {
@@ -87,7 +88,7 @@ export abstract class GameFloors extends GameBase {
         tag.el.classList.add('tag-step')
         return tag
       })
-      return { project, scene, boardTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money) }
+      return { project, scene, boardTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money), routinesTag: this.routinesTagFor(scene.routines) }
     })
     this.office.setFloors(projects.length + 1)
     for (const u of this.uppers) u.scene.setFloors(projects.length + 1)
@@ -117,6 +118,8 @@ export abstract class GameFloors extends GameBase {
     // everyone wears the current logos now: patches of replaced or removed ones go
     releaseLogos(new Set(projects.flatMap((p) => (p.logo ? [p.logo] : []))))
     this.syncBoards()
+    // the new floors' routines boards are blank until drawn
+    this.routinesIn = 0
     if (notify) this.hooks.onFloor(this.player.floor)
   }
 
@@ -180,9 +183,11 @@ export abstract class GameFloors extends GameBase {
     this.pcTag.hidden = view !== 0
     this.alarmTag.hidden = view !== 0 || !this.office.alarm.on
     this.moneyTag.hidden = view !== 0
+    this.routinesTag.hidden = view !== 0
     this.uppers.forEach((u, i) => {
       u.alarmTag.hidden = view !== i + 1 || !u.scene.alarm.on
       u.moneyTag.hidden = view !== i + 1
+      u.routinesTag.hidden = view !== i + 1
     })
   }
 }

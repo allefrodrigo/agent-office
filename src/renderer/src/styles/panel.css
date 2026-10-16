@@ -5,7 +5,8 @@
   top: 16px;
   right: 16px;
   bottom: 84px;
-  width: 400px;
+  /* Wider than the old 400px so the badge, chips and feed breathe on a laptop screen; never past the window. */
+  width: min(clamp(460px, 32vw, 560px), calc(100vw - 32px));
   display: flex;
   flex-direction: column;
   overflow: hidden;

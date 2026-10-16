@@ -14,6 +14,7 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
         ['N', 'Novo agente: conversar, dar uma tarefa ou subir um squad'],
         ['T', 'Quadro de tickets'],
         ['R', 'Relatórios'],
+        ['B', 'Bastidores: o que roda em segundo plano, MCP e skills'],
         ['I', 'Caixa de entrada: pedidos e resultados esperando você'],
         ['W A S D ou ← ↑ → ↓', 'Andar pelo escritório'],
         ['F3', 'Painel de desempenho (fps, draw calls, memória)'],
@@ -32,7 +33,8 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
       'Painel do agente',
       [
         ['Enter', 'Enviar a mensagem (⇧Enter quebra a linha)'],
-        ['Esc', 'No campo de mensagem: ir para o cartão aberto; fora dele: fechar o painel'],
+        ['Esc', 'Com o agente trabalhando: interromper (pede confirmação)'],
+        ['Esc', 'Com o agente parado, no campo de mensagem: ir para o cartão aberto; fora dele: fechar o painel'],
         [`${mod}F`, 'Buscar no log (Enter e ↓ próxima, ↑ anterior)'],
       ],
     ],

@@ -1,10 +1,13 @@
-import type { PlanUsage, UsageWindow } from '@shared/types'
+import type { BgProcess, PlanUsage, UsageWindow } from '@shared/types'
 import type { State } from '../../state'
+import { ageText, byOwner, isOld, isOrphan, isStopping, kindTag, ownerText, stopProcess, type Toast } from '../backstage/shared'
 import { h, icon, timeAgo } from '../dom'
 import { osText } from '../os-text'
 import { contextLevel } from '../panel'
 
 const INFO_OPEN_KEY = 'hud-info-open'
+/** Background rows the card shows before sending the rest to Bastidores. */
+const BG_ROWS = 4
 
 /** One account's line in the info card. */
 interface InfoRow {
@@ -62,7 +65,8 @@ export class InfoCard {
 
   constructor(
     private state: State,
-    private actions: { accounts(): void },
+    private actions: { accounts(): void; backstage(tab?: 'bg' | 'mcp' | 'skills'): void },
+    private toast: Toast,
   ) {}
 
   /**
@@ -88,6 +92,12 @@ export class InfoCard {
       return h('span', { class: `info-chip ctx-${lvl}`, title }, h('span', { class: 'info-px', style: `background:${r.color}` }), r.loggedOut ? '!' : `${top}%`)
     })
     if (st) chips.push(h('span', { class: `info-chip ctx-${contextLevel(macPct)}`, title: `CPU ${st.cpu}% · RAM ${memPct}%` }, `MAC ${macPct}%`))
+    const bg = this.state.backstage
+    const loose = bg.filter(isOrphan).length
+    if (bg.length) {
+      const title = `${bg.length === 1 ? '1 processo' : `${bg.length} processos`} em segundo plano${loose ? `, ${loose} sem dono` : ''}`
+      chips.push(h('span', { class: `info-chip info-chip-bg${loose ? ' ctx-warn' : ''}`, title }, icon('terminal', 11), String(bg.length)))
+    }
 
     const strip = h(
       'button',
@@ -112,16 +122,18 @@ export class InfoCard {
     }, icon('history', 13))
     const manage = h('button', { class: 'icon-btn info-tool', title: 'Contas do Claude', onclick: () => this.actions.accounts() }, icon('users', 13))
 
-    // One column per window any account has, in the order they first appear.
+    // Accounts that used nothing go to one "sem uso" line, and a window nobody used gets no column.
+    const shown = rows.filter((r) => r.loggedOut || (r.u.error && !r.u.windows.length) || r.u.windows.some((w) => w.percent > 0))
+    const idle = rows.filter((r) => !shown.includes(r))
     const cols = new Map<string, string>()
-    for (const u of list) for (const w of u.windows) if (!cols.has(w.key)) cols.set(w.key, w.label)
+    for (const r of shown) for (const w of r.u.windows) if (w.percent > 0 && !cols.has(w.key)) cols.set(w.key, w.label)
     const now = Date.now()
-    const table = list.length
+    const table = shown.length
       ? h(
           'table',
           { class: 'info-table' },
           h('tr', {}, h('th', {}, ''), ...[...cols.values()].map((label) => h('th', {}, label))),
-          ...rows.map((r) =>
+          ...shown.map((r) =>
             h(
               'tr',
               {},
@@ -180,7 +192,15 @@ export class InfoCard {
         ]
       : []
 
-    const urgent = this.infoUrgent(rows, st ? { cpu: st.cpu, mem: memPct } : null, now)
+    const urgent = this.infoUrgent(rows, st ? { cpu: st.cpu, mem: memPct } : null, now, bg)
+    const idleLine = idle.length
+      ? h(
+          'div',
+          { class: 'info-idle', title: 'Contas sem uso nas janelas do plano' },
+          h('span', {}, 'sem uso:'),
+          ...idle.map((r) => h('span', { class: 'info-idle-acc', title: [r.name, r.email].filter(Boolean).join(' · ') }, h('span', { class: 'info-px', style: `background:${r.color}` }), r.name, r.agents ? h('span', { class: 'info-agents' }, String(r.agents)) : null)),
+        )
+      : null
     this.info.replaceChildren(
       strip,
       h(
@@ -191,8 +211,55 @@ export class InfoCard {
           ? h('div', { class: 'info-head' }, h('span', {}, 'Limites do plano'), failed.length ? h('span', { class: 'info-stale-tag' }, 'desatualizado') : null, h('span', { class: 'info-sp' }), manage, refresh)
           : null,
         table,
+        idleLine,
         ...sys,
+        ...this.bgSection(bg),
       ),
+    )
+  }
+
+  /** What the agents left running, by owner (orphans first); the rest is in Bastidores. */
+  private bgSection(bg: BgProcess[]): HTMLElement[] {
+    if (!bg.length) return []
+    const now = Date.now()
+    const rows: HTMLElement[] = []
+    let count = 0
+    for (const [, ps] of byOwner(bg)) {
+      if (count >= BG_ROWS) break
+      const take = ps.slice(0, BG_ROWS - count)
+      count += take.length
+      const p0 = ps[0]
+      const color = isOrphan(p0) ? 'var(--amber)' : p0.owner.kind === 'terminal' ? 'var(--dim)' : (this.state.account(p0.owner.accountId ?? '')?.color ?? 'var(--accent)')
+      rows.push(h('div', { class: `info-bg-owner${isOrphan(p0) ? ' gone' : ''}` }, h('span', { class: 'info-px', style: `background:${color}` }), h('span', { class: 'info-bg-owner-name' }, ownerText(p0))))
+      for (const p of take) rows.push(this.bgRow(p, now))
+    }
+    const rest = bg.length - count
+    return [
+      h('div', { class: 'info-head' }, h('span', {}, 'Segundo plano'), h('span', { class: 'info-head-n' }, String(bg.length))),
+      h('div', { class: 'info-bg' }, ...rows),
+      h('button', { class: 'info-more', title: 'Bastidores: segundo plano, MCP e skills (B)', onclick: () => this.actions.backstage('bg') }, h('span', {}, rest > 0 ? `+${rest} nos Bastidores` : 'Abrir os Bastidores'), icon('chevron', 12)),
+    ]
+  }
+
+  private bgRow(p: BgProcess, now: number): HTMLElement {
+    const stopping = isStopping(p.id)
+    const where = p.ports.length ? ` · localhost:${p.ports.join(', :')}` : ''
+    return h(
+      'div',
+      { class: `info-bg-row${stopping ? ' stopping' : ''}`, title: `${p.label}${where}` },
+      kindTag(p),
+      h('span', { class: 'info-bg-label' }, p.label),
+      h('span', { class: `info-bg-age${isOld(p, now) ? ' old' : ''}` }, stopping ? 'parando…' : ageText(p.startedAt, now)),
+      h('button', {
+        class: 'info-bg-stop',
+        title: 'Parar',
+        'aria-label': `Parar ${p.label}`,
+        disabled: stopping,
+        onclick: (e: Event) => {
+          e.stopPropagation()
+          void stopProcess(document.getElementById('ui') ?? document.body, p, this.toast, () => this.renderInfo())
+        },
+      }, icon('stop', 11)),
     )
   }
 
@@ -218,8 +285,8 @@ export class InfoCard {
     }
   }
 
-  /** The one thing to know, in order: an account out of room, logged out, close to a limit, the Mac struggling. */
-  private infoUrgent(rows: InfoRow[], sys: { cpu: number; mem: number } | null, now: number): { level: 'ok' | 'warn' | 'full'; text: string } {
+  /** The one thing to know, in order: an account out of room, logged out, close to a limit, a process left without an owner, the Mac struggling. */
+  private infoUrgent(rows: InfoRow[], sys: { cpu: number; mem: number } | null, now: number, bg: BgProcess[]): { level: 'ok' | 'warn' | 'full'; text: string } {
     const out = rows.find((r) => r.limitedUntil)
     if (out) return { level: 'full', text: `${out.name} cheia · volta ${resetText(out.limitedUntil!)}` }
     const loggedOut = rows.find((r) => r.loggedOut)
@@ -230,6 +297,9 @@ export class InfoCard {
       const left = worst.w.resetsAt ? ` · ↻ ${leftText(worst.w.resetsAt - now)}` : ''
       return { level: contextLevel(worst.w.percent), text: `${worst.r.name} ${worst.w.label} em ${worst.w.percent}%${left}` }
     }
+    // Left running after its agent left: nobody will stop it.
+    const loose = bg.find(isOrphan)
+    if (loose) return { level: 'warn', text: `${loose.ports.length ? `:${loose.ports[0]}` : loose.label.slice(0, 40)} sem dono há ${ageText(loose.startedAt, now)}` }
     if (sys) {
       const top = Math.max(sys.cpu, sys.mem)
       if (contextLevel(top) !== 'ok') return { level: contextLevel(top), text: sys.mem >= sys.cpu ? `Mac apertado · RAM ${sys.mem}%` : `Mac apertado · CPU ${sys.cpu}%` }

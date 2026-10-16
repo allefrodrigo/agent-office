@@ -11,7 +11,7 @@ import { MODES } from '../modals/brain'
 import { EXAMPLES, routineEditor } from './editor'
 import './routines.css'
 
-// "Rotinas": the totem's window. A list, one routine's history, and the form.
+// "Rotinas": the routines board's window. A list, one routine's history, and the form.
 
 export interface RoutinesHooks {
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void

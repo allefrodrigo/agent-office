@@ -1,9 +1,11 @@
 import * as THREE from 'three'
+import type { RoutineLed, RoutinesView } from '@shared/routines'
 import { animated } from './merge'
 import { box, cylinder, panel } from './kit'
 import { shared } from './dispose'
+import { canvas, pixelTexture } from './textures'
 
-// Live pieces of the office: the spending board and the limit alarm.
+// Live pieces of the office: the spending board, the routines board and the limit alarm.
 
 /** "$ 8,92" */
 export function money(usd: number): string {
@@ -112,6 +114,94 @@ export function costBoard(title: string, width = 2.4): CostBoard {
       if (frame < 1 / 12 && before === shown) return
       frame = 0
       draw()
+    },
+  }
+}
+
+export interface RoutinesBoard {
+  group: THREE.Group
+  /** Above the frame, where the "Rotinas" tag attaches. */
+  anchor: THREE.Object3D
+  /** Redraws the board and its LED when the view changed; true if it did. */
+  show(view: RoutinesView): boolean
+}
+
+const LED_COLORS: Record<RoutineLed, string> = { ok: '#2ee86b', wait: '#ffc02e', fail: '#ff3b4a', none: '#6b6a7d' }
+// Smooth text turns to mush in the office's chunky pixels, so the routines board draws
+// a few big pixel glyphs (3x5, tripled or doubled) and the tag's balloon carries the line in words.
+const RW = 48
+const RH = 28
+
+/** 3x5 glyphs, rows top to bottom, '1' = lit. */
+const FONT: Record<string, string> = {
+  '0': '111101101101111', '1': '010110010010111', '2': '110001010100111', '3': '110001010001110', '4': '101101111001001',
+  '5': '111100110001110', '6': '011100111101111', '7': '111001010010010', '8': '111101111101111', '9': '111101111001110',
+  D: '110101101101110', H: '101101111101101', M: '101111111101101', S: '011100010001110',
+  '!': '010010010000010', '>': '100110111110100', '+': '000010111010000', '-': '000000111000000',
+}
+
+/** Draws `text` centered across the board, its top at `y`; glyphs step 4 cells apart. */
+function drawGlyphs(ctx: CanvasRenderingContext2D, text: string, y: number, scale: number): void {
+  const x = Math.floor((RW - (text.length * 4 - 1) * scale) / 2)
+  ;[...text].forEach((ch, i) => {
+    const g = FONT[ch] ?? FONT['-']
+    for (let k = 0; k < 15; k++) if (g[k] === '1') ctx.fillRect(x + (i * 4 + (k % 3)) * scale, y + Math.floor(k / 3) * scale, scale, scale)
+  })
+}
+
+/**
+ * The routines board, the spending board's sibling on the wall (facing +z): the next
+ * routine's countdown in big pixel glyphs, a light per routine underneath and a status
+ * LED on the frame. It hangs in your office and in every Diretoria. Origin at the bottom
+ * center. The canvas is drawn only when it changes, never per frame.
+ */
+export function routinesBoard(width = 1.3): RoutinesBoard {
+  // clicked (raycast on its group) and its LED changes color: kept out of the merge
+  const g = animated(new THREE.Group())
+  const [c, ctx] = canvas(RW, RH)
+  const tex = pixelTexture(c)
+  const h = (width * RH) / RW
+  box(g, width + 0.12, h + 0.12, 0.06, '#1b1d27', 0, -0.06, 0, false)
+  panel(g, width, h, tex, 0, h / 2, 0.035)
+  // the LED on the frame's top right corner, with a darker socket
+  const lx = width / 2 - 0.12
+  box(g, 0.18, 0.04, 0.12, '#14161f', lx, h + 0.06, 0.03, false)
+  const ledMat = new THREE.MeshBasicMaterial({ color: LED_COLORS.none, toneMapped: false })
+  box(g, 0.11, 0.11, 0.11, ledMat, lx, h + 0.1, 0.03, false)
+  const anchor = new THREE.Object3D()
+  anchor.position.set(0, h + 0.5, 0.1)
+  g.add(anchor)
+
+  let key = ''
+  return {
+    group: g,
+    anchor,
+    show(view) {
+      const k = `${JSON.stringify(view.screen)}\n${view.led}\n${view.dots.join()}`
+      if (k === key) return false
+      key = k
+      const led = LED_COLORS[view.led]
+      ledMat.color.set(led)
+      ctx.fillStyle = '#0e1018'
+      ctx.fillRect(0, 0, RW, RH)
+      // a strip in the LED's color along the top
+      ctx.fillStyle = led
+      ctx.fillRect(0, 0, RW, 2)
+      // the countdown, or a symbol for what is going on, as big as it fits
+      const sc = view.screen
+      const text = sc.kind === 'count' ? sc.text : { wait: '!', run: '>', add: '+', idle: '-' }[sc.kind]
+      const scale = [3, 2, 1].find((n) => (text.length * 4 - 1) * n <= RW - 4) ?? 1
+      ctx.fillStyle = sc.kind === 'wait' ? '#ffc02e' : sc.kind === 'count' ? '#ffb347' : sc.kind === 'run' ? '#9fe6b8' : '#b3b1cb'
+      drawGlyphs(ctx, text, 2 + Math.floor((20 - 5 * scale) / 2), scale)
+      // a light per routine along the bottom, as many as fit
+      const dots = view.dots.slice(0, Math.floor((RW - 2) / 5))
+      const x0 = Math.floor((RW - (dots.length * 5 - 2)) / 2)
+      dots.forEach((d, i) => {
+        ctx.fillStyle = LED_COLORS[d]
+        ctx.fillRect(x0 + i * 5, 23, 3, 3)
+      })
+      tex.needsUpdate = true
+      return true
     },
   }
 }

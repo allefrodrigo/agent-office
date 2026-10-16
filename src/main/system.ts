@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events'
 import { cpus, freemem, totalmem } from 'node:os'
 import { app } from 'electron'
 import type { SystemStats } from '@shared/types'
+import { isClaude } from './backstage/procs'
 import { queryClaudeProcesses, WindowsClaude } from './win-processes'
 
 const EVERY_MS = 3000
@@ -84,13 +85,14 @@ async function usedMemory(): Promise<number> {
 /** Every Claude Code process on the machine, summed (on Windows, without the Claude Desktop app). */
 async function claudeProcesses(cores: number): Promise<SystemStats['claude']> {
   if (process.platform === 'win32') return windowsClaude.read(cores)
-  const out = await run('ps', ['-axo', '%cpu=,rss=,comm='])
+  // args, not comm: the Chrome bridge (`claude --chrome-native-host`) runs the same binary but is no agent.
+  const out = await run('ps', ['-axo', '%cpu=,rss=,args='])
   let count = 0
   let cpu = 0
   let mem = 0
   for (const line of out.split('\n')) {
     const m = line.trim().match(/^([\d.]+)\s+(\d+)\s+(.+)$/)
-    if (!m || !/(^|\/)claude$/.test(m[3])) continue
+    if (!m || !isClaude(m[3])) continue
     count++
     cpu += Number(m[1])
     mem += Number(m[2]) * 1024

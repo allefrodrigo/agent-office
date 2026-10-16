@@ -17,7 +17,7 @@ const TAIL_LINES = 80
 
 /**
  * The Mac's own scheduled jobs (launchd user agents in ~/Library/LaunchAgents), read
- * every minute for the Rotinas window and the totem. Never writes a plist or loads,
+ * every minute for the Rotinas window and the routines boards. Never writes a plist or loads,
  * unloads or edits a job: launchd keeps running them with the app closed.
  */
 export class MacJobs extends EventEmitter {

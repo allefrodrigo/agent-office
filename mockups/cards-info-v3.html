@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>Card de limites v3: segundo plano</title>
+<style>
+:root {
+  --page: #13141f;
+  --line: rgba(255,255,255,.08); --line-strong: rgba(255,255,255,.14);
+  --text: #eceaf6; --muted: #b3b1cb; --dim: #9a98b4;
+  --accent: #d97757; --green: #3ecf8e; --amber: #f5a524; --red: #ef5b5b; --blue: #5b9cf0;
+  --green-text: #8ff0c4; --amber-text: #ffd38a; --red-text: #ffb0b0; --blue-text: #a9cbff;
+  --hud: rgba(16,17,27,.96); --hud-line: #2d2f4a; --well: #0b0c13;
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+::selection { background: rgba(217,119,87,.35); color: #fff; }
+html { scrollbar-color: #3a3c5c var(--page); }
+body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+svg.i { width: 13px; height: 13px; flex: none; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---------- página (mesmo esqueleto do v2) ---------- */
+header.top { position: sticky; top: 0; z-index: 10; background: rgba(19,20,31,.94); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
+  padding: 14px 32px; display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+header.top h1 { font-size: 16px; margin: 0; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 10px; overflow: hidden; }
+.seg button { padding: 6px 12px; color: var(--muted); font-size: 12px; transition: background .15s, color .15s; }
+.seg button:hover { color: var(--text); }
+.seg button.on { background: rgba(255,255,255,.1); color: var(--text); font-weight: 600; }
+.lbl { color: var(--dim); font-size: 11px; margin-right: 8px; }
+.tally { margin-left: auto; color: var(--muted); font-size: 12px; }
+main { padding: 28px 32px 80px; max-width: 1560px; margin: 0 auto; }
+
+.opinion { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 36px; margin-bottom: 36px; }
+.opinion h2 { font-size: 15px; margin: 0 0 8px; }
+.opinion p, .opinion li { color: var(--muted); max-width: 68ch; }
+.opinion p { margin: 0 0 10px; }
+.opinion ul { margin: 0; padding-left: 18px; }
+.opinion li { margin-bottom: 6px; }
+.opinion b { color: var(--text); font-weight: 600; }
+.opinion code { font: 12px var(--mono); color: var(--text); background: rgba(255,255,255,.06); padding: 1px 4px; border-radius: 4px; }
+.found { align-self: start; background: var(--well); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; font: 11.5px/1.6 var(--mono); color: var(--muted); }
+.found h3 { margin: 0 0 8px; font: 600 12px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); }
+.found .r { display: grid; grid-template-columns: 9ch 1fr auto; gap: 10px; padding: 3px 0; border-top: 1px dashed rgba(255,255,255,.06); }
+.found .r:first-of-type { border-top: 0; }
+.found .r span:last-child { color: var(--text); text-align: right; }
+.found .hot { color: var(--amber-text) !important; }
+.found small { display: block; margin-top: 8px; font: 11.5px/1.5 -apple-system, BlinkMacSystemFont, sans-serif; color: var(--dim); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(620px, 1fr)); gap: 28px; }
+.variant { background: #171826; border: 1px solid var(--line); border-radius: 16px; padding: 18px; display: flex; flex-direction: column; gap: 12px; transition: border-color .2s, opacity .2s; }
+.variant.approved { border-color: rgba(62,207,142,.5); box-shadow: 0 0 0 1px rgba(62,207,142,.25); }
+.variant.rejected { opacity: .45; }
+.v-head { display: flex; align-items: baseline; gap: 10px; }
+.v-head h3 { margin: 0; font-size: 14px; }
+.v-tag { font: 600 10.5px var(--mono); color: var(--accent); background: rgba(217,119,87,.12); padding: 2px 6px; border-radius: 5px; }
+.v-tag.rec { color: var(--green-text); background: rgba(62,207,142,.12); }
+.v-h { margin-left: auto; font: 11px var(--mono); color: var(--dim); }
+.v-desc { color: var(--muted); font-size: 12.5px; margin: 0; max-width: 72ch; }
+.v-desc b { color: var(--text); font-weight: 600; }
+.trade { display: flex; gap: 6px; flex-wrap: wrap; }
+.trade span { font: 11px var(--mono); color: var(--muted); border: 1px solid var(--line); border-radius: 6px; padding: 2px 7px; }
+.trade .p { color: var(--green-text); border-color: rgba(62,207,142,.25); }
+.trade .m { color: var(--amber-text); border-color: rgba(245,165,36,.25); }
+.stage { display: flex; gap: 18px; justify-content: center; align-items: flex-start; flex-wrap: wrap; padding: 22px 16px; border-radius: 12px; min-height: 220px;
+  background-color: #b98a5a;
+  background-image: linear-gradient(45deg, rgba(0,0,0,.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.08) 75%),
+    linear-gradient(45deg, rgba(0,0,0,.08) 25%, transparent 25%, transparent 75%, rgba(0,0,0,.08) 75%);
+  background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.col { display: flex; flex-direction: column; gap: 6px; width: 280px; }
+.cap { font-size: 11px; color: rgba(0,0,0,.66); font-weight: 700; }
+.vote { display: flex; gap: 8px; }
+.vote button { flex: 1; height: 32px; border-radius: 9px; border: 1px solid var(--line-strong); font-weight: 600; font-size: 12px; color: var(--muted); transition: background .15s; }
+.vote button:hover { background: rgba(255,255,255,.05); }
+.vote button.yes.on { background: rgba(62,207,142,.16); color: var(--green-text); border-color: rgba(62,207,142,.4); }
+.vote button.no.on { background: rgba(239,91,91,.14); color: var(--red-text); border-color: rgba(239,91,91,.35); }
+.summary { margin-top: 32px; padding: 16px; border: 1px dashed var(--line-strong); border-radius: 12px; color: var(--muted); }
+.summary textarea { width: 100%; height: 56px; margin-top: 8px; background: #11121c; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; font: 12px var(--mono); resize: vertical; }
+.central-sec { margin-top: 40px; }
+.central-sec > h2 { font-size: 15px; margin: 0 0 6px; }
+.central-sec > p { color: var(--muted); margin: 0 0 16px; max-width: 80ch; }
+.central-sec .stage { padding: 28px; }
+
+/* ---------- o card (pele do HUD real: usage.css) ---------- */
+.hud { width: 280px; background: var(--hud); border: 2px solid var(--hud-line); border-radius: 8px; box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 10px 30px rgba(0,0,0,.4); overflow: hidden; }
+.pad { padding: 10px 12px 12px; }
+.head { display: flex; align-items: center; gap: 4px; font: 700 11px var(--mono); color: #c9c6e8; letter-spacing: .12em; text-transform: uppercase; }
+.head .sp { flex: 1; }
+.head .n { letter-spacing: 0; color: var(--dim); font-weight: 600; margin-left: 6px; }
+.sec { margin-top: 12px; }
+.ibtn { width: 22px; height: 22px; display: inline-grid; place-items: center; border-radius: 4px; color: var(--muted); transition: background .15s, color .15s; }
+.ibtn:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.px { width: 7px; height: 7px; flex: none; display: inline-block; }
+.num { font: 600 11px var(--mono); white-space: nowrap; }
+.num.warn { color: var(--amber-text); } .num.full { color: #ff9a9a; }
+.blocks { display: flex; gap: 2px; flex: 1; }
+.blocks i { flex: 1; height: 7px; background: rgba(255,255,255,.07); }
+.blocks i.on { background: var(--green); }
+.blocks.warn i.on { background: var(--amber); } .blocks.full i.on { background: var(--red); }
+.blocks.rel i.on { background: #8d8bb0; }
+.ag { font: 600 10px var(--mono); color: var(--green-text); background: rgba(62,207,142,.14); padding: 0 4px; line-height: 14px; border-radius: 3px; }
+.flag { font: 600 10px var(--mono); padding: 0 5px; line-height: 15px; border-radius: 3px; white-space: nowrap; }
+.flag.warn { color: var(--amber-text); background: rgba(245,165,36,.16); }
+.flag.full { color: var(--red-text); background: rgba(239,91,91,.16); }
+.flag.ok { color: var(--green-text); background: rgba(62,207,142,.12); }
+
+/* LED */
+.led { display: flex; align-items: center; gap: 7px; padding: 4px 8px; background: var(--well); border: 1px solid rgba(62,207,142,.15); border-radius: 4px; font: 600 11px var(--mono); color: var(--green-text); min-width: 0; }
+.led.warn { color: var(--amber-text); border-color: rgba(245,165,36,.25); } .led.full { color: #ff9a9a; border-color: rgba(239,91,91,.25); }
+.led .d { width: 6px; height: 6px; background: currentColor; flex: none; }
+.led.full .d, .led.warn .d { animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+.led .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.led .act { flex: none; font: 600 10px var(--mono); padding: 1px 6px; border-radius: 3px; background: rgba(255,255,255,.08); color: var(--text); transition: background .15s; }
+.led .act:hover { background: rgba(255,255,255,.16); }
+
+/* fita fechada */
+.strip { display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 6px 7px 8px; color: var(--muted); text-align: left; transition: background .15s; }
+.strip:hover { background: rgba(255,255,255,.03); }
+.chips { display: flex; gap: 4px; flex: 1; min-width: 0; flex-wrap: nowrap; overflow: hidden; }
+.chip { flex: none; display: inline-flex; align-items: center; gap: 5px; padding: 2px 6px; border-radius: 4px; background: rgba(255,255,255,.06); color: var(--text); font: 600 11px var(--mono); white-space: nowrap; }
+.chip .px { width: 6px; height: 6px; }
+.chip.warn { color: var(--amber-text); } .chip.full { color: #ff9a9a; background: rgba(239,91,91,.14); }
+.chip.bg { gap: 3px; padding: 2px 5px; color: var(--blue-text); background: rgba(91,156,240,.14); }
+.chip svg.i { width: 11px; height: 11px; }
+.chip.bg.warn { color: var(--amber-text); background: rgba(245,165,36,.14); }
+.chev { transition: transform .2s; color: var(--muted); }
+.open .chev { transform: rotate(180deg); }
+.body { display: none; border-top: 2px solid var(--hud-line); }
+.open .body { display: block; }
+
+/* tabela de limites */
+table.t { width: 100%; border-collapse: collapse; margin-top: 6px; font-family: var(--mono); table-layout: fixed; }
+.t th { font-size: 10px; color: var(--dim); font-weight: 600; text-align: left; padding: 0 0 4px 6px; }
+.t th:first-child { padding-left: 0; width: 40%; }
+.t td { padding: 5px 0 5px 6px; border-top: 1px dashed rgba(255,255,255,.07); vertical-align: middle; }
+.t td:first-child { padding-left: 0; }
+.nm { display: flex; align-items: center; gap: 6px; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; min-width: 0; }
+.t .cell .num { display: block; margin-bottom: 2px; }
+.t small { display: block; font-size: 9.5px; color: var(--dim); white-space: nowrap; margin-top: 2px; }
+.zero { color: var(--dim); font: 11px var(--mono); }
+.idle-accs { margin-top: 6px; font: 10.5px var(--mono); color: var(--dim); display: flex; gap: 8px; align-items: center; }
+.idle-accs span { display: inline-flex; align-items: center; gap: 4px; }
+
+/* sistema */
+.sys2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.sys2 .k { display: flex; justify-content: space-between; font: 600 11px var(--mono); margin-bottom: 4px; color: var(--muted); }
+.procs { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; margin-top: 8px; font: 10.5px var(--mono); color: var(--dim); }
+.procs b { color: var(--text); font-weight: 600; text-align: right; }
+.sysline { display: flex; align-items: center; gap: 8px; font: 600 10.5px var(--mono); color: var(--muted); margin-top: 8px; }
+.sysline .blocks { flex: 1; }
+.sysline .blocks i { height: 6px; }
+
+/* segundo plano: linhas */
+.bg-list { margin-top: 6px; display: flex; flex-direction: column; }
+.own { display: flex; align-items: center; gap: 6px; padding: 6px 0 3px; border-top: 1px dashed rgba(255,255,255,.07); font: 700 10.5px var(--mono); text-transform: uppercase; letter-spacing: .03em; color: var(--text); }
+.own:first-child { border-top: 0; padding-top: 2px; }
+.own .kind { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--dim); }
+.own .sp { flex: 1; }
+.pr { position: relative; display: grid; grid-template-columns: 52px minmax(0, 1fr) auto 22px; align-items: center; gap: 6px; padding: 2px 0 2px 13px; font: 10.5px var(--mono); color: var(--muted); transition: opacity .25s; }
+.pr .lab { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.pr .age { color: var(--dim); white-space: nowrap; }
+.pr .age.hot { color: var(--amber-text); }
+.pr .x { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 3px; color: var(--dim); opacity: 0; transition: opacity .15s, background .15s, color .15s; }
+.pr:hover .x, .pr .x:focus-visible { opacity: 1; }
+.pr .x:hover { background: rgba(239,91,91,.18); color: var(--red-text); }
+.pr.stopped { opacity: .4; }
+.pr.stopped .lab { text-decoration: line-through; }
+.tg { font: 600 9.5px var(--mono); padding: 0 4px; line-height: 14px; border-radius: 3px; text-align: center; white-space: nowrap; overflow: hidden; }
+.tg.srv { color: var(--blue-text); background: rgba(91,156,240,.16); }
+.tg.mon { color: #d9c2ff; background: rgba(176,108,224,.18); }
+.tg.sh { color: var(--muted); background: rgba(255,255,255,.07); }
+.tg.sub { color: var(--green-text); background: rgba(62,207,142,.12); }
+.more { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; padding: 5px 8px; border-radius: 4px; background: rgba(255,255,255,.04); font: 600 10.5px var(--mono); color: var(--muted); width: 100%; transition: background .15s, color .15s; }
+.more:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.empty { font: 10.5px var(--mono); color: var(--dim); padding: 4px 0; }
+
+/* S2: abas */
+.tabs { display: flex; gap: 2px; padding: 3px; background: var(--well); border-radius: 5px; margin-bottom: 10px; }
+.tabs button { flex: 1; padding: 4px 0; border-radius: 3px; font: 700 10px var(--mono); letter-spacing: .08em; color: var(--dim); text-transform: uppercase; display: inline-flex; justify-content: center; align-items: center; gap: 4px; transition: background .15s, color .15s; }
+.tabs button:hover { color: var(--text); }
+.tabs button.on { background: rgba(255,255,255,.1); color: var(--text); }
+.tabs .cnt { font-weight: 600; letter-spacing: 0; padding: 0 3px; border-radius: 2px; background: rgba(91,156,240,.2); color: var(--blue-text); }
+.tabs .cnt.warn { background: rgba(245,165,36,.2); color: var(--amber-text); }
+
+/* S3: quem está rodando */
+.who { display: grid; grid-template-columns: minmax(0, 1fr) 52px 44px; gap: 6px; align-items: center; padding: 4px 0; border-top: 1px dashed rgba(255,255,255,.07); font: 10.5px var(--mono); }
+.who:first-of-type { border-top: 0; }
+.who .nm { font-size: 10.5px; }
+.who .mem { text-align: right; color: var(--text); font-weight: 600; }
+.who .blocks i { height: 6px; }
+.who .chips2 { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; padding-left: 13px; }
+.who.gone .nm { color: var(--amber-text); }
+
+/* S5: portas */
+.port { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 4px; align-items: center; padding: 5px 6px; margin-top: 4px; background: var(--well); border: 1px solid rgba(91,156,240,.2); border-radius: 4px; font: 10.5px var(--mono); }
+.port.warn { border-color: rgba(245,165,36,.3); }
+.port .addr { color: var(--blue-text); font-weight: 700; font-size: 11px; }
+.port .meta { grid-column: 1 / -1; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.port .meta b { color: var(--muted); font-weight: 600; }
+.port .meta .hot { color: var(--amber-text); }
+.lim1 { display: grid; grid-template-columns: 84px 1fr 1fr; gap: 8px; align-items: center; padding: 4px 0; border-top: 1px dashed rgba(255,255,255,.07); font: 10px var(--mono); color: var(--dim); }
+.lim1:first-of-type { border-top: 0; }
+.lim1 .w { display: flex; align-items: center; gap: 4px; }
+.lim1 .w .blocks i { height: 5px; }
+.lim1 .w .num { font-size: 10px; min-width: 26px; text-align: right; }
+
+/* S6: fôlego */
+.fol { padding: 6px 0; border-top: 1px dashed rgba(255,255,255,.07); }
+.fol:first-of-type { border-top: 0; }
+.fol .top { display: flex; align-items: center; gap: 6px; }
+.fol .top .num { margin-left: auto; }
+.track { position: relative; height: 10px; margin: 6px 0 4px; background: rgba(255,255,255,.06); }
+.track .used { position: absolute; inset: 0 auto 0 0; background: var(--green); }
+.track .proj { position: absolute; top: 0; bottom: 0; background: repeating-linear-gradient(90deg, rgba(62,207,142,.45) 0 2px, transparent 2px 4px); }
+.track .reset { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text); }
+.fol.warn .used { background: var(--amber); } .fol.warn .proj { background: repeating-linear-gradient(90deg, rgba(245,165,36,.5) 0 2px, transparent 2px 4px); }
+.fol.full .used { background: var(--red); } .fol.full .proj { background: repeating-linear-gradient(90deg, rgba(239,91,91,.55) 0 2px, transparent 2px 4px); }
+.fol .say { font: 10px var(--mono); color: var(--dim); }
+.fol .say b { color: var(--text); font-weight: 600; }
+.fol.warn .say b, .fol.full .say b { color: var(--amber-text); }
+.foot1 { display: flex; align-items: center; gap: 6px; margin-top: 10px; padding-top: 8px; border-top: 2px solid var(--hud-line); margin-left: -12px; margin-right: -12px; padding-left: 12px; padding-right: 12px; font: 600 10.5px var(--mono); color: var(--muted); }
+.foot1 .sp { flex: 1; }
+.foot1 button { display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; background: rgba(91,156,240,.14); color: var(--blue-text); }
+.foot1 button.warn { background: rgba(245,165,36,.14); color: var(--amber-text); }
+
+/* ---------- central ---------- */
+.central { width: min(720px, 100%); background: var(--hud); border: 2px solid var(--hud-line); border-radius: 10px; box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 18px 50px rgba(0,0,0,.5); overflow: hidden; }
+.c-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-bottom: 2px solid var(--hud-line); }
+.c-head h4 { margin: 0; font: 700 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: #c9c6e8; }
+.c-head .sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 11px var(--mono); color: var(--dim); }
+.c-head .sp { flex: 1; }
+.filters { display: flex; gap: 4px; padding: 10px 14px 0; flex-wrap: wrap; }
+.filters button { font: 600 10.5px var(--mono); padding: 3px 8px; border-radius: 4px; color: var(--muted); background: rgba(255,255,255,.04); transition: background .15s, color .15s; }
+.filters button:hover { color: var(--text); }
+.filters button.on { background: rgba(255,255,255,.12); color: var(--text); }
+.filters button b { font-weight: 600; color: var(--dim); margin-left: 4px; }
+.filters button.on b { color: var(--muted); }
+.c-body { padding: 6px 14px 4px; max-height: 420px; overflow: auto; }
+.c-own { display: flex; align-items: center; gap: 8px; padding: 12px 0 6px; font: 700 11px var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+.c-own .kind { font-weight: 600; text-transform: none; letter-spacing: 0; color: var(--dim); }
+.c-own .sp { flex: 1; }
+.c-own .st { font-weight: 600; letter-spacing: 0; text-transform: none; }
+.c-row { display: grid; grid-template-columns: 66px minmax(0, 1fr) 62px 44px 54px auto; gap: 10px; align-items: center; padding: 6px 8px; border-radius: 5px; font: 11px var(--mono); color: var(--muted); transition: background .15s, opacity .25s; }
+.c-row:hover { background: rgba(255,255,255,.05); }
+.c-row .cmd { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.c-row .cmd small { display: block; color: var(--dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; }
+.c-row .r { text-align: right; white-space: nowrap; }
+.c-row .hot { color: var(--amber-text); }
+.c-row .acts { display: flex; gap: 2px; justify-content: flex-end; }
+.c-row .acts button { height: 24px; padding: 0 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; font: 600 10.5px var(--mono); color: var(--muted); transition: background .15s, color .15s; }
+.c-row .acts button:hover { background: rgba(255,255,255,.08); color: var(--text); }
+.c-row .acts button.stop:hover { background: rgba(239,91,91,.18); color: var(--red-text); }
+.c-row.stopped { opacity: .4; }
+.c-row.stopped .cmd { text-decoration: line-through; }
+.c-cols { display: grid; grid-template-columns: 66px minmax(0, 1fr) 62px 44px 54px auto; gap: 10px; padding: 8px 8px 0; font: 600 10px var(--mono); color: var(--dim); }
+.c-cols .r { text-align: right; }
+.c-out { margin: 2px 8px 8px 84px; padding: 8px 10px; background: var(--well); border: 1px solid var(--line); border-radius: 5px; font: 10.5px/1.55 var(--mono); color: var(--muted); white-space: pre; overflow: hidden; }
+.c-foot { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 2px solid var(--hud-line); font: 11px var(--mono); color: var(--dim); }
+.c-foot .sp { flex: 1; }
+.c-btn { white-space: nowrap; flex: none; height: 30px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-strong); font: 600 12px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--text); background: rgba(255,255,255,.05); display: inline-flex; align-items: center; gap: 6px; transition: background .15s; }
+.c-btn:hover { background: rgba(255,255,255,.1); }
+.c-btn.danger { color: var(--red-text); border-color: rgba(239,91,91,.3); background: rgba(239,91,91,.08); }
+.c-btn.danger:hover { background: rgba(239,91,91,.16); }
+.c-btn[disabled] { opacity: .45; pointer-events: none; }
+.c-empty { padding: 28px 8px; text-align: center; color: var(--dim); font: 11.5px var(--mono); }
+
+/* ---------- centrais de MCP e skills ---------- */
+.tools-sec { margin-top: 40px; }
+.tools-sec > h2 { font-size: 15px; margin: 0 0 6px; }
+.tools-sec > p { color: var(--muted); margin: 0 0 10px; max-width: 80ch; }
+.tools-sec > p b { color: var(--text); font-weight: 600; }
+.world { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0 0 16px; }
+.world div { padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #171826; color: var(--muted); font-size: 12.5px; }
+.world b { display: block; color: var(--text); margin-bottom: 2px; }
+.tools-sec .stage { gap: 24px; padding: 28px; }
+.win { width: 480px; background: var(--hud); border: 2px solid var(--hud-line); border-radius: 10px; box-shadow: 0 0 0 2px rgba(0,0,0,.35), 0 18px 50px rgba(0,0,0,.5); overflow: hidden; }
+.w-row, .w-cols { display: grid; grid-template-columns: 10px minmax(0, 1fr) 74px 58px 92px; gap: 10px; align-items: center; }
+.w-row { padding: 7px 8px; border-radius: 5px; font: 11px var(--mono); color: var(--muted); transition: background .15s, opacity .2s; }
+.w-row:hover { background: rgba(255,255,255,.04); }
+.w-row.off { opacity: .5; }
+.w-row .nm2 { min-width: 0; }
+.w-row .nm2 b { display: block; color: var(--text); font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-row .nm2 small { display: block; color: var(--dim); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.w-row .nm2 small .warn { color: var(--amber-text); }
+.w-row .use { display: flex; align-items: center; gap: 5px; }
+.w-row .use .blocks i { height: 6px; }
+.w-row .use span { min-width: 22px; text-align: right; color: var(--text); font-weight: 600; }
+.w-row .use span.z { color: var(--dim); font-weight: 400; }
+.w-row .r, .w-cols .r { text-align: right; white-space: nowrap; }
+.w-row .acts { display: flex; gap: 4px; align-items: center; justify-content: flex-end; }
+.w-cols { padding: 10px 8px 2px; font: 600 10px var(--mono); color: var(--dim); }
+.w-grp { padding: 12px 8px 4px; font: 700 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: #c9c6e8; }
+.ledd { width: 8px; height: 8px; display: inline-block; }
+.ledd.ok { background: var(--green); } .ledd.auth { background: var(--amber); animation: blink 1s steps(2) infinite; } .ledd.fail { background: var(--red); } .ledd.off { background: #55546a; }
+.sw { width: 26px; height: 14px; padding: 2px; border-radius: 3px; background: rgba(255,255,255,.12); display: inline-flex; transition: background .15s; }
+.sw::after { content: ''; width: 10px; height: 10px; background: var(--muted); transition: transform .15s, background .15s; }
+.sw.on { background: rgba(62,207,142,.35); }
+.sw.on::after { transform: translateX(12px); background: var(--green-text); }
+.sw.locked { opacity: .5; pointer-events: none; }
+.mini-btn { height: 22px; padding: 0 7px; border-radius: 4px; font: 600 10.5px var(--mono); color: var(--muted); background: rgba(255,255,255,.05); white-space: nowrap; transition: background .15s, color .15s; }
+.mini-btn:hover { background: rgba(255,255,255,.1); color: var(--text); }
+.mini-btn.warn { color: var(--amber-text); background: rgba(245,165,36,.12); }
+.w-search { margin: 10px 14px 0; display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; background: var(--well); border: 1px solid var(--line); color: var(--dim); font: 11px var(--mono); }
+</style>
+</head>
+<body>
+<header class="top">
+  <h1>Card de limites v3: segundo plano</h1>
+  <div><span class="lbl">Cenário</span>
+    <div class="seg" id="scSeg">
+      <button data-v="agora" class="on">Seu HUD agora</button><button data-v="esquecido">Servidor esquecido</button>
+      <button data-v="apertado">Limite apertado</button><button data-v="parado">Nada rodando</button>
+    </div>
+  </div>
+  <div class="tally" id="tally"></div>
+</header>
+
+<main>
+  <section class="opinion">
+    <div>
+      <h2>O que eu mudaria</h2>
+      <p><b>Hoje o card diz quanto os agentes pesam, mas não o que eles deixaram ligado.</b> "agentes (6)" soma escritório e terminal num número só. Um servidor de dev esquecido há 19 h some no meio.</p>
+      <ul>
+        <li><b>Agentes do escritório:</b> o SDK já manda <code>background_tasks_changed</code> com cada shell, monitor e ajudante vivo. Também já tem <code>get_task_output</code> e <code>stopTask</code>. Dá para listar, ver a saída e parar pelo próprio Claude, sem <code>kill</code>. Hoje o app só usa isso para aposentar ajudantes.</li>
+        <li><b>Sessões do terminal:</b> o app já acha o PID do <code>claude</code> pela ponte. A árvore de processos abaixo dele mostra o que ficou rodando, e <code>lsof</code> mostra as portas.</li>
+        <li><b>Sem dono:</b> o app guarda os PIDs que viu. Se o agente sai e o processo continua, ele vira "sem dono", o caso que mais vale avisar.</li>
+        <li><b>Central:</b> sim, numa janela própria. O card tem 280 px: mostra a contagem e o que pede atenção, e a central lista, filtra, mostra a saída e para.</li>
+        <li><b>Segurança:</b> só aparece e só para o que desce de um <code>claude</code> que o app conhece. Parar servidor pede confirmação. Nada fora dessa árvore.</li>
+        <li><b>Um erro de conta:</b> "agentes (6)" inclui o <code>claude --chrome-native-host</code>, que é a ponte do Chrome e não um agente.</li>
+        <li><b>Limites:</b> esconder colunas e contas sem uso (hoje são 6 traços), e mostrar o fôlego: no ritmo atual, a janela acaba antes de renovar?</li>
+        <li><b>Skills e MCP:</b> sim, como o totem de rotinas. Um rack de servidores para os MCP e uma estante para as skills, cada um abrindo a sua central (no fim da página). O argumento mais forte: hoje há servidores MCP ligados que ninguém usou em 7 dias, e as ferramentas deles ocupam contexto em cada agente.</li>
+      </ul>
+    </div>
+    <div class="found">
+      <h3>O que achei rodando agora no seu Mac</h3>
+      <div class="r"><span>terminal</span><span>npm run dev → wrangler :8787</span><span class="hot">19 h</span></div>
+      <div class="r"><span>agente</span><span>tail -F de um log</span><span>12 min</span></div>
+      <div class="r"><span>agente</span><span>loop com sleep 15</span><span>11 min</span></div>
+      <div class="r"><span>agente</span><span>ugrep (busca)</span><span>12 min</span></div>
+      <div class="r"><span>chrome</span><span>claude --chrome-native-host</span><span>conta como agente</span></div>
+      <small>Lido com <code>ps</code> a partir de cada processo <code>claude</code> (2 agentes do escritório, 4 sessões do terminal). Nada disso aparece no card hoje. O cenário "Seu HUD agora" usa processos parecidos, com nomes de exemplo.</small>
+    </div>
+  </section>
+
+  <div class="grid" id="grid"></div>
+
+  <section class="central-sec">
+    <h2>A central de segundo plano</h2>
+    <p>Abre pelo card (qualquer versão) ou pela engrenagem. Agrupa por dono, filtra por tipo e põe o que está sem dono em primeiro lugar. "Ver saída" usa <code>get_task_output</code> nos agentes do escritório; "Parar" usa <code>stopTask</code>, e só cai para <code>kill</code> nas sessões do terminal e nos sem dono.</p>
+    <div class="stage" id="central"></div>
+  </section>
+
+
+  <section class="tools-sec">
+    <h2>Centrais de MCP e skills</h2>
+    <p><b>Mesma ideia do totem de rotinas: um objeto no térreo que mostra o estado de longe e abre a central.</b> Dados de exemplo; os números do seu Mac estão no relatório, fora do repositório.</p>
+    <div class="world">
+      <div><b>Rack de servidores (MCP)</b>Um LED por servidor: verde conectado, âmbar pede login, vermelho falhou, apagado desligado. O balão diz qual pede login. Os dados vêm do SDK: <code>mcpServerStatus</code>, <code>toggleMcpServer</code> e <code>reconnectMcpServer</code>.</div>
+      <div><b>Estante de skills</b>Cada skill usada na semana vira um livro com a lombada acesa. Quando um agente usa uma skill, ele vai até a estante e volta com o livro, e o balão diz o nome. A lista vem do <code>init</code> de cada agente (<code>skills</code>, <code>plugins</code>); o uso, dos transcripts.</div>
+    </div>
+    <div class="stage" id="tools"></div>
+  </section>
+  <div class="summary">Suas escolhas (cole de volta para mim):<textarea id="out" readonly></textarea></div>
+</main>
+
+<script>
+// ---------- dados ----------
+const ACC = { Principal: { name: 'Principal', color: '#d98757' }, MKT: { name: 'MKT', color: '#3ecf8e' }, QT: { name: 'QT', color: '#b46ae0' } }
+// w: p = %, left = renova em, eta = no ritmo atual chega a 100% em (null = parado)
+const W = (p, left, eta = null) => ({ p, left, eta })
+const BASE_LIMITS = [
+  { acc: 'Principal', agents: 0, w5: W(0, ''), wk: W(2, '7d'), fable: W(0, '') },
+  { acc: 'MKT', agents: 1, w5: W(0, ''), wk: W(0, ''), fable: W(0, '') },
+  { acc: 'QT', agents: 5, w5: W(14, '2h51', '9h40'), wk: W(0, ''), fable: W(0, '') },
+]
+const P_AGORA = [
+  { id: 'a1', owner: 'Grace', acc: 'QT', where: 'office', kind: 'mon', label: 'tail -F logs/worker.log', age: '12min', cpu: '0%', mem: '1 MB', out: '(exemplo) [16:09] lote 41 recebido\n[16:13] lote 42 recebido\n[16:20] aguardando…' },
+  { id: 'a2', owner: 'Grace', acc: 'QT', where: 'office', kind: 'sh', label: 'loop: sleep 15 (consulta a cada 15 s)', age: '11min', cpu: '0%', mem: '2 MB', out: '(exemplo) fila: 3\nfila: 2\nfila: 2' },
+  { id: 'a3', owner: 'worker', acc: 'Principal', where: 'terminal', idle: '19h', kind: 'srv', port: 8787, label: 'npm run dev · wrangler dev', age: '19h', hot: true, cpu: '0%', mem: '73 MB', out: '(exemplo) Ready on http://localhost:8787\n[wrangler] GET /status 200 (2ms)' },
+]
+const SC = {
+  agora: { limits: BASE_LIMITS, sys: { cpu: 19, ram: 74, app: '1% · 553 MB', claudeN: 6, claude: '2% · 1,7 GB' }, procs: P_AGORA,
+    agents: [['Dennis', 'QT', 377], ['Grace', 'QT', 332], ['site', 'Principal', 404, 'terminal'], ['site 2', 'Principal', 349, 'terminal'], ['site 3', 'Principal', 300, 'terminal'], ['worker', 'Principal', 283, 'terminal']] },
+  esquecido: { limits: BASE_LIMITS, sys: { cpu: 34, ram: 88, app: '2% · 610 MB', claudeN: 4, claude: '3% · 1,3 GB' },
+    procs: [
+      { id: 'e1', owner: 'Turing', acc: 'QT', where: 'gone', kind: 'srv', port: 5173, label: 'npm run dev · vite', age: '3h', hot: true, cpu: '4%', mem: '182 MB', out: '(exemplo) VITE v7.3.7  ready in 412 ms\n  Local: http://localhost:5173/' },
+      ...P_AGORA.slice(2),
+      { id: 'e2', owner: 'Grace', acc: 'QT', where: 'office', kind: 'mon', label: 'tail -F logs/worker.log', age: '40min', cpu: '0%', mem: '1 MB', out: '(exemplo) [16:20] aguardando…' },
+    ],
+    agents: [['Turing (saiu)', 'QT', 182, 'gone'], ['Grace', 'QT', 361], ['Dennis', 'QT', 470], ['worker', 'Principal', 283, 'terminal'], ['site', 'Principal', 404, 'terminal']] },
+  apertado: { limits: [
+      { acc: 'Principal', agents: 2, w5: W(41, '3h20', '4h55'), wk: W(61, '2d'), fable: W(0, '') },
+      { acc: 'MKT', agents: 1, w5: W(0, ''), wk: W(0, ''), fable: W(0, '') },
+      { acc: 'QT', agents: 5, w5: W(88, '1h12', '22min'), wk: W(34, '5d'), fable: W(12, '5d') },
+    ], sys: { cpu: 52, ram: 79, app: '2% · 590 MB', claudeN: 8, claude: '9% · 2,4 GB' },
+    procs: [...P_AGORA, { id: 'p1', owner: 'Dennis', acc: 'QT', where: 'office', kind: 'sub', label: 'ajudante: revisar o diff do AO-51', age: '4min', cpu: '—', mem: '—', out: 'Lendo src/main/about.ts…\nLendo test/about.test.ts…' }],
+    agents: [['Dennis', 'QT', 512], ['Grace', 'QT', 358], ['Ada', 'QT', 330], ['Linus', 'MKT', 298], ['worker', 'Principal', 283, 'terminal'], ['site', 'Principal', 404, 'terminal'], ['Barbara', 'Principal', 276], ['Hopper', 'Principal', 240]] },
+  parado: { limits: [
+      { acc: 'Principal', agents: 0, w5: W(0, ''), wk: W(2, '7d'), fable: W(0, '') },
+      { acc: 'MKT', agents: 0, w5: W(0, ''), wk: W(0, ''), fable: W(0, '') },
+      { acc: 'QT', agents: 1, w5: W(6, '4h02', null), wk: W(0, ''), fable: W(0, '') },
+    ], sys: { cpu: 8, ram: 41, app: '1% · 520 MB', claudeN: 1, claude: '0% · 340 MB' }, procs: [], agents: [['Dennis', 'QT', 340]] },
+}
+let sc = 'agora'
+const S = () => SC[sc]
+const stopped = new Set()
+const live = () => S().procs.filter((p) => !stopped.has(p.id))
+const lv = (p) => (p >= 85 ? 'full' : p >= 60 ? 'warn' : 'ok')
+const cls = (p) => (lv(p) === 'ok' ? '' : lv(p))
+const KIND = { srv: ['srv', 'servidor'], mon: ['mon', 'vigia'], sh: ['sh', 'shell'], sub: ['sub', 'ajudante'] }
+const WHERE = { office: '', terminal: 'terminal', gone: 'saiu' }
+const isOrphan = (p) => p.where === 'gone'
+const needsLook = (p) => isOrphan(p) || p.hot
+
+const PATHS = {
+  users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
+  history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5M12 7v5l3 2"/>',
+  chev: '<path d="m6 9 6 6 6-6"/>',
+  term: '<path d="m4 17 6-6-6-6M12 19h8"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
+  ext: '<path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
+  eye: '<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/>',
+  arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  x: '<path d="M18 6 6 18M6 6l12 12"/>',
+}
+const ic = (n, c = '') => `<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${PATHS[n]}</svg>`
+
+// ---------- peças comuns ----------
+function urgent({ withBg = false } = {}) {
+  const lim = S().limits, s = S().sys
+  const orphan = live().find(isOrphan)
+  if (withBg && orphan) return { lv: 'full', text: `${orphan.label.split(' · ').pop()} :${orphan.port} sem dono há ${orphan.age}`, act: 'Parar', id: orphan.id }
+  let worst = null
+  for (const r of lim) for (const [k, w] of [['5h', r.w5], ['Semana', r.wk], ['Fable', r.fable]]) if (!worst || w.p > worst.w.p) worst = { r, k, w }
+  if (worst && lv(worst.w.p) !== 'ok') return { lv: lv(worst.w.p), text: `${worst.r.acc} ${worst.k} em ${worst.w.p}% · ↻ ${worst.w.left}` }
+  const top = Math.max(s.cpu, s.ram)
+  if (lv(top) !== 'ok') return { lv: lv(top), text: s.ram >= s.cpu ? `Mac apertado · RAM ${s.ram}%` : `Mac apertado · CPU ${s.cpu}%` }
+  const hot = live().find((p) => p.hot)
+  if (withBg && hot) return { lv: 'warn', text: `${hot.label.split(' · ').pop()} :${hot.port} ligado há ${hot.age}`, act: 'Ver', id: hot.id }
+  const n = live().length
+  return { lv: '', text: withBg && n ? `Tudo tranquilo · ${n} em segundo plano` : 'Tudo tranquilo' }
+}
+const led = (u = urgent()) => `<div class="led ${u.lv}"><span class="d"></span><span class="t">${u.text}</span>${u.act ? `<button class="act" data-led="${u.id}">${u.act}</button>` : ''}</div>`
+const blocks = (p, n) => `<div class="blocks ${cls(p)}">${Array.from({ length: n }, (_, i) => `<i class="${i < Math.round((p / 100) * n) ? 'on' : ''}"></i>`).join('')}</div>`
+/** Share of the biggest one: a size, not an alarm, so it never turns amber or red. */
+const relBlocks = (p, n) => `<div class="blocks rel">${Array.from({ length: n }, (_, i) => `<i class="${i < Math.max(1, Math.round((p / 100) * n)) ? 'on' : ''}"></i>`).join('')}</div>`
+const head = (title, extra = '', tools = true) => `<div class="head">${title}${extra}<span class="sp"></span>${tools ? `<button class="ibtn" title="Contas do Claude">${ic('users')}</button><button class="ibtn" title="Atualizar">${ic('history')}</button>` : ''}</div>`
+const sysWorst = () => Math.max(S().sys.cpu, S().sys.ram)
+const bgCount = () => live().length
+const bgLevel = () => (live().some(isOrphan) ? 'warn' : '')
+const accChips = () => S().limits.map((r) => {
+  const top = Math.max(r.w5.p, r.wk.p, r.fable.p)
+  return `<span class="chip ${cls(top)}" title="${r.acc}"><span class="px" style="background:${ACC[r.acc].color}"></span>${top}%</span>`
+}).join('')
+const macChip = () => `<span class="chip ${cls(sysWorst())}" title="CPU ${S().sys.cpu}% · RAM ${S().sys.ram}%">MAC ${sysWorst()}%</span>`
+const bgChip = () => (bgCount() ? `<span class="chip bg ${bgLevel()}" title="${bgCount()} em segundo plano">${ic('term')}${bgCount()}</span>` : '')
+const strip = (inner) => `<button class="strip" data-toggle aria-label="Abrir ou recolher">${inner}${ic('chev', 'chev')}</button>`
+
+/** Limits table without the columns and accounts nobody uses. */
+function table() {
+  const lim = S().limits
+  const cols = [['w5', '5h'], ['wk', 'Semana'], ['fable', 'Fable']].filter(([k]) => lim.some((r) => r[k].p > 0))
+  const used = lim.filter((r) => cols.some(([k]) => r[k].p > 0))
+  const idle = lim.filter((r) => !used.includes(r))
+  const cell = (w) => (w.p ? `<td><div class="cell"><span class="num ${cls(w.p)}">${w.p}%</span>${blocks(w.p, 6)}</div><small>↻ ${w.left}</small></td>` : '<td><span class="zero">—</span></td>')
+  return `<table class="t"><tr><th></th>${cols.map(([, l]) => `<th>${l}</th>`).join('')}</tr>
+    ${used.map((r) => `<tr><td><div class="nm"><span class="px" style="background:${ACC[r.acc].color}"></span>${r.acc}${r.agents ? `<span class="ag" title="${r.agents} agente(s)">${r.agents}</span>` : ''}</div></td>${cols.map(([k]) => cell(r[k])).join('')}</tr>`).join('')}</table>
+    ${idle.length ? `<div class="idle-accs">sem uso: ${idle.map((r) => `<span><span class="px" style="background:${ACC[r.acc].color}"></span>${r.acc}${r.agents ? ` <span class="ag">${r.agents}</span>` : ''}</span>`).join('')}</div>` : ''}`
+}
+function system({ title = true, procs = true } = {}) {
+  const s = S().sys
+  return `${title ? `<div class="sec">${head('Sistema', '', false)}</div>` : ''}
+    <div class="sys2"><div><div class="k"><span>CPU</span><span class="num ${cls(s.cpu)}">${s.cpu}%</span></div>${blocks(s.cpu, 10)}</div>
+    <div><div class="k"><span>RAM</span><span class="num ${cls(s.ram)}">${s.ram}%</span></div>${blocks(s.ram, 10)}</div></div>
+    ${procs ? `<div class="procs"><span>escritório</span><b>${s.app}</b><span>agentes (${s.claudeN})</span><b>${s.claude}</b></div>` : ''}`
+}
+/** Background rows grouped by owner; `max` cuts the list and leaves the rest to the central. */
+function bgRows(max = 99) {
+  const list = live()
+  if (!S().procs.length) return '<div class="empty">Nada rodando em segundo plano.</div>'
+  const order = [...list].sort((a, b) => (isOrphan(b) - isOrphan(a)) || (b.hot ? 1 : 0) - (a.hot ? 1 : 0))
+  const shown = order.slice(0, max)
+  const groups = new Map()
+  for (const p of S().procs) if (shown.includes(p) || stopped.has(p.id)) (groups.get(p.owner) ?? groups.set(p.owner, []).get(p.owner)).push(p)
+  const ordered = [...groups.entries()].sort((a, b) => order.indexOf(a[1].find((p) => !stopped.has(p.id))) - order.indexOf(b[1].find((p) => !stopped.has(p.id))))
+  const rows = ordered.map(([owner, ps]) => {
+    const p0 = ps[0]
+    const kind = p0.where === 'gone' ? '<span class="flag warn">sem dono</span>' : p0.where === 'terminal' ? `<span class="kind">terminal${p0.idle ? ` · parado ${p0.idle}` : ''}</span>` : ''
+    return `<div class="own"><span class="px" style="background:${ACC[p0.acc].color}"></span>${owner}${kind}<span class="sp"></span></div>
+      ${ps.map((p) => `<div class="pr ${stopped.has(p.id) ? 'stopped' : ''}"><span class="tg ${KIND[p.kind][0]}">${p.port ? ':' + p.port : KIND[p.kind][1]}</span><span class="lab" title="${p.label}">${p.label}</span><span class="age ${p.hot ? 'hot' : ''}">${p.age}</span><button class="x" data-stop="${p.id}" title="Parar" aria-label="Parar ${p.label}">${ic('stop')}</button></div>`).join('')}`
+  }).join('')
+  const rest = list.length - shown.length
+  return `<div class="bg-list">${rows}</div>${rest > 0 ? `<div class="empty">+${rest} na central</div>` : ''}`
+}
+const centralLink = (txt = 'Central de segundo plano') => `<button class="more" data-central>${txt}${ic('arrow')}</button>`
+
+// ---------- as seis versões ----------
+const V = [
+  {
+    id: 'S1', tag: 'S1 · recomendada', rec: true, title: 'Seção "Segundo plano" no rodapé', split: true,
+    desc: '<b>A menor mudança que resolve.</b> Fechado, a fita ganha um chip azul com o número de processos (âmbar quando algum ficou sem dono). Aberto, o card atual com a tabela enxuta, mais uma seção por dono, com a idade de cada processo e o botão de parar ao passar o mouse.',
+    pro: ['mesmo card que você já conhece', 'idade em âmbar quando passa de 1h'], con: ['cresce uns 90 px quando há processos'],
+    card: (open) => `<div class="hud ${open ? 'open' : ''}">${strip(`<span class="chips">${accChips()}${macChip()}${bgChip()}</span>`)}
+      <div class="body"><div class="pad">${led()}<div class="sec">${head('Limites do plano')}</div>${table()}${system()}
+      <div class="sec">${head('Segundo plano', bgCount() ? `<span class="n">${bgCount()}</span>` : '', false)}</div>${bgRows(4)}${S().procs.length ? centralLink() : ''}</div></div></div>`,
+  },
+  {
+    id: 'S2', tag: 'S2', title: 'Abas: Plano · Mac · Fundo', split: true,
+    desc: '<b>O card não cresce.</b> Três abas na mesma altura: limites, carga do Mac e o que roda em segundo plano. A aba Fundo mostra o número em azul, ou em âmbar se há algo sem dono, para você saber quando vale abrir.',
+    pro: ['altura fixa', 'cada assunto inteiro na sua aba'], con: ['esconde dois terços do card', 'um clique a mais para ver o Mac'],
+    tab: 'fundo',
+    card(open) {
+      const t = this.tab
+      const body = t === 'plano' ? `${head('Limites do plano')}${table()}` : t === 'mac' ? system({ title: false }) : `${bgRows(5)}${S().procs.length ? centralLink() : ''}`
+      return `<div class="hud ${open ? 'open' : ''}">${strip(`<span class="chips">${accChips()}${macChip()}${bgChip()}</span>`)}
+        <div class="body"><div class="pad">${led()}<div style="height:10px"></div>
+        <div class="tabs" role="tablist">${[['plano', 'Plano'], ['mac', 'Mac'], ['fundo', 'Fundo']].map(([k, l]) => `<button role="tab" class="${t === k ? 'on' : ''}" data-tab="S2:${k}">${l}${k === 'fundo' && bgCount() ? `<span class="cnt ${bgLevel()}">${bgCount()}</span>` : ''}</button>`).join('')}</div>${body}</div></div></div>`
+    },
+  },
+  {
+    id: 'S3', tag: 'S3', title: 'Quem está pesando', split: true,
+    desc: '<b>"agentes (6)" vira uma lista.</b> A carga do Mac fica numa linha, e embaixo vem cada agente com a RAM que usa, do maior para o menor, com o que deixou rodando em etiquetas. Responde à pergunta de quando o Mac aperta: quem fecho?',
+    pro: ['acha o culpado em 2 segundos', 'terminal e escritório separados'], con: ['a lista cresce com muitos agentes (corta em 5)'],
+    card: (open) => {
+      const s = S().sys
+      const procsOf = (name) => live().filter((p) => p.owner === name.replace(' (saiu)', ''))
+      const ag = [...S().agents].sort((a, b) => b[2] - a[2]).slice(0, 5)
+      const maxMem = Math.max(...ag.map((a) => a[2]))
+      const rows = ag.map(([name, acc, mem, where]) => {
+        const ps = procsOf(name)
+        return `<div class="who ${where === 'gone' ? 'gone' : ''}"><div class="nm"><span class="px" style="background:${ACC[acc].color}"></span><span style="overflow:hidden;text-overflow:ellipsis">${name}</span>${where === 'terminal' ? '<span class="kind" style="font-weight:600;text-transform:none;color:var(--dim)">term.</span>' : ''}</div>${relBlocks((mem / maxMem) * 100, 5)}<span class="mem">${mem} MB</span>
+          ${ps.length ? `<div class="chips2">${ps.map((p) => `<span class="tg ${KIND[p.kind][0]}" title="${p.label}">${p.port ? ':' + p.port : KIND[p.kind][1]} · ${p.age}</span>`).join('')}</div>` : ''}</div>`
+      }).join('')
+      const more = S().agents.length - ag.length
+      return `<div class="hud ${open ? 'open' : ''}">${strip(`<span class="chips">${accChips()}${macChip()}${bgChip()}</span>`)}
+        <div class="body"><div class="pad">${led()}<div class="sec">${head('Limites do plano')}</div>${table()}
+        <div class="sec">${head('Mac', '', false)}</div>
+        <div class="sysline">CPU <span class="num ${cls(s.cpu)}">${s.cpu}%</span>${blocks(s.cpu, 6)} RAM <span class="num ${cls(s.ram)}">${s.ram}%</span>${blocks(s.ram, 6)}</div>
+        <div class="sec">${head('Quem está rodando', `<span class="n">${S().agents.length}</span>`, false)}</div><div style="margin-top:4px">${rows}</div>
+        ${more > 0 ? `<div class="empty">+${more} ${more === 1 ? 'agente' : 'agentes'}</div>` : ''}${centralLink()}</div></div></div>`
+    },
+  },
+  {
+    id: 'S4', tag: 'S4', title: 'O letreiro cobra', split: true,
+    desc: '<b>Fica quieto até algo ser esquecido.</b> Fechado, a fita é o letreiro, e ele entra na fila de urgência com um botão de ação: "vite :5173 sem dono há 3h · Parar". Sem nada esquecido, diz só "Tudo tranquilo · 3 em segundo plano". Aberto, segue o card de hoje.',
+    pro: ['não pede atenção à toa', 'resolve com um clique, sem abrir'], con: ['o detalhe de cada processo fica só na central'],
+    card: (open) => {
+      const u = urgent({ withBg: true })
+      return `<div class="hud ${open ? 'open' : ''}"><div class="strip" style="cursor:default">${led(u)}<button class="ibtn" data-toggle-btn aria-label="Abrir ou recolher">${ic('chev', 'chev')}</button></div>
+        <div class="body"><div class="pad">${head('Limites do plano')}${table()}${system()}${S().procs.length ? centralLink(`Segundo plano · ${bgCount()}`) : ''}</div></div></div>`
+    },
+  },
+  {
+    id: 'S5', tag: 'S5', title: 'Portas abertas primeiro', split: true,
+    desc: '<b>O que você quer de um servidor é abrir ou fechar.</b> Cada porta vira uma linha clicável (abre o localhost) com dono, idade e parar. Vigias e shells ficam numa linha só. Os limites encolhem para uma linha por conta, com 5h e semana lado a lado.',
+    pro: ['abre o servidor do agente direto do HUD', 'denso: tudo em ~250 px'], con: ['limites menores, sem o ↻ de cada janela'],
+    card: (open) => {
+      const ports = live().filter((p) => p.port)
+      const others = live().filter((p) => !p.port)
+      const lim = S().limits.map((r) => `<div class="lim1"><div class="nm"><span class="px" style="background:${ACC[r.acc].color}"></span>${r.acc}${r.agents ? `<span class="ag">${r.agents}</span>` : ''}</div>
+        <div class="w" title="5h ${r.w5.p ? '· ↻ ' + r.w5.left : ''}">5h ${blocks(r.w5.p, 4)}<span class="num ${cls(r.w5.p)}">${r.w5.p ? r.w5.p + '%' : '—'}</span></div>
+        <div class="w" title="Semana ${r.wk.p ? '· ↻ ' + r.wk.left : ''}">sem ${blocks(r.wk.p, 4)}<span class="num ${cls(r.wk.p)}">${r.wk.p ? r.wk.p + '%' : '—'}</span></div></div>`).join('')
+      const portRows = ports.map((p) => `<div class="port ${isOrphan(p) || p.hot ? 'warn' : ''}"><span class="addr">localhost:${p.port}</span>
+        <span class="meta" style="grid-column:auto" ><span class="${p.hot ? 'hot' : ''}">${p.age}</span></span><button class="ibtn" title="Abrir no navegador">${ic('ext')}</button><button class="ibtn" data-stop="${p.id}" title="Parar">${ic('stop')}</button>
+        <span class="meta"><b>${p.owner}</b>${p.where === 'gone' ? ' <span class="hot">saiu</span>' : p.where === 'terminal' ? ' · terminal' : ''} · ${p.label.split(' · ').pop()}</span></div>`).join('')
+      return `<div class="hud ${open ? 'open' : ''}">${strip(`<span class="chips">${accChips()}${macChip()}${ports.length ? `<span class="chip bg ${bgLevel()}">${ic('ext')}${ports.length}</span>` : ''}</span>`)}
+        <div class="body"><div class="pad">${led()}<div class="sec">${head('Limites do plano')}</div><div style="margin-top:4px">${lim}</div>
+        ${system({ procs: true })}
+        <div class="sec">${head('Portas abertas', ports.length ? `<span class="n">${ports.length}</span>` : '', false)}</div>${ports.length ? portRows : '<div class="empty">Nenhum servidor ligado.</div>'}
+        ${others.length ? centralLink(`+${others.length} vigias e shells`) : ''}</div></div></div>`
+    },
+  },
+  {
+    id: 'S6', tag: 'S6', title: 'Fôlego: vai dar até renovar?', split: true,
+    desc: '<b>Os limites respondem a pergunta que importa.</b> Cada janela mostra o que já foi usado, a projeção no ritmo atual (tracejado) e a marca de quando renova. Se a projeção passa da marca, avisa a hora em que acaba. Mac e segundo plano viram uma linha de rodapé.',
+    pro: ['previne o limite em vez de mostrar depois', 'contas sem uso somem'], con: ['precisa de uns 15 min de histórico para projetar'],
+    card: (open) => {
+      const rows = []
+      for (const r of S().limits) for (const [k, l] of [['w5', '5h'], ['wk', 'Semana']]) {
+        const w = r[k]
+        if (!w.p) continue
+        const leftMin = toMin(w.left), etaMin = w.eta ? toMin(w.eta) : null
+        const usedPct = w.p
+        // straight-line pace: where the use lands at reset time
+        const atReset = etaMin === null ? usedPct : Math.min(100, usedPct + (100 - usedPct) * (leftMin / Math.max(etaMin, 1)))
+        const runsOut = etaMin !== null && etaMin < leftMin
+        const level = runsOut ? (lv(w.p) === 'full' ? 'full' : 'warn') : lv(w.p) === 'ok' ? '' : lv(w.p)
+        const say = runsOut ? `acaba em <b>${w.eta}</b>, antes de renovar (↻ ${w.left})` : etaMin === null ? `parado · ↻ ${w.left}` : `<b>dá até renovar</b> · fica em ~${Math.round(atReset)}% · ↻ ${w.left}`
+        rows.push(`<div class="fol ${level}"><div class="top"><span class="nm"><span class="px" style="background:${ACC[r.acc].color}"></span>${r.acc}</span><span style="font:10px var(--mono);color:var(--dim)">${l}</span><span class="num ${cls(w.p)}">${w.p}%</span></div>
+          <div class="track"><span class="used" style="width:${usedPct}%"></span><span class="proj" style="left:${usedPct}%;width:${Math.max(0, (runsOut ? 100 : atReset) - usedPct)}%"></span><span class="reset" style="left:calc(100% - 2px)" title="limite"></span></div>
+          <div class="say">${say}</div></div>`)
+      }
+      const idle = S().limits.filter((r) => !r.w5.p && !r.wk.p).map((r) => r.acc)
+      const s = S().sys
+      return `<div class="hud ${open ? 'open' : ''}">${strip(`<span class="chips">${accChips()}${macChip()}${bgChip()}</span>`)}
+        <div class="body"><div class="pad">${led()}<div class="sec">${head('Fôlego do plano')}</div><div style="margin-top:4px">${rows.join('') || '<div class="empty">Nenhuma janela em uso.</div>'}</div>
+        ${idle.length ? `<div class="idle-accs">sem uso: ${idle.join(' · ')}</div>` : ''}
+        <div class="foot1"><span class="${cls(sysWorst())}">MAC ${s.ram >= s.cpu ? 'RAM' : 'CPU'} ${sysWorst()}%</span><span>· ${s.claudeN} claude</span><span class="sp"></span>${bgCount() ? `<button class="${bgLevel()}" data-central>${ic('term')}${bgCount()}</button>` : ''}</div></div></div></div>`
+    },
+  },
+]
+function toMin(t) {
+  if (!t) return 0
+  const d = t.match(/^(\d+)d$/); if (d) return +d[1] * 1440
+  const hm = t.match(/^(\d+)h(\d+)?$/); if (hm) return +hm[1] * 60 + (+hm[2] || 0)
+  const m = t.match(/^(\d+)min$/); if (m) return +m[1]
+  return 0
+}
+
+// ---------- central ----------
+let filter = 'tudo'
+let peek = null
+function central() {
+  const all = S().procs
+  const f = { tudo: () => true, srv: (p) => p.kind === 'srv', mon: (p) => p.kind === 'mon', sh: (p) => p.kind === 'sh' || p.kind === 'sub', semdono: isOrphan }
+  const count = (k) => all.filter((p) => f[k](p) && !stopped.has(p.id)).length
+  const list = all.filter(f[filter])
+  const groups = new Map()
+  for (const p of [...list].sort((a, b) => isOrphan(b) - isOrphan(a))) (groups.get(p.owner) ?? groups.set(p.owner, []).get(p.owner)).push(p)
+  const orphans = all.filter((p) => isOrphan(p) && !stopped.has(p.id))
+  const totalMem = live().reduce((s, p) => s + (parseInt(p.mem) || 0), 0)
+  const body = groups.size
+    ? `<div class="c-cols"><span>tipo</span><span>comando</span><span class="r">idade</span><span class="r">CPU</span><span class="r">RAM</span><span></span></div>` +
+      [...groups.entries()].map(([owner, ps]) => {
+        const p0 = ps[0]
+        const st = p0.where === 'gone' ? '<span class="flag warn">sem dono · o agente saiu</span>' : p0.where === 'terminal' ? `<span class="st" style="color:var(--dim)">sessão do terminal${p0.idle ? ` · parada há ${p0.idle}` : ''}</span>` : '<span class="st" style="color:var(--green-text)">agente do escritório · trabalhando</span>'
+        return `<div class="c-own"><span class="px" style="background:${ACC[p0.acc].color}"></span>${owner}<span class="kind">${ACC[p0.acc].name}</span>${st}<span class="sp"></span></div>` +
+          ps.map((p) => `<div class="c-row ${stopped.has(p.id) ? 'stopped' : ''}"><span class="tg ${KIND[p.kind][0]}">${KIND[p.kind][1]}</span>
+            <span class="cmd">${p.label}${p.port ? `<small>localhost:${p.port}</small>` : ''}</span><span class="r ${p.hot ? 'hot' : ''}">${p.age}</span><span class="r">${p.cpu}</span><span class="r">${p.mem}</span>
+            <span class="acts">${p.port ? `<button title="Abrir no navegador">${ic('ext')}</button>` : ''}<button data-peek="${p.id}">${ic('eye')}Saída</button><button class="stop" data-stop="${p.id}">${ic('stop')}Parar</button></span></div>
+            ${peek === p.id ? `<div class="c-out">${p.out.replace(/</g, '&lt;')}</div>` : ''}`).join('')
+      }).join('')
+    : `<div class="c-empty">${all.length ? 'Nada deste tipo.' : 'Nada rodando em segundo plano. Quando um agente deixar um servidor, vigia ou shell ligado, ele aparece aqui.'}</div>`
+  return `<div class="central" role="dialog" aria-label="Central de segundo plano">
+    <div class="c-head">${ic('term')}<h4>Central de segundo plano</h4><span class="sum">${live().length} processos · ${totalMem} MB</span><span class="sp"></span><button class="ibtn" title="Atualizar">${ic('history')}</button><button class="ibtn" title="Fechar">${ic('x')}</button></div>
+    <div class="filters">${[['tudo', 'Tudo'], ['semdono', 'Sem dono'], ['srv', 'Servidores'], ['mon', 'Vigias'], ['sh', 'Shells e ajudantes']].map(([k, l]) => `<button class="${filter === k ? 'on' : ''}" data-filter="${k}">${l}<b>${count(k)}</b></button>`).join('')}</div>
+    <div class="c-body">${body}</div>
+    <div class="c-foot"><span>Só aparece o que desce de um <span style="color:var(--muted)">claude</span> que o app conhece.</span><span class="sp"></span><button class="c-btn danger" ${orphans.length ? '' : 'disabled'} data-stop-orphans>${ic('stop')}Parar os sem dono (${orphans.length})</button></div></div>`
+}
+
+
+// ---------- MCP e skills (dados de exemplo) ----------
+const MCP = [
+  { grp: 'Do app', name: 'office', src: 'quadro de tickets do escritório', st: 'ok', agents: 7, uses: 180, tools: 9, locked: true },
+  { grp: 'Seus', name: 'github', src: 'usuário', st: 'ok', agents: 7, uses: 42, tools: 26 },
+  { grp: 'Seus', name: 'sentry', src: 'usuário', st: 'ok', agents: 7, uses: 0, tools: 14 },
+  { grp: 'Seus', name: 'playwright', src: 'plugin', st: 'ok', agents: 7, uses: 3, tools: 21 },
+  { grp: 'Projeto loja', name: 'postgres', src: 'projeto · .mcp.json', st: 'ok', agents: 2, uses: 0, tools: 6 },
+  { grp: 'Projeto loja', name: 'stripe', src: 'projeto · .mcp.json', st: 'auth', agents: 2, uses: 0, tools: 0 },
+  { grp: 'claude.ai', name: 'Notion', src: 'conector', st: 'fail', agents: 7, uses: 0, tools: 0, err: 'falhou ao conectar · tentar de novo' },
+]
+const SKILLS = [
+  ['release-notes', 'sua', 24, 'hoje'], ['frontend-design', 'plugin', 9, 'hoje'], ['dataviz', 'plugin', 6, 'ontem'], ['code-review', 'embutida', 5, 'ontem'],
+  ['pdf', 'plugin', 4, '13/10'], ['humanizer', 'sua', 3, '13/10'], ['deploy-check', 'sua', 2, '12/10'], ['xlsx', 'plugin', 1, '10/10'],
+]
+const PLUGINS = [['frontend-design', true], ['security-guidance', true], ['pdf-tools', true], ['superpowers', false], ['swift-lsp', false]]
+const mcpOff = new Set()
+const pluginState = Object.fromEntries(PLUGINS)
+let mcpFilter = 'tudo'
+let skillFilter = 'semana'
+Object.assign(PATHS, {
+  rack: '<rect x="3" y="4" width="18" height="7" rx="1"/><rect x="3" y="13" width="18" height="7" rx="1"/><path d="M7 7.5h.01M7 16.5h.01"/>',
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M4 19.5V21h16"/>',
+  search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+})
+const mcpSt = (m) => (mcpOff.has(m.name) ? 'off' : m.st)
+const mcpIdle = () => MCP.filter((m) => m.uses === 0 && m.st === 'ok' && !m.locked && !mcpOff.has(m.name))
+
+function mcpWin() {
+  const f = { tudo: () => true, parado: (m) => m.uses === 0 && mcpSt(m) === 'ok', atencao: (m) => mcpSt(m) === 'auth' || mcpSt(m) === 'fail', off: (m) => mcpSt(m) === 'off' }
+  const list = MCP.filter(f[mcpFilter])
+  const maxUse = Math.max(...MCP.map((m) => m.uses))
+  const groups = [...new Set(list.map((m) => m.grp))]
+  const rows = groups.map((g) => `<div class="w-grp">${g}</div>` + list.filter((m) => m.grp === g).map((m) => {
+    const st = mcpSt(m)
+    const sub = st === 'auth' ? '<span class="warn">pede login</span>' : st === 'fail' ? `<span class="warn">${m.err}</span>` : st === 'off' ? 'desligado' : m.uses === 0 ? `<span class="warn">sem uso em 7 dias</span> · ${m.tools} ferr.` : `${m.tools} ferramentas · ${m.src}`
+    const act = st === 'auth' ? '<button class="mini-btn warn">Fazer login</button>' : st === 'fail' ? '<button class="mini-btn warn">Reconectar</button>' : m.locked ? '<span class="sw on locked" title="O escritório precisa dele"></span>' : `<button class="sw ${st === 'off' ? '' : 'on'}" data-mcp="${m.name}" aria-label="Ligar ou desligar ${m.name}"></button>`
+    return `<div class="w-row ${st === 'off' ? 'off' : ''}"><span class="ledd ${st}"></span><span class="nm2"><b>${m.name}</b><small>${sub}</small></span>
+      <span class="use">${m.uses ? relBlocks((m.uses / maxUse) * 100, 4) : '<div class="blocks rel"><i></i><i></i><i></i><i></i></div>'}<span class="${m.uses ? '' : 'z'}">${m.uses}</span></span><span class="r">${m.agents} ag.</span><span class="acts">${act}</span></div>`
+  }).join('')).join('')
+  const count = (k) => MCP.filter(f[k]).length
+  const idle = mcpIdle()
+  return `<div class="win" role="dialog" aria-label="Central de MCP">
+    <div class="c-head">${ic('rack')}<h4>MCP</h4><span class="sum">${MCP.length} servidores · ${count('atencao')} pedem atenção</span><span class="sp"></span><button class="ibtn" title="Reconectar todos">${ic('history')}</button><button class="ibtn" title="Fechar">${ic('x')}</button></div>
+    <div class="filters">${[['tudo', 'Todos'], ['parado', 'Sem uso'], ['atencao', 'Pedem atenção'], ['off', 'Desligados']].map(([k, l]) => `<button class="${mcpFilter === k ? 'on' : ''}" data-mcpf="${k}">${l}<b>${count(k)}</b></button>`).join('')}</div>
+    <div class="w-cols"><span></span><span>servidor</span><span>usos 7d</span><span class="r">agentes</span><span></span></div>
+    <div class="c-body" style="padding-top:0">${rows || '<div class="c-empty">Nada aqui.</div>'}</div>
+    <div class="c-foot"><span>${idle.length ? `${idle.length} sem uso ocupam contexto em todo agente.` : 'Desligar vale na hora para os agentes do escritório.'}</span><span class="sp"></span>${idle.length ? `<button class="c-btn" data-mcp-idle>Desligar sem uso (${idle.length})</button>` : ''}</div></div>`
+}
+
+function skillsWin() {
+  const max = Math.max(...SKILLS.map((x) => x[2]))
+  const rows = skillFilter === 'plugins'
+    ? PLUGINS.map(([n]) => `<div class="w-row ${pluginState[n] ? '' : 'off'}"><span class="ledd ${pluginState[n] ? 'ok' : 'off'}"></span><span class="nm2"><b>${n}</b><small>plugin · ${pluginState[n] ? 'ligado' : 'desligado'}</small></span><span></span><span></span>
+        <span class="acts"><button class="sw ${pluginState[n] ? 'on' : ''}" data-plugin="${n}" aria-label="Ligar ou desligar ${n}"></button></span></div>`).join('')
+    : SKILLS.map(([n, src, uses, last]) => `<div class="w-row"><span class="ledd ok"></span><span class="nm2"><b>${n}</b><small>${src}</small></span>
+        <span class="use">${relBlocks((uses / max) * 100, 4)}<span>${uses}</span></span><span class="r">${last}</span><span class="acts"><button class="mini-btn">Abrir</button></span></div>`).join('')
+  const body = skillFilter === 'paradas' ? '<div class="c-empty">As skills sem uso em 7 dias, com a descrição de cada uma e "Abrir pasta".</div>' : rows
+  return `<div class="win" role="dialog" aria-label="Central de skills">
+    <div class="c-head">${ic('book')}<h4>Skills</h4><span class="sum">64 skills · ${SKILLS.length} usadas em 7 dias</span><span class="sp"></span><button class="ibtn" title="Recarregar">${ic('history')}</button><button class="ibtn" title="Fechar">${ic('x')}</button></div>
+    <div class="w-search">${ic('search')}Buscar skill, plugin ou descrição…</div>
+    <div class="filters">${[['semana', 'Usadas na semana', SKILLS.length], ['plugins', 'Plugins', PLUGINS.length], ['paradas', 'Sem uso', 56]].map(([k, l, n]) => `<button class="${skillFilter === k ? 'on' : ''}" data-skf="${k}">${l}<b>${n}</b></button>`).join('')}</div>
+    ${skillFilter === 'semana' ? '<div class="w-cols"><span></span><span>skill</span><span>usos 7d</span><span class="r">última</span><span></span></div>' : ''}
+    <div class="c-body" style="padding-top:${skillFilter === 'semana' ? '0' : '8px'}">${body}</div>
+    <div class="c-foot"><span>${skillFilter === 'plugins' ? 'Grava enabledPlugins e recarrega os agentes (reloadPlugins).' : 'Uso contado nos transcripts: cada chamada da ferramenta Skill.'}</span></div></div>`
+}
+
+// ---------- render ----------
+const VOTES_KEY = 'cards-votes-v3'
+const votes = JSON.parse(localStorage.getItem(VOTES_KEY) || '{}')
+const openState = {}
+function measure() {
+  document.querySelectorAll('.variant').forEach((v) => {
+    v.querySelector('.v-h').textContent = 'altura ' + [...v.querySelectorAll('.hud')].map((c) => Math.round(c.getBoundingClientRect().height) + 'px').join(' / ')
+  })
+}
+function render() {
+  document.getElementById('grid').innerHTML = V.map((v) => `
+    <article class="variant ${votes[v.id] === 'sim' ? 'approved' : votes[v.id] === 'nao' ? 'rejected' : ''}" data-v="${v.id}">
+      <div class="v-head"><span class="v-tag ${v.rec ? 'rec' : ''}">${v.tag}</span><h3>${v.title}</h3><span class="v-h"></span></div>
+      <p class="v-desc">${v.desc}</p>
+      <div class="trade">${v.pro.map((x) => `<span class="p">+ ${x}</span>`).join('')}${v.con.map((x) => `<span class="m">− ${x}</span>`).join('')}</div>
+      <div class="stage"><div class="col"><span class="cap">fechado</span>${v.card(false)}</div><div class="col"><span class="cap">aberto</span>${v.card(true)}</div></div>
+      <div class="vote"><button class="yes ${votes[v.id] === 'sim' ? 'on' : ''}" data-vote="${v.id}:sim">Aprovar</button><button class="no ${votes[v.id] === 'nao' ? 'on' : ''}" data-vote="${v.id}:nao">Rejeitar</button></div>
+    </article>`).join('')
+  document.getElementById('central').innerHTML = central()
+  document.getElementById('tools').innerHTML = mcpWin() + skillsWin()
+  measure()
+  const yes = V.filter((v) => votes[v.id] === 'sim').map((v) => v.id), no = V.filter((v) => votes[v.id] === 'nao').map((v) => v.id)
+  document.getElementById('tally').textContent = `${yes.length} aprovada(s) · ${no.length} rejeitada(s)`
+  document.getElementById('out').value = `Aprovadas: ${yes.join(', ') || 'nenhuma'}\nRejeitadas: ${no.join(', ') || 'nenhuma'}`
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button')
+  if (!t) return
+  if (t.closest('.seg')) { t.parentElement.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b === t)); sc = t.dataset.v; stopped.clear(); peek = null; filter = 'tudo'; return render() }
+  if (t.dataset.vote) { const [id, val] = t.dataset.vote.split(':'); votes[id] = votes[id] === val ? undefined : val; localStorage.setItem(VOTES_KEY, JSON.stringify(votes)); return render() }
+  if (t.dataset.tab) { const [id, k] = t.dataset.tab.split(':'); V.find((v) => v.id === id).tab = k; return render() }
+  if (t.dataset.stop) { stopped.add(t.dataset.stop); return render() }
+  if (t.dataset.led) { stopped.add(t.dataset.led); return render() }
+  if (t.dataset.peek) { peek = peek === t.dataset.peek ? null : t.dataset.peek; return render() }
+  if (t.dataset.filter) { filter = t.dataset.filter; return render() }
+  if ('stopOrphans' in t.dataset) { S().procs.filter(isOrphan).forEach((p) => stopped.add(p.id)); return render() }
+  if (t.dataset.mcp) { mcpOff.has(t.dataset.mcp) ? mcpOff.delete(t.dataset.mcp) : mcpOff.add(t.dataset.mcp); return render() }
+  if ('mcpIdle' in t.dataset) { mcpIdle().forEach((m) => mcpOff.add(m.name)); return render() }
+  if (t.dataset.mcpf) { mcpFilter = t.dataset.mcpf; return render() }
+  if (t.dataset.plugin) { pluginState[t.dataset.plugin] = !pluginState[t.dataset.plugin]; return render() }
+  if (t.dataset.skf) { skillFilter = t.dataset.skf; return render() }
+  if ('central' in t.dataset) { document.getElementById('central').scrollIntoView({ behavior: 'smooth', block: 'center' }); return }
+  if ('toggle' in t.dataset || 'toggleBtn' in t.dataset) { t.closest('.hud').classList.toggle('open'); measure() }
+})
+render()
+</script>
+</body>
+</html>

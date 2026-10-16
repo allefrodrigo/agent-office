@@ -334,3 +334,176 @@
   font-weight: 600;
   text-align: right;
 }
+
+/* ---------- segundo plano (Bastidores) in the info card ---------- */
+
+.info-chip-bg {
+  gap: 3px;
+  padding: 2px 5px;
+  background: rgba(91, 156, 240, 0.14);
+  color: #a9cbff;
+}
+
+.info-chip-bg.ctx-warn {
+  background: rgba(245, 165, 36, 0.14);
+  color: var(--amber-text);
+}
+
+.info-idle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: 6px;
+  color: var(--dim);
+  font: 10.5px var(--mono);
+}
+
+.info-idle-acc {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.info-head-n {
+  margin-left: 6px;
+  color: var(--dim);
+  letter-spacing: 0;
+}
+
+.info-bg {
+  display: flex;
+  flex-direction: column;
+  margin-top: 6px;
+}
+
+.info-bg-owner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 0 2px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  font: 700 10.5px var(--mono);
+  letter-spacing: 0.03em;
+}
+
+.info-bg-owner:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.info-bg-owner.gone {
+  color: var(--amber-text);
+}
+
+.info-bg-owner-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-bg-row {
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr) auto 20px;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0 1px 13px;
+  color: var(--muted);
+  font: 10.5px var(--mono);
+}
+
+.info-bg-row.stopping {
+  opacity: 0.5;
+}
+
+.info-bg-label {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-bg-age {
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.info-bg-age.old {
+  color: var(--amber-text);
+}
+
+.info-bg-stop {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--dim);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.info-bg-row:hover .info-bg-stop,
+.info-bg-stop:focus-visible {
+  opacity: 1;
+}
+
+.info-bg-stop:hover {
+  background: rgba(239, 91, 91, 0.18);
+  color: var(--red-text);
+}
+
+/* kind tags: also used in Bastidores */
+.bg-tag {
+  overflow: hidden;
+  padding: 0 4px;
+  border-radius: 3px;
+  font: 600 9.5px/14px var(--mono);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.bg-tag-server {
+  background: rgba(91, 156, 240, 0.16);
+  color: #a9cbff;
+}
+
+.bg-tag-monitor {
+  background: rgba(176, 108, 224, 0.18);
+  color: #d9c2ff;
+}
+
+.bg-tag-shell {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--muted);
+}
+
+.bg-tag-helper {
+  background: rgba(62, 207, 142, 0.12);
+  color: var(--green-text);
+}
+
+.info-more {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font: 600 10.5px var(--mono);
+  transition: background 0.15s, color 0.15s;
+}
+
+.info-more:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}

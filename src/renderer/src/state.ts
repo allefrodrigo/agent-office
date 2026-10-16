@@ -1,4 +1,4 @@
-import type { Account, AccountStatus, AgentResult, AgentSummary, BridgeStatus, LedgerToday, LogEntry, MacJob, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Routine, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
+import type { Account, AccountStatus, AgentResult, AgentSummary, BgProcess, BridgeStatus, LedgerToday, LogEntry, MacJob, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Routine, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -26,7 +26,9 @@ export class State {
   ledgerToday: LedgerToday
   /** Running on battery (the scene may be in Economia). */
   onBattery: boolean
-  /** Scheduled tasks (the totem on the ground floor). */
+  /** What the agents left running in the background (Bastidores). */
+  backstage: BgProcess[]
+  /** Scheduled tasks (the routines board on every floor). */
   routines: Routine[]
   /** The Mac's own scheduled jobs (launchd), beside the routines. */
   macJobs: MacJob[]
@@ -48,6 +50,7 @@ export class State {
     this.squads = initial.squads
     this.ledgerToday = initial.ledgerToday ?? { day: '', costByCwd: {}, agents: {} }
     this.onBattery = initial.onBattery ?? false
+    this.backstage = initial.backstage ?? []
     this.routines = initial.routines ?? []
     this.macJobs = initial.macJobs ?? []
   }
@@ -107,6 +110,9 @@ export class State {
         break
       case 'power':
         this.onBattery = e.onBattery
+        break
+      case 'backstage':
+        this.backstage = e.processes
         break
       case 'accounts':
         this.accounts = e.accounts

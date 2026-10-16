@@ -8,8 +8,7 @@ import { buildOffice, type GroundFloor, type Office } from '../world/office'
 import { Overlays, Tag } from '../world/overlays'
 import { Effects } from '../world/effects'
 import { FACE_CAMERA, skeleton } from '../world/skull'
-import { totem, type Totem } from '../world/totem'
-import { center, OVERFLOW_TILES, SKULL_HOME, TOTEM_TILE, tileOf, type Actor, type GameHooks, type Helper, type Member, type Upper } from './types'
+import { center, OVERFLOW_TILES, SKULL_HOME, tileOf, type Actor, type GameHooks, type Helper, type Member, type Upper } from './types'
 
 /**
  * State shared by every part of the office (game/*.ts), the floor lookups and the
@@ -28,6 +27,8 @@ export abstract class GameBase {
   protected alarmTag: Tag
   /** Over the ground floor spending board. */
   protected moneyTag: Tag
+  /** "Rotinas" over the routines board in your office. */
+  protected routinesTag: Tag
   /** Seconds until the boards and alarms are checked again (limits expire on their own). */
   protected boardsIn = 0
   readonly overlays: Overlays
@@ -47,10 +48,8 @@ export abstract class GameBase {
   protected wheelAcc = 0
   protected effects: Effects
   protected skull: { root: THREE.Group; tag: Tag; eyes: THREE.MeshBasicMaterial }
-  /** The routines totem by the boss office and its "Rotinas" tag. */
-  protected totem: { view: Totem; tag: Tag }
-  /** Seconds until the totem's text is worked out again (at most once a second). */
-  protected totemIn = 0
+  /** Seconds until the routines boards are worked out again (at most once a second). */
+  protected routinesIn = 0
   /** Agents picked at the skull, waiting for the camera (or the elevator) before the strike. */
   protected doomed = new Map<string, { at: number; done: () => void }>()
   /** performance.now() until which the scene draws at full rate even if nothing walks (input, events). */
@@ -112,16 +111,6 @@ export abstract class GameBase {
     skullTag.setDot('skull')
     this.skull = { root: sk.group, tag: skullTag, eyes: sk.eyes }
 
-    // the routines totem outside the boss office: next routine, countdown and a status LED
-    const tt = totem()
-    tt.group.position.set(TOTEM_TILE[0] + 0.6, 0, TOTEM_TILE[1] + 0.5)
-    tt.group.rotation.y = FACE_CAMERA
-    this.office.group.add(tt.group)
-    const totemTag = this.overlays.add(new Tag(tt.anchor, 'Rotinas', false, () => hooks.onRoutines()))
-    totemTag.el.classList.add('tag-totem')
-    totemTag.setDot('routine-none')
-    this.totem = { view: tt, tag: totemTag }
-
     // the player's own computer calls a new agent
     const pc = new THREE.Object3D()
     pc.position.set(3.3, 1.35, L.BOSS_DESK.z + 0.5)
@@ -131,6 +120,7 @@ export abstract class GameBase {
 
     this.alarmTag = this.alarmTagFor(this.office.alarm)
     this.moneyTag = this.moneyTagFor(this.office.money)
+    this.routinesTag = this.routinesTagFor(this.office.routines)
   }
 
   /** Orchestrators of a floor by Diretoria desk. */
@@ -223,6 +213,14 @@ export abstract class GameBase {
     tag.el.classList.add('tag-money')
     tag.setDot('money')
     tag.hidden = true
+    return tag
+  }
+
+  /** Its dot is the board's LED, its balloon the next routine in words. */
+  protected routinesTagFor(board: { anchor: THREE.Object3D }): Tag {
+    const tag = this.overlays.add(new Tag(board.anchor, 'Rotinas', false, () => this.hooks.onRoutines()))
+    tag.el.classList.add('tag-routines')
+    tag.setDot('routine-none')
     return tag
   }
 

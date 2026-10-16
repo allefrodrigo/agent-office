@@ -1,4 +1,5 @@
 import { resumeCommand } from '@shared/commands'
+import { groupSessionsByProject } from '@shared/sessions'
 import type { SessionEntry } from '@shared/types'
 import type { State } from '../../state'
 import { h, icon, timeAgo } from '../dom'
@@ -8,6 +9,11 @@ import { cleanError, confirmDialog, modal } from './common'
 // Resume center: recent Claude Code sessions.
 
 const RECENT_MS = 2 * 60 * 1000
+const GROUP_KEY = 'resume-group-by'
+/** Projects open on arrival; the rest start folded so the list reads as an index. */
+const OPEN_PROJECTS = 3
+
+type GroupBy = 'project' | 'day'
 
 /** Resume center: recent Claude Code sessions, with a way to call each one back. */
 export function openResume(
@@ -16,6 +22,9 @@ export function openResume(
   actions: { openAgent(id: string): void; toast(t: string, k?: 'info' | 'ok' | 'err'): void },
 ): void {
   let sessions: SessionEntry[] = []
+  let groupBy: GroupBy = localStorage.getItem(GROUP_KEY) === 'day' ? 'day' : 'project'
+  // Folded state per project, set once the user clicks a header; until then OPEN_PROJECTS rules.
+  const folded = new Map<string, boolean>()
   const search = h('input', { class: 'input resume-search', placeholder: 'Buscar por título, pedido ou pasta…' })
   const list = h('div', { class: 'resume-list' }, h('div', { class: 'resume-empty' }, 'Carregando sessões…'))
   const close = () => el.remove()
@@ -46,7 +55,7 @@ export function openResume(
   /** "Terminal" is the Mac app's name; elsewhere it means any terminal. */
   const terminalLabel = mac ? 'Abrir no Terminal' : 'Abrir no terminal'
 
-  const row = (s: SessionEntry): HTMLElement => {
+  const row = (s: SessionEntry, showFolder = true): HTMLElement => {
     const owner = [...state.agents.values()].find((a) => a.sessionId === s.sessionId)
     const recent = Date.now() - s.lastModified < RECENT_MS
     const folder = s.cwd ? s.cwd.split(/[\\/]/).filter(Boolean).pop() : 'pasta desconhecida'
@@ -105,10 +114,10 @@ export function openResume(
         h(
           'div',
           { class: 'resume-meta' },
-          icon('folder', 12),
-          h('span', { title: s.cwd ?? '' }, folder ?? ''),
+          showFolder ? icon('folder', 12) : null,
+          showFolder ? h('span', { title: s.cwd ?? '' }, folder ?? '') : null,
           s.branch ? h('span', { class: 'resume-branch' }, s.branch) : null,
-          h('span', {}, '·'),
+          showFolder || s.branch ? h('span', {}, '·') : null,
           h('span', {}, timeAgo(s.lastModified)),
           h('span', { class: 'resume-id', title: s.sessionId }, s.sessionId.slice(0, 8)),
         ),
@@ -125,18 +134,61 @@ export function openResume(
       list.replaceChildren(h('div', { class: 'resume-empty' }, sessions.length ? 'Nenhuma sessão com esse texto.' : 'Nenhuma sessão salva ainda.'))
       return
     }
-    const groups = new Map<string, SessionEntry[]>()
-    for (const s of shown) {
-      const g = dayGroup(s.lastModified)
-      groups.set(g, [...(groups.get(g) ?? []), s])
+    if (groupBy === 'day') {
+      const groups = new Map<string, SessionEntry[]>()
+      for (const s of shown) {
+        const g = dayGroup(s.lastModified)
+        groups.set(g, [...(groups.get(g) ?? []), s])
+      }
+      list.replaceChildren(...[...groups].flatMap(([g, items]) => [h('div', { class: 'resume-group' }, g), ...items.map((s) => row(s))]))
+      return
     }
-    list.replaceChildren(...[...groups].flatMap(([g, items]) => [h('div', { class: 'resume-group' }, g), ...items.map(row)]))
+    const projects = groupSessionsByProject(shown, state.settings.projects)
+    list.replaceChildren(
+      ...projects.flatMap((p, i) => {
+        // A search opens every project that matched.
+        const open = q ? true : !(folded.get(p.key) ?? i >= OPEN_PROJECTS)
+        const head = h(
+          'button',
+          {
+            class: `resume-project${open ? ' open' : ''}`,
+            type: 'button',
+            title: p.cwd ?? '',
+            'aria-expanded': String(open),
+            onclick: () => {
+              if (q) return
+              folded.set(p.key, open)
+              render()
+            },
+          },
+          icon('chevron', 13),
+          icon('folder', 14),
+          h('span', { class: 'resume-project-name' }, p.name),
+          h('span', { class: 'resume-project-count' }, String(p.sessions.length)),
+          h('span', { class: 'resume-project-when' }, timeAgo(p.lastModified)),
+        )
+        return open ? [head, ...p.sessions.map((s) => row(s, !!s.cwd && sessionFolderDiffers(s.cwd, p.cwd)))] : [head]
+      }),
+    )
   }
+
+  const tabBtn = (key: GroupBy, label: string) =>
+    h('button', {
+      class: `seg-btn${groupBy === key ? ' on' : ''}`,
+      type: 'button',
+      onclick: () => {
+        groupBy = key
+        localStorage.setItem(GROUP_KEY, key)
+        for (const b of tabs.children) b.classList.toggle('on', b === tabs.children[key === 'project' ? 0 : 1])
+        render()
+      },
+    }, label)
+  const tabs = h('div', { class: 'seg resume-tabs', role: 'tablist' }, tabBtn('project', 'Por projeto'), tabBtn('day', 'Por data'))
 
   search.addEventListener('input', render)
   const el = modal(
     'Central de resume',
-    [h('div', { class: 'field-hint' }, 'Sessões recentes do Claude Code nesta máquina, do terminal ou do escritório. "Chamar" traz a sessão de volta como agente, com o histórico.'), search, list],
+    [h('div', { class: 'field-hint' }, 'Sessões recentes do Claude Code nesta máquina, do terminal ou do escritório. "Chamar" traz a sessão de volta como agente, com o histórico.'), h('div', { class: 'resume-bar' }, search, tabs), list],
     [h('button', { class: 'btn', onclick: close }, 'Fechar')],
     close,
   )
@@ -160,6 +212,12 @@ function dayGroup(t: number): string {
   if (diff === 1) return 'Ontem'
   if (diff < 7) return 'Esta semana'
   return 'Mais antigas'
+}
+
+/** True when the session ran in a subfolder or worktree, not the project folder itself. */
+function sessionFolderDiffers(cwd: string, root: string | undefined): boolean {
+  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
+  return !root || norm(cwd) !== norm(root)
 }
 
 function clip(s: string, n: number): string {

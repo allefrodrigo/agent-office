@@ -1,6 +1,8 @@
 import type { BrowserWindow } from 'electron'
 import type { Actor, AgentBrain, OfficeEvent, SquadInfo } from '@shared/types'
 import type { Accounts } from '../accounts'
+import type { Backstage } from '../backstage'
+import type { ToolsDesk } from '../backstage/tools'
 import type { AgentManager } from '../agents'
 import type { Bridge } from '../bridge'
 import type { TicketDesk } from '../delegate'
@@ -30,6 +32,10 @@ export interface IpcContext {
   accounts: Accounts
   system: SystemMonitor
   stats: StatsReader
+  /** Bastidores: background processes of the agents. */
+  backstage: Backstage
+  /** Bastidores: MCP servers, skills and plugins. */
+  tools: ToolsDesk
   broadcast(e: OfficeEvent): void
   updateBadge(): void
   nameOf(agentId: string): string

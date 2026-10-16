@@ -77,6 +77,28 @@ export interface Agent {
   subFlush?: Coalescer
   /** A subagent card changed since the last burst: send the summary again. */
   subDirty?: boolean
+  /** Background shells, monitors and helpers of the running CLI (background_tasks_changed). */
+  bg?: Map<string, BgTask>
+  /** Commands of the last Bash and Monitor calls, by tool_use id, to name the task each one starts. */
+  bgCommands?: Map<string, string>
+  /** What the running CLI loaded (its init message). */
+  init?: AgentInit
+}
+
+/** A background task of an office agent's CLI. */
+export interface BgTask {
+  id: string
+  /** The CLI's task_type: local_bash, monitor…, local_agent, local_workflow. */
+  type: string
+  description: string
+  command?: string
+  startedAt: number
+}
+
+export interface AgentInit {
+  skills: string[]
+  plugins: { name: string; path: string }[]
+  mcp: { name: string; status: string; source?: string }[]
 }
 
 /** Tools whose file_path the card lists when the folder has no git. */

@@ -2,7 +2,7 @@ import type { AgentSummary } from '@shared/types'
 import { accountChip } from '../accounts'
 import { formatCost, h, icon } from '../dom'
 import { STATUS_LABEL } from '../hud'
-import { EFFORTS } from '../modals'
+import { cleanError, confirmDialog, EFFORTS } from '../modals'
 import { renderHelpers } from '../panel-helpers'
 import { osText } from '../os-text'
 import { portrait } from '../portrait'
@@ -36,11 +36,40 @@ export abstract class PanelHead extends PanelSearch {
     this.terminal = terminal
     this.composer.classList.toggle('disabled', terminal)
     this.input.disabled = terminal
+    const busy = this.busy()
+    this.stopBtn.classList.toggle('hidden', !busy)
+    // The agent finished while "Interromper?" was open: nothing left to stop.
+    if (!busy) this.interruptAsk?.abort()
     this.input.placeholder = terminal
       ? 'Sessão do terminal: responda por lá. Permissões chegam aqui.'
       : a.status === 'working' || a.status === 'starting'
         ? 'Mande uma instrução (entra na fila do agente)…'
         : 'Mande uma nova tarefa…'
+  }
+
+  /** Esc on a busy agent: confirm first, so a stray Esc does not stop the work. */
+  protected async askInterrupt(): Promise<void> {
+    const a = this.agentId ? this.state.agents.get(this.agentId) : undefined
+    if (!a || this.interruptAsk) return
+    const ask = new AbortController()
+    this.interruptAsk = ask
+    const yes = await confirmDialog(this.root, {
+      title: `Interromper ${a.name}?`,
+      text: 'O trabalho em andamento para agora. O que já foi feito fica salvo e você pode mandar uma nova instrução.',
+      confirm: 'Interromper',
+      cancel: 'Continuar trabalhando',
+      danger: true,
+      signal: ask.signal,
+    })
+    this.interruptAsk = null
+    if (yes && this.agentId === a.id) await this.interruptNow()
+    else if (this.agentId === a.id) this.input.focus()
+  }
+
+  /** The red button: a click is deliberate, so it stops without asking. */
+  protected async interruptNow(): Promise<void> {
+    if (!this.agentId || !this.busy()) return
+    await window.office.interrupt(this.agentId).catch((err) => this.actions.toast(cleanError(err), 'err'))
   }
 
   /** The agent's badge: photo ringed by memory use, name, and an LED with what it is doing. Opens for details. */
@@ -80,7 +109,6 @@ export abstract class PanelHead extends PanelSearch {
             h('div', { class: 'ab-name-row' }, name, a.source === 'terminal' ? h('span', { class: 'chip chip-term' }, 'terminal') : null, branchChip(a), open ? null : accountChip(this.state, a), helpersChip(a, !open)),
             open ? h('div', { class: 'ab-role' }, a.role === 'orchestrator' ? 'Orquestrador' : 'Agente', accountChip(this.state, a)) : led(false),
           ),
-          office && busy ? h('button', { class: 'icon-btn', title: 'Interromper', onclick: () => window.office.interrupt(a.id) }, icon('stop', 15)) : null,
           h('button', { class: 'icon-btn ab-toggle', title: open ? 'Menos detalhes' : 'Mais detalhes', onclick: () => this.toggleBadge() }, icon('chevron', 16)),
           h('button', { class: 'icon-btn', title: 'Fechar (Esc)', onclick: () => this.close() }, icon('x', 16)),
         ),

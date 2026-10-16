@@ -173,6 +173,10 @@ export abstract class AgentBase extends EventEmitter {
   protected abstract subagentMessage(agent: Agent, parentToolUseId: string, role: 'assistant' | 'user', content: unknown): void
   protected abstract retire(agent: Agent, sub: SubagentInfo, status: NonNullable<SubagentInfo['status']>, line?: string): void
   protected abstract clearSubagents(agent: Agent): void
+  protected abstract trackBackground(agent: Agent, msg: Extract<SDKMessage, { type: 'system' }>): void
+  protected abstract clearBackground(agent: Agent): void
+  protected abstract rememberCommand(agent: Agent, toolUseId: string, command: string): void
+  protected abstract applyMcpOff(agent: Agent): void
   protected abstract askPlayer(
     agent: Agent,
     tool: string,

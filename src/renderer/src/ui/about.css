@@ -1,0 +1,56 @@
+/* ---------- Sobre (ui/about.ts) ---------- */
+
+.about-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.about-mark {
+  color: var(--accent);
+  font-size: 34px;
+  line-height: 1;
+}
+
+.about-name {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.about-desc {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.about-list {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+  margin: 0;
+  font-size: 12.5px;
+  /* Pasted into support chats. */
+  user-select: text;
+}
+
+.about-list dt {
+  color: var(--muted);
+}
+
+.about-list dd {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.about-list .about-mono {
+  color: var(--muted);
+  font: 11.5px var(--mono);
+}
+
+.about-foot-start {
+  display: flex;
+  gap: 8px;
+  margin-right: auto;
+}

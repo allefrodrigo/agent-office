@@ -101,7 +101,7 @@ Sua orientação: ${d.message}` : ''}`)
 }
 
 /**
- * Demo routines, one per status the totem shows: a daily report that ran fine, a weekly
+ * Demo routines, one per status the routines board shows: a daily report that ran fine, a weekly
  * check whose last run failed, and a triage that starts now and stops to ask you
  * (yellow LED). Their agents are simulated and nothing is saved.
  */

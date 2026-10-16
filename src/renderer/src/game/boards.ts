@@ -1,13 +1,14 @@
 import type { ProjectFloor } from '@shared/types'
 import { accountPool } from '@shared/accounts'
 import { projectFor } from '@shared/projects'
+import { routinesView } from '@shared/routines'
 import type { Office } from '../world/office'
 import type { UpperFloor } from '../world/upper-floor'
 import type { Tag } from '../world/overlays'
 import { money } from '../world/props'
 import { GameFloors } from './floors'
 
-/** Spending boards and limit alarms of every floor. */
+/** Spending boards, routines boards and limit alarms of every floor. */
 export abstract class GameBoards extends GameFloors {
   // ---------- spending boards and limit alarms ----------
 
@@ -55,6 +56,29 @@ export abstract class GameBoards extends GameFloors {
       const back = hit.map((id) => limited.get(id)).filter((t): t is number => !!t).sort((a, b) => a - b)[0]
       const clock = back ? ` · volta ${new Date(back).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''
       tag.setName(`${hit.length > 1 ? 'Contas' : 'Conta'} ${names} no limite${clock}`)
+    })
+  }
+
+  // ---------- routines boards ----------
+
+  /**
+   * Every floor's routines board shows the same thing: the next routine of the whole
+   * office and the LED. The text is worked out once a second and each canvas is drawn
+   * only when it changed (the countdown moves once a minute above one minute).
+   */
+  protected updateRoutines(dt: number): void {
+    this.routinesIn -= dt
+    if (this.routinesIn > 0) return
+    this.routinesIn = 1
+    const view = routinesView(this.state.routines, Date.now(), this.state.macJobs)
+    const floors: [Office, Tag][] = [[this.office, this.routinesTag], ...this.uppers.map((u): [Office, Tag] => [u.scene, u.routinesTag])]
+    floors.forEach(([scene, tag], n) => {
+      // the tag is HTML: it only touches the DOM when its text changes
+      tag.setDot(`routine-${view.led}`)
+      // the board is pixel art: the balloon carries the line in letters people can read
+      tag.setBubble(view.line, view.led === 'wait' ? 'wait' : 'idle')
+      if (tag.el.title !== view.line) tag.el.title = view.line
+      if (scene.routines.show(view) && n === this.player.floor) this.wake(100)
     })
   }
 }

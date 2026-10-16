@@ -33,6 +33,9 @@ import { registerAppIpc } from './ipc/app'
 import { registerSessionsIpc } from './ipc/sessions'
 import { registerSettingsIpc } from './ipc/settings'
 import { registerSquadsIpc } from './ipc/squads'
+import { registerBackstageIpc } from './ipc/backstage'
+import { Backstage } from './backstage'
+import { ToolsDesk } from './backstage/tools'
 import { registerRoutinesIpc } from './ipc/routines'
 import { registerTicketsIpc } from './ipc/tickets'
 import { registerWorktreesIpc } from './ipc/worktrees'
@@ -275,7 +278,7 @@ app.whenReady().then(async () => {
 
   board.on('event', broadcast)
 
-  // Scheduled routines (the totem on the ground floor). Made after the listener above, so
+  // Scheduled routines (the routines board on every floor). Made after the listener above, so
   // the notifications there still see a run that the scheduler is about to close.
   const routines = new RoutineScheduler({
     store: routineStore,
@@ -339,6 +342,22 @@ app.whenReady().then(async () => {
   })
   stats.on('stats', (s) => broadcast({ type: 'stats', stats: s }))
   stats.start()
+  // Bastidores: what the agents left running (processes, ports, orphans), their MCP servers and skills.
+  const backstage = new Backstage({
+    live: () => manager.liveAgents(),
+    terminals: () => manager.list().filter((a) => a.source === 'terminal').map((summary) => ({ summary, pid: bridge.pidOf(summary.sessionId) })),
+    stopTask: (agentId, taskId) => manager.stopTask(agentId, taskId),
+    broadcast: (processes) => broadcast({ type: 'backstage', processes }),
+  })
+  manager.on('tasks', () => backstage.poke())
+  backstage.start()
+  const tools = new ToolsDesk({
+    live: () => manager.liveAgents(),
+    mcpStatus: () => manager.mcpStatus(),
+    commands: () => manager.commands(),
+    usage: () => stats.toolUsage(7),
+    settings: () => store.settings,
+  })
   void accounts.check()
   // Auto-update (packaged app only): restarting asks first while agents work or permissions wait.
   const updater = new Updater({
@@ -396,6 +415,8 @@ app.whenReady().then(async () => {
     accounts,
     system,
     stats,
+    backstage,
+    tools,
     broadcast,
     updateBadge,
     nameOf,
@@ -414,6 +435,7 @@ app.whenReady().then(async () => {
   registerTicketsIpc(ipc)
   registerSquadsIpc(ipc)
   registerRoutinesIpc(ipc)
+  registerBackstageIpc(ipc)
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (d, cb) => {
@@ -456,6 +478,7 @@ app.whenReady().then(async () => {
     bridge.stop()
     usage.stop()
     stats.stop()
+    backstage.stop()
     system.stop()
     manager.shutdown()
     book.stop()

@@ -30,6 +30,10 @@ export interface HudActions {
   accounts(): void
   /** Relatórios: spend by project, from the cost book. */
   reports(): void
+  /** Sobre: version, machine and "Pedir para um agente me atualizar" (the version chip). */
+  about(): void
+  /** Bastidores: background processes, MCP servers and skills. */
+  backstage(tab?: 'bg' | 'mcp' | 'skills'): void
 }
 
 const COMPACT_KEY = 'roster-compact'
@@ -96,7 +100,7 @@ export class Hud {
     const brand = h(
       'div',
       { class: 'brand' + (mac ? ' brand-mac' : '') },
-      h('div', { class: 'brand-row' }, h('span', { class: 'brand-mark' }, '✳'), h('span', { class: 'brand-name' }, 'Agent Office'), h('span', { class: 'brand-version', title: `Build de ${__APP_BUILD__}` }, `v${__APP_VERSION__}`)),
+      h('div', { class: 'brand-row' }, h('span', { class: 'brand-mark' }, '✳'), h('span', { class: 'brand-name' }, 'Agent Office'), h('button', { class: 'brand-version', title: `Sobre o Agent Office (build de ${__APP_BUILD__})`, onclick: () => actions.about() }, `v${__APP_VERSION__}`)),
       this.stats,
     )
 
@@ -143,6 +147,7 @@ export class Hud {
       this.inboxBtn,
       this.boardBtn,
       h('button', { class: 'dock-btn', title: 'Relatórios: gasto por projeto, agente e modelo (R)', onclick: () => actions.reports() }, icon('report')),
+      h('button', { class: 'dock-btn', title: 'Bastidores: segundo plano, MCP e skills (B)', onclick: () => actions.backstage() }, icon('rack')),
       h('button', { class: 'dock-btn', 'data-tour': 'resume', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
       h('button', { class: 'dock-btn', 'data-tour': 'home', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
       radio.button,
@@ -157,7 +162,7 @@ export class Hud {
     this.floorsEl = h('div', { class: 'floors card', 'data-tour': 'floors' })
     // The roster ends above the elevator panel, which grows with every floor.
     new ResizeObserver(() => document.documentElement.style.setProperty('--floors-h', `${this.floorsEl.offsetHeight}px`)).observe(this.floorsEl)
-    this.infoCard = new InfoCard(state, actions)
+    this.infoCard = new InfoCard(state, actions, (t, k) => this.toast(t, k))
     const side = h('div', { class: 'hud-side' + (mac ? ' hud-side-mac' : '') }, this.infoCard.info)
     this.inbox = h('div', { class: 'inbox card hidden' })
     // A popover, not a modal: the office goes on behind it. ↑/↓ pick, Enter opens, Esc closes.
@@ -360,6 +365,11 @@ export class Hud {
       this.actions.openAgent(a.id)
     })
     return row
+  }
+
+  /** Bastidores from the keyboard (B). */
+  openBackstage(): void {
+    this.actions.backstage()
   }
 
   /** Opens or closes the inbox popover (dock button or I). */

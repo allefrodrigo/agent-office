@@ -22,14 +22,19 @@ function track(): void {
   })
 }
 
-function listen(cb: (s: UpdateStatus) => void): () => void {
+/** The last status the main process sent. */
+export function currentUpdate(): UpdateStatus {
+  return current
+}
+
+export function listen(cb: (s: UpdateStatus) => void): () => void {
   track()
   listeners.add(cb)
   return () => listeners.delete(cb)
 }
 
 /** Restarts into the new version; asks first when agents work or permissions wait. */
-async function restart(root: HTMLElement): Promise<void> {
+export async function restart(root: HTMLElement): Promise<void> {
   const r = await window.office.installUpdate()
   if (r.ok || (!r.working && !r.pending)) return
   const parts = [
@@ -69,7 +74,7 @@ export function mountUpdateNotice(root: HTMLElement): void {
   listen(render)
 }
 
-function describe(s: UpdateStatus): string {
+export function describe(s: UpdateStatus): string {
   const when = s.checkedAt ? ` (${timeAgo(s.checkedAt)})` : ''
   switch (s.state) {
     case 'disabled':

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { LogEntry, SubagentInfo } from '@shared/types'
 import { applyStep, Coalescer, endSubagent, findSubagent, SubagentLogs, subagentStep } from '../subagent-log'
-import { kTokens, type Agent } from './types'
+import { kTokens, type Agent, type BgTask } from './types'
 import { AgentRotation } from './rotation'
 
 /** Subagents (Agent tool) and their logs (AO-46). */
@@ -164,6 +164,56 @@ export abstract class AgentSubagents extends AgentRotation {
   protected setSubagents(agent: Agent, subs: SubagentInfo[]): void {
     agent.summary.subagents = subs.length ? subs : undefined
     this.upsert(agent)
+  }
+
+  // ---------- background tasks (Bastidores) ----------
+
+  /** Bash and Monitor calls keep their command, so the task they start shows it instead of a summary. */
+  protected rememberCommand(agent: Agent, toolUseId: string, command: string): void {
+    const cmds = (agent.bgCommands ??= new Map())
+    cmds.set(toolUseId, command.slice(0, 1000))
+    // Only the last calls can still start a task.
+    if (cmds.size > 50) cmds.delete(cmds.keys().next().value!)
+  }
+
+  /**
+   * Shells, monitors and helpers running in the background. background_tasks_changed is the
+   * level (replace the set); task_started only adds the command and the start time.
+   */
+  protected trackBackground(agent: Agent, msg: Extract<SDKMessage, { type: 'system' }>): void {
+    if (msg.subtype === 'task_started') {
+      if (msg.ambient || msg.skip_transcript) return
+      const command = msg.tool_use_id ? agent.bgCommands?.get(msg.tool_use_id) : undefined
+      const known = agent.bg?.get(msg.task_id)
+      const task: BgTask = { id: msg.task_id, type: msg.task_type ?? known?.type ?? '', description: msg.description, command: command ?? known?.command, startedAt: known?.startedAt ?? Date.now() }
+      // Started in the foreground: it joins the set only when background_tasks_changed lists it.
+      if (known || msg.is_backgrounded) (agent.bg ??= new Map()).set(task.id, task)
+      if (known || msg.is_backgrounded) this.emit('tasks')
+      return
+    }
+    if (msg.subtype !== 'background_tasks_changed') return
+    const live = msg.tasks.filter((t) => !t.ambient)
+    const next = new Map<string, BgTask>()
+    for (const t of live) {
+      const known = agent.bg?.get(t.task_id)
+      next.set(t.task_id, { id: t.task_id, type: t.task_type, description: t.description, command: known?.command, startedAt: known?.startedAt ?? Date.now() })
+    }
+    agent.bg = next
+    this.emit('tasks')
+  }
+
+  protected clearBackground(agent: Agent): void {
+    if (!agent.bg?.size) return
+    agent.bg = undefined
+    this.emit('tasks')
+  }
+
+  /** MCP servers turned off in Bastidores stay off for every new CLI. */
+  protected applyMcpOff(agent: Agent): void {
+    const q = agent.query
+    for (const name of this.store.settings.disabledMcp ?? []) {
+      if (name !== 'office') q?.toggleMcpServer(name, false).catch(() => undefined)
+    }
   }
 
   protected clearSubagents(agent: Agent): void {

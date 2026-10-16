@@ -172,6 +172,7 @@ export abstract class AgentSdk extends AgentOffice {
         agent.input = undefined
         // Subagents live inside the CLI process, so they ended with it.
         this.clearSubagents(agent)
+        this.clearBackground(agent)
         if (agent.summary.status === 'working' || agent.summary.status === 'starting') this.setStatus(agent, 'idle', 'Aguardando instruções')
       }
     }
@@ -182,6 +183,8 @@ export abstract class AgentSdk extends AgentOffice {
       case 'system':
         if (msg.subtype === 'init') {
           agent.summary.model = msg.model
+          agent.init = { skills: msg.skills ?? [], plugins: msg.plugins ?? [], mcp: msg.mcp_servers ?? [] }
+          this.applyMcpOff(agent)
           if (agent.summary.status === 'starting') this.setStatus(agent, 'working', 'Lendo a tarefa')
         } else if (msg.subtype === 'status' && msg.status === 'compacting') {
           this.setStatus(agent, agent.summary.status, 'Organizando a memória')
@@ -191,6 +194,7 @@ export abstract class AgentSdk extends AgentOffice {
           this.addLog(agent, 'system', `${trigger === 'auto' ? 'O contexto encheu e foi compactado sozinho' : 'Conversa compactada'}${freed}.`)
           if (post_tokens !== undefined && agent.summary.context) this.setContext(agent, post_tokens, agent.summary.context.max)
         } else {
+          this.trackBackground(agent, msg)
           this.trackSubagents(agent, msg)
         }
         return
@@ -219,6 +223,7 @@ export abstract class AgentSdk extends AgentOffice {
             const line = describeTool(block.name, input)
             const file = input.file_path ?? input.notebook_path
             if (agent.task && WRITE_TOOLS.has(block.name) && typeof file === 'string' && file.length < 4096) agent.task.touched.set(file, block.name)
+            if ((block.name === 'Bash' || block.name === 'Monitor') && typeof input.command === 'string') this.rememberCommand(agent, block.id, input.command)
             this.addLog(agent, 'tool', toolDetail(block.name, input) || line, block.name)
             this.setActivity(agent, line)
           }

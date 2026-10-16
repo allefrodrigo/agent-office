@@ -25,7 +25,8 @@ export { parseLine, type Line } from './parse'
  * Emits 'stats' (ClaudeStats) after each read.
  */
 
-const VERSION = 1
+// 2: days also count skill and MCP calls (Bastidores); a new version reads the transcripts again.
+const VERSION = 2
 /** Message ids are kept this long to catch copies (forks, resumes); older lines are skipped. */
 const SEEN_DAYS = 35
 const DAY_MS = 86_400_000
@@ -48,6 +49,8 @@ interface FileMark {
 interface DayAgg {
   messages: number
   toolCalls: number
+  /** Skill and MCP calls: 'skill:<name>' / 'mcp:<server>' -> count. */
+  uses?: Record<string, number>
   sessions: Set<string>
   models: Record<string, Tokens>
   costUsd: number
@@ -98,6 +101,12 @@ export interface StatsSources {
 
 const yieldNow = () => new Promise<void>((r) => setImmediate(r))
 
+function addUses(day: DayAgg, uses: string[]): void {
+  if (!uses.length) return
+  const into = (day.uses ??= {})
+  for (const k of uses) into[k] = (into[k] ?? 0) + 1
+}
+
 export class StatsReader extends EventEmitter {
   private file: string
   private data: StatsFile = StatsReader.empty()
@@ -110,7 +119,7 @@ export class StatsReader extends EventEmitter {
   private timer?: NodeJS.Timeout
   private error?: string
   /** Messages of the file being read, by key: later lines of one message may carry more output tokens. */
-  private pending: Map<string, { counted: number; apply: (extraOut: number, tools: number) => void }> | null = null
+  private pending: Map<string, { counted: number; apply: (extraOut: number, tools: number, uses: string[]) => void }> | null = null
 
   constructor(
     dataDir: string,
@@ -343,7 +352,7 @@ export class StatsReader extends EventEmitter {
       const open = this.pending?.get(line.key)
       if (open) {
         // Another content block of a message counted a moment ago in this file.
-        open.apply(Math.max(0, line.tokens.output - open.counted), line.toolCalls)
+        open.apply(Math.max(0, line.tokens.output - open.counted), line.toolCalls, line.uses)
         open.counted = Math.max(open.counted, line.tokens.output)
         return
       }
@@ -356,6 +365,7 @@ export class StatsReader extends EventEmitter {
     addTokens(model, tokens)
     day.messages++
     day.toolCalls += line.toolCalls
+    addUses(day, line.uses)
     day.costUsd += tokens.costUsd
     day.sessions.add(line.sessionId)
     const hours = (this.data.hours[bucket] ??= new Array(24).fill(0))
@@ -373,8 +383,9 @@ export class StatsReader extends EventEmitter {
       const name = line.model
       this.pending.set(line.key, {
         counted: line.tokens.output,
-        apply: (extraOut, tools) => {
+        apply: (extraOut, tools, uses) => {
           day.toolCalls += tools
+          addUses(day, uses)
           if (!extraOut) return
           const extra = { ...zeroTokens(), output: extraOut }
           const usd = messageCost(name, extra, fast) ?? 0
@@ -384,6 +395,31 @@ export class StatsReader extends EventEmitter {
         },
       })
     }
+  }
+
+  /**
+   * Skill and MCP calls of the last `days` days, every account together, as far as the
+   * transcripts were read. Old numbers start a read in the background, like current().
+   */
+  async toolUsage(days = 7): Promise<{ uses: Map<string, { n: number; last: string }>; since: string; reading: boolean }> {
+    await this.loaded
+    if (!this.running && Date.now() - (this.data.lastRead?.at ?? 0) > STALE_MS) void this.refresh()
+    const since = localDate(Date.now() - (days - 1) * DAY_MS)
+    const uses = new Map<string, { n: number; last: string }>()
+    for (const m of this.days.values()) {
+      for (const [date, d] of m) {
+        if (date < since || !d.uses) continue
+        for (const [key, n] of Object.entries(d.uses)) {
+          const u = uses.get(key)
+          if (!u) uses.set(key, { n, last: date })
+          else {
+            u.n += n
+            if (date > u.last) u.last = date
+          }
+        }
+      }
+    }
+    return { uses, since, reading: !!this.running }
   }
 
   private dayAgg(bucket: string, date: string): DayAgg {

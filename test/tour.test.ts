@@ -30,7 +30,7 @@ describe('tour guiado: passos', () => {
     expect(cards('win32')).toContain('Ctrl+⌫')
   })
 
-  it('pula em silêncio um alvo que não existe, como o totem de rotinas', () => {
+  it('pula em silêncio um alvo que não existe, como o quadro de rotinas', () => {
     const missing = new Set(['world:routines', 'hud:roster'])
     const steps = resolveSteps(tourSteps('darwin'), (t) => !missing.has(key(t)))
     const ids = steps.map((s) => s.id)

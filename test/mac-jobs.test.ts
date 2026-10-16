@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { calendarSchedules, describeMacJob, macJobFromPlist, macJobName, macJobState, parseLaunchctlList } from '@shared/mac-jobs'
-import { totemView } from '@shared/routines'
+import { routinesView } from '@shared/routines'
 import type { MacJob } from '@shared/types'
 
 const at = (y: number, mo: number, d: number, h = 0, mi = 0) => new Date(y, mo - 1, d, h, mi).getTime()
@@ -78,21 +78,25 @@ describe('plists', () => {
   })
 })
 
-describe('totem with the Mac jobs', () => {
+describe('routines board with the Mac jobs', () => {
   const now = at(2026, 10, 14, 12, 0)
   const job = (over: Partial<MacJob>): MacJob => ({ ...macJobFromPlist(manha, { pid: null, lastExit: 0 }, undefined, now)!, ...over })
 
   it('counts down to the next Mac job when there is no routine', () => {
-    const v = totemView([], now, [job({ name: 'mochilinho · agente · antecipa', nextAt: at(2026, 10, 14, 13, 0) })])
+    const v = routinesView([], now, [job({ name: 'mochilinho · agente · antecipa', nextAt: at(2026, 10, 14, 13, 0) })])
     expect(v).toMatchObject({ title: 'mochilinho · agente · antecipa', detail: 'em 1h00', led: 'ok', screen: { kind: 'count', text: '1H00' } })
   })
 
   it('shows a running job and turns red on a failed one', () => {
-    expect(totemView([], now, [job({ running: true })]).screen).toEqual({ kind: 'run' })
-    expect(totemView([], now, [job({ lastExit: 1 })]).led).toBe('fail')
+    expect(routinesView([], now, [job({ running: true })]).screen).toEqual({ kind: 'run' })
+    expect(routinesView([], now, [job({ lastExit: 1 })]).led).toBe('fail')
+  })
+
+  it('lights one dot per Mac job, grey for one launchd does not run', () => {
+    expect(routinesView([], now, [job({}), job({ lastExit: 1 }), job({ loaded: false })]).dots).toEqual(['ok', 'fail', 'none'])
   })
 
   it('stays as before without Mac jobs', () => {
-    expect(totemView([], now)).toMatchObject({ title: 'Nenhuma rotina', led: 'none', screen: { kind: 'add' } })
+    expect(routinesView([], now)).toMatchObject({ title: 'Nenhuma rotina', led: 'none', screen: { kind: 'add' } })
   })
 })

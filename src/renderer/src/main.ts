@@ -20,6 +20,8 @@ import { announce, isTyping, mountLiveRegions } from './ui/a11y'
 import { openShortcuts } from './ui/shortcuts'
 import { Tour } from './ui/tour'
 import { autoStart, tourDone } from './ui/tour-plan'
+import { openAbout } from './ui/about'
+import { openBackstage, refreshBackstage } from './ui/backstage'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 import { osText } from './ui/os-text'
 
@@ -201,6 +203,23 @@ async function boot(): Promise<void> {
     newFloor: () => void newFloor(),
     accounts: () => openAccounts(ui, state, toast),
     reports: () => openReports(ui, state, { project: game.currentProject, toast }),
+    backstage: (tab) =>
+      openBackstage(ui, state, {
+        tab,
+        toast,
+        openAgent: (id) => {
+          panel.open(id)
+          game.focusAgent(id)
+        },
+      }),
+    about: () =>
+      openAbout(ui, {
+        toast,
+        openAgent: (id) => {
+          panel.open(id)
+          game.focusAgent(id)
+        },
+      }),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -252,6 +271,7 @@ async function boot(): Promise<void> {
     if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
     if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
+    if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.openBackstage()
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()
@@ -357,6 +377,12 @@ async function boot(): Promise<void> {
     if (e.type === 'system') {
       state.system = e.system
       return hud.renderInfo()
+    }
+    // A new scan of what the agents left running: the card and the open Bastidores window.
+    if (e.type === 'backstage') {
+      state.backstage = e.processes
+      hud.renderInfo()
+      return refreshBackstage()
     }
     const before = e.type === 'ticket:upsert' ? state.tickets.get(e.ticket.id) : undefined
     state.apply(e)

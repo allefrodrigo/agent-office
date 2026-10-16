@@ -1,4 +1,4 @@
-/* ---------- Rotinas: the totem's window ---------- */
+/* ---------- Rotinas: the routines board's window ---------- */
 
 .backdrop-routines .modal {
   width: min(680px, calc(100vw - 32px));
@@ -14,7 +14,7 @@
   gap: 14px;
 }
 
-/* the totem's tag: its dot is the LED */
+/* the routines board's tag: its dot is the LED */
 .dot-routine-ok {
   background: var(--green);
   box-shadow: 0 0 0 2px rgba(62, 207, 142, 0.25);
@@ -397,8 +397,8 @@
   font-size: 13px;
 }
 
-/* the totem's balloon: the routine's name and countdown, wider than an agent's */
-.tag-totem .bubble {
+/* the routines board's balloon: the routine's name and countdown, wider than an agent's */
+.tag-routines .bubble {
   max-width: 260px;
 }
 
