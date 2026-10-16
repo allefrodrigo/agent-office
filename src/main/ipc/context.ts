@@ -5,9 +5,11 @@ import type { Backstage } from '../backstage'
 import type { ToolsDesk } from '../backstage/tools'
 import type { AgentManager } from '../agents'
 import type { Bridge } from '../bridge'
+import type { Caffeine } from '../caffeine'
 import type { TicketDesk } from '../delegate'
 import type { CostBook } from '../ledger'
 import type { MacJobs } from '../mac-jobs'
+import type { QuitFlow } from '../quit'
 import type { RoutineScheduler } from '../routines'
 import type { StatsReader } from '../stats'
 import type { Store } from '../store'
@@ -26,6 +28,10 @@ export interface IpcContext {
   book: CostBook
   desk: TicketDesk
   routines: RoutineScheduler
+  /** Café corner: keeps the screen awake. */
+  caffeine: Caffeine
+  /** Leaving on purpose: asks, waits or interrupts. */
+  quit: QuitFlow
   macJobs: MacJobs
   bridge: Bridge
   usage: UsageMonitor

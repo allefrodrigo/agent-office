@@ -41,6 +41,17 @@ export interface Settings {
   disabledMcp?: string[]
   /** Configurações → Vídeo: shadows, fps limit, effects, battery saver. */
   video: VideoSettings
+  /** Café corner (Copa): keep the screen awake. Missing = 'off'. */
+  caffeine?: CaffeineMode
+}
+
+/** Café corner: never keep the screen on, only while agents work, or always. */
+export type CaffeineMode = 'off' | 'agents' | 'on'
+
+/** The app is waiting for the agents to finish before it quits. */
+export interface QuitWait {
+  working: number
+  pending: number
 }
 
 // ---------- auto-update ----------
@@ -115,4 +126,6 @@ export interface ProjectFloor {
   brandColor?: string
   /** Its agents wear the company uniform: shirt in the brand color with the logo on the chest. */
   uniform?: boolean
+  /** false = new agents here work straight in the project folder, no worktree by default. */
+  worktrees?: false
 }

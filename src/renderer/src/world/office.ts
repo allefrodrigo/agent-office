@@ -4,7 +4,7 @@ import { box, mat } from './kit'
 import { mergeStatic } from './merge'
 import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition, type Zone } from './layout'
 import { Grid } from './pathfinding'
-import { beacon, costBoard, routinesBoard, type Beacon, type CostBoard, type RoutinesBoard } from './props'
+import { beacon, coffeeCorner, costBoard, routinesBoard, type Beacon, type CoffeeCorner, type CostBoard, type RoutinesBoard } from './props'
 import { arcadePainter, LoopScreen, Screen } from './screens'
 import { workstation } from './workstation'
 import { floorTexture, rugTexture, WindowSky } from './textures'
@@ -35,6 +35,8 @@ export const CALM_BEACON = 0.15
 export interface GroundFloor extends Office {
   /** Lounge monitor where Claude FM plays. */
   tv: F.MonitorTv
+  /** The copa's espresso machine: a click opens the café corner (keep the screen awake). */
+  coffee: CoffeeCorner
 }
 
 const WALL = '#aaa6d6'
@@ -140,7 +142,8 @@ export function buildOffice(): GroundFloor {
   place(counter, 0.35, 16, Math.PI / 2)
   grid.blockRect(0, 14, 1, 4)
   place(F.wallCabinets(4), 0.2, 16, Math.PI / 2)
-  place(F.coffeeMachine(), 0.4, 14.6, Math.PI / 2, 0.91)
+  const coffee = coffeeCorner()
+  place(coffee.group, 0.4, 14.6, Math.PI / 2, 0.91)
   place(F.microwave(), 0.4, 15.6, Math.PI / 2, 0.91)
   place(F.mug('#e17055'), 0.5, 16.3, 0, 0.91)
   place(F.mug('#74b9ff'), 0.45, 16.5, 0, 0.91)
@@ -257,12 +260,14 @@ export function buildOffice(): GroundFloor {
     floor,
     deskScreens,
     tv,
+    coffee,
     money,
     alarm,
     routines,
     reducedMotion: false,
     update(dt: number) {
       money.update(dt)
+      coffee.update(dt)
       alarm.update(this.reducedMotion ? dt * CALM_BEACON : dt)
       for (const s of deskScreens) s.update(dt)
       for (const l of loops) l.update(dt)

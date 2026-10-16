@@ -19,5 +19,6 @@ export {
   WORKTREES_DIR,
   type WorktreeState,
 } from './worktrees'
+export { folderSize, isSafeToRemove, listRepoWorktrees, removeLooseFolder, type FoundWorktree } from './inventory'
 export { changesSince, discardChanges, fileDiff, takeSnapshot, type Snapshot } from './changes'
 export { commitChanges, findOnPath, openInEditor, openPullRequest } from './publish'

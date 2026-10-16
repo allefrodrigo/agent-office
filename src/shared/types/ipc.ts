@@ -2,10 +2,10 @@
 
 import type { AccountStatus, PlanUsage } from './accounts'
 import type { BgProcess, ToolsView } from './backstage'
-import type { AgentBrain, AgentSummary, AgentTemplate, HireRequest, OfficePermissionMode, ResultChanges, SessionEntry } from './agents'
+import type { AgentBrain, AgentSummary, AgentTemplate, HireRequest, OfficePermissionMode, ResultChanges, SessionEntry, WorktreeFloor } from './agents'
 import type { AgentResult, AttachmentInput, LogEntry, PermissionDecision, PermissionRequest } from './conversation'
 import type { Ledger, LedgerQuery, LedgerToday } from './ledger'
-import type { AppInfo, BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
+import type { AppInfo, BridgeStatus, CaffeineMode, QuitWait, Settings, UpdateInstallResult, UpdateStatus } from './settings'
 import type { SquadInfo } from './squads'
 import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
@@ -62,6 +62,8 @@ export interface OfficeState {
   routines: Routine[]
   /** Jobs the Mac schedules itself (launchd), shown beside the routines. Empty off macOS. */
   macJobs: MacJob[]
+  /** The café corner holds the screen awake right now. */
+  caffeineAwake: boolean
   /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
   forceTour?: boolean
 }
@@ -130,6 +132,10 @@ export type OfficeEvent =
   | { type: 'routines'; routines: Routine[] }
   /** The Mac's own scheduled jobs changed (read every minute). */
   | { type: 'macJobs'; jobs: MacJob[] }
+  /** The café corner took or let go of the screen. */
+  | { type: 'caffeine'; awake: boolean }
+  /** Waiting for the agents before quitting; null = not leaving (any more). */
+  | { type: 'quit'; wait: QuitWait | null }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -174,6 +180,20 @@ export interface OfficeAPI {
   prepareFire(agentId: string): Promise<'plain' | 'confirmed' | 'cancelled'>
   /** Resolves a note for the toast when the agent's worktree was kept or removed. */
   fire(agentId: string): Promise<string | void>
+  /** Café corner: keep the screen awake never, while agents work, or always. */
+  setCaffeine(mode: CaffeineMode): Promise<void>
+  /** "Sair": asks (native dialog), then waits for the agents, interrupts them or stays. */
+  quitApp(): Promise<void>
+  /** On the "saindo" banner: interrupt whoever is still working and quit now. */
+  quitNow(): Promise<void>
+  /** On the "saindo" banner: stay. */
+  cancelQuit(): Promise<void>
+  /** Bastidores → Worktrees: every agent copy, by floor, with size and what removing it would lose. */
+  listWorktrees(): Promise<WorktreeFloor[]>
+  /** Removes one copy after a native confirmation. Null = cancelled; else a line for the toast. */
+  removeWorktreeAt(root: string): Promise<string | null>
+  /** Removes every copy with nothing to lose (on one floor, or all), after a native confirmation. */
+  cleanWorktrees(floorId?: string): Promise<string | null>
   /** Whether the folder is inside a git repo (the worktree option starts on). */
   isGitRepo(cwd: string): Promise<boolean>
   /** Unified diff of one file listed in a result's changes. */

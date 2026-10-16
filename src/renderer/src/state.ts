@@ -1,4 +1,4 @@
-import type { Account, AccountStatus, AgentResult, AgentSummary, BgProcess, BridgeStatus, LedgerToday, LogEntry, MacJob, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, Routine, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
+import type { Account, AccountStatus, AgentResult, AgentSummary, BgProcess, BridgeStatus, LedgerToday, LogEntry, MacJob, OfficeEvent, OfficeState, PermissionRequest, PlanUsage, QuitWait, Routine, Settings, SquadInfo, SystemStats, Ticket } from '@shared/types'
 
 type Listener = () => void
 
@@ -32,6 +32,10 @@ export class State {
   routines: Routine[]
   /** The Mac's own scheduled jobs (launchd), beside the routines. */
   macJobs: MacJob[]
+  /** The café corner holds the screen awake. */
+  caffeineAwake: boolean
+  /** Leaving once the agents finish (the "saindo" banner); null = staying. */
+  quitWait: QuitWait | null = null
   private listeners = new Set<Listener>()
   private logListeners = new Set<(agentId: string, entry: LogEntry) => void>()
   private subLogListeners = new Set<(agentId: string, subId: string, entries: LogEntry[]) => void>()
@@ -53,6 +57,7 @@ export class State {
     this.backstage = initial.backstage ?? []
     this.routines = initial.routines ?? []
     this.macJobs = initial.macJobs ?? []
+    this.caffeineAwake = initial.caffeineAwake ?? false
   }
 
   onChange(cb: Listener): () => void {
@@ -157,6 +162,12 @@ export class State {
         break
       case 'routines':
         this.routines = e.routines
+        break
+      case 'caffeine':
+        this.caffeineAwake = e.awake
+        break
+      case 'quit':
+        this.quitWait = e.wait
         break
       case 'macJobs':
         this.macJobs = e.jobs

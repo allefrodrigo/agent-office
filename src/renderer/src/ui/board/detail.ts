@@ -205,7 +205,7 @@ export abstract class BoardDetail extends BoardColumns {
     brain.model.title = 'Modelo do agente novo'
     const brainRow = h('div', { class: 'tdelegate-row' }, brain.model)
     const brainHint = h('div', { class: 'tdelegate-brain' }, h('div', { class: 'field-hint' }, brain.hint), brain.meter)
-    const isolated = worktreeToggle()
+    const isolated = worktreeToggle(() => this.state.settings.projects)
     isolated.set(t.cwd)
     // Model and effort only matter for a new hire; an agent already here keeps its own.
     const syncMode = () => {

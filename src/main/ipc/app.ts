@@ -24,7 +24,7 @@ async function radioVideo(): Promise<string> {
 
 /** State, log and diagnostics, clipboard and export, links and the folder picker. */
 export function registerAppIpc(ctx: IpcContext): void {
-  const { win, store, manager, board, book, bridge, usage, accounts, system, stats, squads, onBattery, routines, macJobs, defaultBrain, backstage } = ctx
+  const { win, store, manager, board, book, bridge, usage, accounts, system, stats, squads, onBattery, routines, macJobs, defaultBrain, backstage, caffeine, quit, broadcast } = ctx
   ipcMain.on('office:rendererError', (e, payload: unknown) => {
     if (e.sender === win()?.webContents) rendererError(payload)
   })
@@ -57,8 +57,18 @@ export function registerAppIpc(ctx: IpcContext): void {
     backstage: backstage.current(),
     routines: routines.list(),
     macJobs: macJobs.list(),
+    caffeineAwake: caffeine.awake,
     forceTour: process.env.AGENT_OFFICE_TOUR === '1',
   }))
+  ipcMain.handle('office:setCaffeine', (_e, raw: unknown) => {
+    const mode = raw === 'agents' || raw === 'on' ? raw : 'off'
+    store.settings = { ...store.settings, caffeine: mode }
+    broadcast({ type: 'settings', settings: store.settings })
+    caffeine.check()
+  })
+  ipcMain.handle('office:quitApp', async () => void (await quit.ask()))
+  ipcMain.handle('office:quitNow', () => quit.now())
+  ipcMain.handle('office:cancelQuit', () => quit.cancelWait())
   ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
   ipcMain.handle('office:refreshUsage', () => usage.refresh())
   ipcMain.handle('office:getStats', () => stats.current())

@@ -192,7 +192,7 @@ export function cleanProjects(raw: unknown, previous: ProjectFloor[]): ProjectFl
     const name = (typeof p.name === 'string' ? p.name.trim().slice(0, 32) : '') || floorNameFor(cwd)
     // A floor's accounts change only through setAccountPool: the settings form may hold an old copy.
     const accounts = previous.find((o) => o.id === id)?.accounts
-    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p) })
+    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p), ...(p.worktrees === false ? { worktrees: false as const } : {}) })
     if (out.length === MAX_PROJECT_FLOORS) break
   }
   return out
@@ -299,6 +299,7 @@ const settingsFields = {
     .pipe(z.number().finite().min(0).max(100_000))
     .transform((n) => Math.round(n * 100) / 100),
   updateChannel: z.enum(['stable', 'beta']),
+  caffeine: z.enum(['off', 'agents', 'on']),
 } satisfies { [K in keyof Settings]?: z.ZodType<unknown> }
 
 /** Configurações → Vídeo, one schema per field: a bad one keeps its current value. */

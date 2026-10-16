@@ -98,6 +98,10 @@ export abstract class GameInput extends GameMovement {
       this.hooks.onRoutines()
       return
     }
+    if (this.onCoffee(x, y)) {
+      this.hooks.onCoffee()
+      return
+    }
     if (this.player.floor > 0) {
       const roots = [...this.members.values()].filter((m) => m.phase !== 'leaving' && m.avatar.floor === this.player.floor).map((m) => m.avatar.root)
       const hit = this.engine.pick(x, y, roots).find((h) => String(h.object.userData.avatarId ?? '').startsWith('member:'))
@@ -122,6 +126,10 @@ export abstract class GameInput extends GameMovement {
   /** Every floor has one, in your office or the Diretoria. */
   protected onRoutinesBoard(x: number, y: number): boolean {
     return this.engine.pick(x, y, [this.floorOf(this.player.floor).routines.group]).length > 0
+  }
+
+  protected onCoffee(x: number, y: number): boolean {
+    return this.player.floor === 0 && this.engine.pick(x, y, [this.office.coffee.group]).length > 0
   }
 
   protected onSkull(x: number, y: number): boolean {
@@ -151,7 +159,7 @@ export abstract class GameInput extends GameMovement {
       document.body.style.cursor = this.agentAt(x, y) ? 'pointer' : ''
       return
     }
-    if (this.onTv(x, y) || this.onSkull(x, y) || this.onRoutinesBoard(x, y)) {
+    if (this.onTv(x, y) || this.onSkull(x, y) || this.onRoutinesBoard(x, y) || this.onCoffee(x, y)) {
       this.hover.visible = false
       document.body.style.cursor = 'pointer'
       return

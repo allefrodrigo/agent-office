@@ -3,9 +3,10 @@ import type { BgProcess, McpServerView, PluginView, SkillView, ToolsView } from 
 import type { State } from '../../state'
 import { h, icon } from '../dom'
 import { cleanError, confirmDialog, modal } from '../modals'
+import { worktreesView } from './worktrees'
 import { ageText, byOwner, isOld, isOrphan, isStopping, kindTag, stopProcess, type Toast } from './shared'
 
-export type BackstageTab = 'bg' | 'mcp' | 'skills'
+export type BackstageTab = 'bg' | 'mcp' | 'skills' | 'wt'
 
 type BgFilter = 'all' | 'gone' | 'server' | 'monitor' | 'shell'
 type McpFilter = 'all' | 'idle' | 'attention' | 'off'
@@ -100,6 +101,7 @@ export function openBackstage(
   }
   const el = modal('Bastidores', [tabsEl, body], [foot], close)
   el.classList.add('backdrop-backstage')
+  const wt = worktreesView(root, state, { toast: opts.toast, openAgent: opts.openAgent, close, render: () => render() })
 
   const act = async (fn: () => Promise<unknown>, ok?: string) => {
     try {
@@ -660,6 +662,7 @@ export function openBackstage(
       tabBtn('bg', 'Segundo plano', 'terminal', n ? h('span', { class: `bs-count${loose ? ' warn' : ''}` }, String(n)) : null),
       tabBtn('mcp', 'MCP', 'rack'),
       tabBtn('skills', 'Skills', 'book'),
+      tabBtn('wt', 'Worktrees', 'branch', wt.loose() ? h('span', { class: 'bs-count warn', title: 'Cópias esquecidas' }, String(wt.loose())) : null),
     )
   }
 
@@ -668,6 +671,11 @@ export function openBackstage(
     if (tab === 'bg') {
       body.replaceChildren(...bgTab())
       foot.replaceChildren(...(bgFoot().filter(Boolean) as HTMLElement[]))
+      return
+    }
+    if (tab === 'wt') {
+      body.replaceChildren(...wt.body())
+      foot.replaceChildren(...wt.foot())
       return
     }
     if (!tools) {
@@ -699,7 +707,8 @@ export function openBackstage(
 
   const show = (k: BackstageTab) => {
     tab = k
-    if (k !== 'bg') loadTools()
+    if (k === 'wt') wt.load()
+    else if (k !== 'bg') loadTools()
     render()
   }
   switchTab = show

@@ -468,3 +468,36 @@ button.bs-own-name:hover {
     animation: none;
   }
 }
+
+/* ---------- worktrees ---------- */
+
+.bs-wt {
+  grid-template-columns: 10px minmax(0, 1fr) 62px 46px auto;
+}
+
+.bs-wt-intro {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.bs-wt-floor {
+  flex-wrap: wrap;
+}
+
+.bs-wt-default {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--dim);
+  font: 600 11.5px var(--font);
+  letter-spacing: 0;
+}
+
+.bs-wt-none {
+  padding: 4px 8px 6px 26px;
+  color: var(--dim);
+  font-size: 12px;
+}

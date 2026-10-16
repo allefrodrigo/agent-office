@@ -306,3 +306,63 @@ function radialTexture(): THREE.CanvasTexture {
   radial = shared(new THREE.CanvasTexture(c))
   return radial
 }
+
+export interface CoffeeCorner {
+  group: THREE.Group
+  /** Above the machine, where the "Café" tag attaches. */
+  anchor: THREE.Object3D
+  /** off = LED dark; armed = waits for an agent to work (amber); awake = holding the screen (green, steaming). */
+  set(state: 'off' | 'armed' | 'awake'): void
+  update(dt: number): void
+}
+
+const COFFEE_LED = { off: '#2b2f3a', armed: '#ffb347', awake: '#55efc4' }
+
+/**
+ * The café corner's espresso machine (facing +z), the copa's switch for keeping the
+ * screen awake: a status LED on the front and steam puffs while it holds the screen.
+ * A clear box around it makes the small machine easy to click. Origin at the bottom center.
+ */
+export function coffeeCorner(): CoffeeCorner {
+  const g = animated(new THREE.Group())
+  box(g, 0.4, 0.5, 0.34, '#2d3436', 0, 0, 0)
+  box(g, 0.34, 0.08, 0.04, '#636e72', 0, 0.36, 0.17, false)
+  box(g, 0.16, 0.025, 0.14, '#636e72', 0, 0.05, 0.12, false)
+  box(g, 0.05, 0.1, 0.05, '#b2bec3', 0, 0.26, 0.15, false)
+  cylinder(g, 0.045, 0.04, 0.09, '#ffffff', 0, 0.075, 0.12, 8)
+  const ledMat = new THREE.MeshBasicMaterial({ color: COFFEE_LED.off, toneMapped: false })
+  box(g, 0.06, 0.06, 0.03, ledMat, 0.12, 0.42, 0.18, false)
+  const puffs: THREE.Mesh[] = []
+  for (let i = 0; i < 3; i++) {
+    const m = box(g, 0.06, 0.06, 0.06, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }), 0, 0.2, 0.12, false)
+    m.visible = false
+    puffs.push(m)
+  }
+  // Invisible but hit by the raycast: the machine alone is a few pixels wide.
+  box(g, 0.7, 0.9, 0.6, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }), 0, 0, 0, false)
+  const anchor = new THREE.Object3D()
+  anchor.position.set(0, 1.05, 0)
+  g.add(anchor)
+
+  let state: 'off' | 'armed' | 'awake' = 'off'
+  let t = 0
+  return {
+    group: g,
+    anchor,
+    set(next) {
+      state = next
+      ledMat.color.set(COFFEE_LED[next])
+      for (const p of puffs) p.visible = next === 'awake'
+    },
+    update(dt) {
+      if (state !== 'awake') return
+      t += dt
+      puffs.forEach((p, i) => {
+        const k = (t * 0.5 + i / puffs.length) % 1
+        p.position.set(Math.sin((k + i) * 5) * 0.03, 0.2 + k * 0.45, 0.12)
+        p.scale.setScalar(0.05 + k * 0.07)
+        ;(p.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - k)
+      })
+    },
+  }
+}

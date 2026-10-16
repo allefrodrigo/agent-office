@@ -70,6 +70,7 @@ export abstract class GameBoards extends GameFloors {
     this.routinesIn -= dt
     if (this.routinesIn > 0) return
     this.routinesIn = 1
+    this.syncCoffee()
     const view = routinesView(this.state.routines, Date.now(), this.state.macJobs)
     const floors: [Office, Tag][] = [[this.office, this.routinesTag], ...this.uppers.map((u): [Office, Tag] => [u.scene, u.routinesTag])]
     floors.forEach(([scene, tag], n) => {
@@ -80,5 +81,24 @@ export abstract class GameBoards extends GameFloors {
       if (tag.el.title !== view.line) tag.el.title = view.line
       if (scene.routines.show(view) && n === this.player.floor) this.wake(100)
     })
+  }
+
+  // ---------- café corner ----------
+
+  private coffeeKey = ''
+
+  /** The machine's LED and steam, and the tag's dot and balloon, from the mode and the screen hold. */
+  protected syncCoffee(): void {
+    const mode = this.state.settings.caffeine ?? 'off'
+    const look = this.state.caffeineAwake ? 'awake' : mode === 'off' ? 'off' : 'armed'
+    const key = `${mode}:${look}`
+    if (key === this.coffeeKey) return
+    this.coffeeKey = key
+    this.office.coffee.set(look)
+    this.coffeeTag.setDot(`coffee-${look}`)
+    const line = look === 'awake' ? (mode === 'on' ? 'Tela acordada' : 'Tela acordada enquanto trabalham') : look === 'armed' ? 'Acorda a tela quando alguém trabalhar' : null
+    this.coffeeTag.setBubble(line, 'idle')
+    this.coffeeTag.el.title = line ?? 'Café: manter a tela acordada'
+    if (this.player.floor === 0) this.wake(100)
   }
 }

@@ -33,7 +33,9 @@ export interface HudActions {
   /** Sobre: version, machine and "Pedir para um agente me atualizar" (the version chip). */
   about(): void
   /** Bastidores: background processes, MCP servers and skills. */
-  backstage(tab?: 'bg' | 'mcp' | 'skills'): void
+  backstage(tab?: 'bg' | 'mcp' | 'skills' | 'wt'): void
+  /** Sair do Agent Office: asks, waits for the agents or interrupts them. */
+  quit(): void
 }
 
 const COMPACT_KEY = 'roster-compact'
@@ -152,6 +154,7 @@ export class Hud {
       h('button', { class: 'dock-btn', 'data-tour': 'home', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
       radio.button,
       this.gearBtn,
+      h('button', { class: 'dock-btn dock-quit', title: 'Sair do Agent Office', 'aria-label': 'Sair do Agent Office', onclick: () => actions.quit() }, icon('power')),
     )
     const zoom = h(
       'div',

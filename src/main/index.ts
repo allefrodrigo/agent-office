@@ -24,6 +24,8 @@ import { StatsReader } from './stats'
 import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
 import { pruneWorktrees } from './git'
+import { Caffeine } from './caffeine'
+import { QuitFlow } from './quit'
 import { Updater } from './updater'
 import { captureShots, forceCrash, runBench, seedAgents } from './dev-hooks'
 import type { IpcContext } from './ipc/context'
@@ -42,6 +44,9 @@ import { registerWorktreesIpc } from './ipc/worktrees'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
+
+/** Set once the app is ready: closing the last window on Windows asks first, like ⌘Q. */
+let quitFlow: QuitFlow | null = null
 
 function createWindow(): BrowserWindow {
   // Screenshot and bench runs (dev only) render in a hidden window so they never steal focus.
@@ -69,6 +74,8 @@ function createWindow(): BrowserWindow {
   if (!headless) w.once('ready-to-show', () => w.show())
   // Windows: stop blinking the taskbar button once the user looks at the office.
   if (process.platform === 'win32') w.on('focus', () => w.flashFrame(false))
+  // Off macOS closing the window quits the app: with agents working, ask first.
+  if (process.platform !== 'darwin') w.on('close', (e) => quitFlow?.intercept() && e.preventDefault())
   // The window only ever shows our own bundle.
   w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   w.webContents.on('will-navigate', (e) => e.preventDefault())
@@ -367,6 +374,8 @@ app.whenReady().then(async () => {
       pending: manager.pendingRequests().length,
     }),
     flush: () => {
+      // Called right before it restarts to install: the player already confirmed.
+      quit.allow()
       store.flush()
       board.flush()
       routineStore.flush()
@@ -374,6 +383,29 @@ app.whenReady().then(async () => {
     broadcast,
   })
   updater.start()
+
+  // Agents working or waiting for you: the café corner and the quit dialog count them.
+  const busyAgents = () => manager.list().filter((a) => a.status === 'working' || a.status === 'starting' || a.status === 'waiting')
+  const caffeine = new Caffeine({
+    mode: () => store.settings.caffeine ?? 'off',
+    working: () => busyAgents().length,
+    changed: (awake) => broadcast({ type: 'caffeine', awake }),
+  })
+  manager.on('event', (e: OfficeEvent) => {
+    if (e.type === 'agent:upsert' || e.type === 'agent:removed') caffeine.check()
+  })
+  caffeine.start()
+  const quit = new QuitFlow({
+    win: () => win,
+    working: () => busyAgents().filter((a) => a.source === 'office'),
+    pending: () => manager.pendingRequests().length,
+    interrupt: (id) => manager.interrupt(id),
+    background: () => backstage.current().filter((p) => p.owner.kind !== 'terminal'),
+    stopProcess: (id) => backstage.stopProcess(id),
+    holdRoutines: (hold) => (hold ? routines.stop() : routines.start()),
+    broadcast: (wait) => broadcast({ type: 'quit', wait }),
+  })
+  quitFlow = quit
 
   // Durable saves on kill, crash and sleep (AO-26); backups, restore, export and import (AO-25).
   const flushAll = () => {
@@ -410,6 +442,8 @@ app.whenReady().then(async () => {
     desk,
     routines,
     macJobs,
+    caffeine,
+    quit,
     bridge,
     usage,
     accounts,
@@ -474,6 +508,7 @@ app.whenReady().then(async () => {
   })
   const stopAll = () => {
     log.info('Saindo')
+    caffeine.stop()
     updater.stop()
     bridge.stop()
     usage.stop()
@@ -488,7 +523,11 @@ app.whenReady().then(async () => {
     board.flush()
     routineStore.flush()
   }
-  app.on('before-quit', stopAll)
+  app.on('before-quit', (e) => {
+    // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.
+    if (quit.intercept()) return e.preventDefault()
+    stopAll()
+  })
 }).catch((err) => {
   // E.g. a corrupt data file that could not be moved aside: stop rather than write over it.
   log.error('Falha ao abrir:', err)

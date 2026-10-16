@@ -22,6 +22,9 @@ import { Tour } from './ui/tour'
 import { autoStart, tourDone } from './ui/tour-plan'
 import { openAbout } from './ui/about'
 import { openBackstage, refreshBackstage } from './ui/backstage'
+import { isSafe, sizeText } from './ui/backstage/worktrees'
+import { openCoffee } from './ui/coffee'
+import { mountQuitBanner } from './ui/quit'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 import { osText } from './ui/os-text'
 
@@ -173,6 +176,7 @@ async function boot(): Promise<void> {
     onRunSquad: (project) => hireSquad(project),
     onFloor: (n) => hud.setFloors(game.floors, n),
     onTv: () => void radio.toggle(),
+    onCoffee: () => openCoffee(ui, state, toast),
     onRoutines: () =>
       openRoutines(ui, state, {
         toast,
@@ -203,6 +207,7 @@ async function boot(): Promise<void> {
     newFloor: () => void newFloor(),
     accounts: () => openAccounts(ui, state, toast),
     reports: () => openReports(ui, state, { project: game.currentProject, toast }),
+    quit: () => void window.office.quitApp().catch((err) => toast(cleanError(err), 'err')),
     backstage: (tab) =>
       openBackstage(ui, state, {
         tab,
@@ -247,6 +252,19 @@ async function boot(): Promise<void> {
     focusCard: () => dialog.focus(),
     chooseAccount: (id, limit) => dialog.chooseAccount(id, limit),
   })
+  mountQuitBanner(ui, state, toast)
+  // Once per start, after the office settles: copies nobody uses any more are only disk space.
+  setTimeout(() => {
+    void window.office
+      .listWorktrees()
+      .then((floors) => {
+        const safe = floors.flatMap((f) => f.items).filter(isSafe)
+        if (!safe.length) return
+        const size = sizeText(safe.reduce((n, w) => n + (w.size ?? 0), 0))
+        toast(`${safe.length === 1 ? '1 cópia esquecida ocupa' : `${safe.length} cópias esquecidas ocupam`} ${size}. Limpe em Bastidores (B) → Worktrees.`, 'info')
+      })
+      .catch(() => undefined)
+  }, 30_000)
 
   const dialog = new Dialog(ui, state, {
     reply: (id) => {

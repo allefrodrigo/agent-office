@@ -29,6 +29,8 @@ export abstract class GameBase {
   protected moneyTag: Tag
   /** "Rotinas" over the routines board in your office. */
   protected routinesTag: Tag
+  /** Over the copa's espresso machine: the café corner. */
+  protected coffeeTag: Tag
   /** Seconds until the boards and alarms are checked again (limits expire on their own). */
   protected boardsIn = 0
   readonly overlays: Overlays
@@ -121,6 +123,9 @@ export abstract class GameBase {
     this.alarmTag = this.alarmTagFor(this.office.alarm)
     this.moneyTag = this.moneyTagFor(this.office.money)
     this.routinesTag = this.routinesTagFor(this.office.routines)
+    this.coffeeTag = this.overlays.add(new Tag(this.office.coffee.anchor, 'Café', false, () => hooks.onCoffee()))
+    this.coffeeTag.el.classList.add('tag-coffee')
+    this.coffeeTag.setDot('coffee-off')
   }
 
   /** Orchestrators of a floor by Diretoria desk. */

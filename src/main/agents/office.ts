@@ -3,6 +3,7 @@ import { watch } from 'node:fs'
 import { basename } from 'node:path'
 import type { AgentBrain, AgentStatus, AgentSummary, AttachmentInput, HireRequest, LogEntry, OfficePermissionMode, SquadInfo, SquadProgress, SubagentInfo, WorktreeInfo } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
+import { projectFor } from '@shared/projects'
 import { buildMessage } from '../attachments'
 import { findSquad, readProgress, squadDir, type SquadDefinition } from '../squads'
 import { createWorktree } from '../git'
@@ -53,9 +54,11 @@ export abstract class AgentOffice extends AgentBase {
    * The worktree for a new agent in `cwd`. `wanted` false = none; missing or true = one
    * when `cwd` is in a git repo. A folder without git just works as before; a repo where
    * the worktree can't be made (no commit yet…) also falls back, with a note in the log.
+   * Missing on a floor with worktrees turned off = none.
    */
   protected async isolate(cwd: string, name: string, id: string, wanted: boolean | undefined): Promise<{ worktree?: WorktreeInfo; note?: string }> {
     if (wanted === false) return {}
+    if (wanted === undefined && projectFor(this.store.settings.projects, cwd)?.worktrees === false) return {}
     try {
       const worktree = await createWorktree(cwd, name, id)
       return worktree ? { worktree, note: `Trabalhando numa cópia isolada (worktree) no branch ${worktree.branch}: ${worktree.root}` } : {}

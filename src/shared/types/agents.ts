@@ -95,6 +95,45 @@ export interface WorktreeInfo {
   base: string
 }
 
+/** One agent copy in Bastidores → Worktrees. */
+export interface WorktreeEntry {
+  /** <repo>/.agent-office/worktrees/<slug>. */
+  root: string
+  repo: string
+  /** agent/<name>-<id>; '' when git no longer knows the folder. */
+  branch: string
+  /** Bytes on disk, ignored files (node_modules) included; missing = not measured. */
+  size?: number
+  /** Files with uncommitted changes. */
+  dirty: number
+  /** Ignored files and folders (.env, node_modules), deleted with the copy. */
+  ignored: number
+  /** Commits not on the repo's current branch yet. */
+  ahead: number
+  /** Commits on no other branch, tag or remote: deleting the branch would lose them. */
+  unique: number
+  /** When the folder was made (ms). */
+  createdAt?: number
+  /** The office agent working in it right now. */
+  agentId?: string
+  agentName?: string
+  /** A folder git no longer lists as a worktree: only disk space. */
+  broken?: boolean
+  /** False when git lists it but the folder is gone. */
+  exists: boolean
+}
+
+/** The copies of one project floor (or of a repo outside every floor). */
+export interface WorktreeFloor {
+  /** Missing = a repo outside the floors (an agent called from another folder). */
+  floorId?: string
+  name: string
+  repo: string
+  /** New agents on this floor get a copy by default (ProjectFloor.worktrees). */
+  worktrees: boolean
+  items: WorktreeEntry[]
+}
+
 /** One file a task changed, as the result card lists it. */
 export interface ChangedFile {
   /** Relative to ResultChanges.root (absolute when it was written outside it, without git). */

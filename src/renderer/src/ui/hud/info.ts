@@ -65,7 +65,7 @@ export class InfoCard {
 
   constructor(
     private state: State,
-    private actions: { accounts(): void; backstage(tab?: 'bg' | 'mcp' | 'skills'): void },
+    private actions: { accounts(): void; backstage(tab?: 'bg' | 'mcp' | 'skills' | 'wt'): void },
     private toast: Toast,
   ) {}
 

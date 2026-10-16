@@ -109,6 +109,8 @@ export interface GameHooks {
   onTv(): void
   /** Player clicked the routines board (your office or a Diretoria). */
   onRoutines(): void
+  /** Player clicked the copa's espresso machine: the café corner (keep the screen awake). */
+  onCoffee(): void
 }
 
 /** Floor spot by the boss office where the skeleton stands. */

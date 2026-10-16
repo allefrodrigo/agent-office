@@ -184,6 +184,7 @@ export abstract class GameFloors extends GameBase {
     this.alarmTag.hidden = view !== 0 || !this.office.alarm.on
     this.moneyTag.hidden = view !== 0
     this.routinesTag.hidden = view !== 0
+    this.coffeeTag.hidden = view !== 0
     this.uppers.forEach((u, i) => {
       u.alarmTag.hidden = view !== i + 1 || !u.scene.alarm.on
       u.moneyTag.hidden = view !== i + 1
