@@ -1,6 +1,7 @@
 :root {
   --bg: #1c1d2e;
-  --card: rgba(24, 25, 40, 0.92);
+  /* opaque enough to stand without a backdrop blur, which the GPU redid on every drawn frame */
+  --card: rgba(24, 25, 40, 0.96);
   --card-solid: #1a1b2b;
   --line: rgba(255, 255, 255, 0.08);
   --line-strong: rgba(255, 255, 255, 0.14);
