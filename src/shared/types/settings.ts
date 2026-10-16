@@ -39,6 +39,8 @@ export interface Settings {
   updateChannel?: UpdateChannel
   /** Configurações → Vídeo: shadows, fps limit, effects, battery saver. */
   video: VideoSettings
+  /** Pasta do vault (Obsidian/similar) para o quadro Tarefas. */
+  vaultPath?: string
 }
 
 // ---------- auto-update ----------

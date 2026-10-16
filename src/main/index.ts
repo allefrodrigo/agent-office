@@ -34,6 +34,7 @@ import { registerSessionsIpc } from './ipc/sessions'
 import { registerSettingsIpc } from './ipc/settings'
 import { registerSquadsIpc } from './ipc/squads'
 import { registerRoutinesIpc } from './ipc/routines'
+import { registerTasksIpc } from './ipc/tasks'
 import { registerTicketsIpc } from './ipc/tickets'
 import { registerWorktreesIpc } from './ipc/worktrees'
 
@@ -414,6 +415,7 @@ app.whenReady().then(async () => {
   registerTicketsIpc(ipc)
   registerSquadsIpc(ipc)
   registerRoutinesIpc(ipc)
+  registerTasksIpc(ipc)
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (d, cb) => {

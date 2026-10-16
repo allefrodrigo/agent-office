@@ -299,6 +299,7 @@ const settingsFields = {
     .pipe(z.number().finite().min(0).max(100_000))
     .transform((n) => Math.round(n * 100) / 100),
   updateChannel: z.enum(['stable', 'beta']),
+  vaultPath: pathSchema.optional(),
 } satisfies { [K in keyof Settings]?: z.ZodType<unknown> }
 
 /** Configurações → Vídeo, one schema per field: a bad one keeps its current value. */
