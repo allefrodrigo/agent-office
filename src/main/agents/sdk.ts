@@ -157,6 +157,12 @@ export abstract class AgentSdk extends AgentOffice {
       if (this.replaced.has(q) || (agent.query && agent.query !== q)) return
       const text = err instanceof Error ? err.message : String(err)
       this.addLog(agent, 'error', text)
+      // Nothing was ever saved under this id (cleared, then closed before the first message):
+      // the next message starts it instead of resuming it again.
+      if (/No conversation found with session ID/i.test(text)) {
+        agent.started = false
+        this.addLog(agent, 'system', 'Essa conversa nunca chegou a começar. Mande a mensagem de novo para começar uma nova.')
+      }
       if (this.agents.has(agent.summary.id)) {
         this.deliver(agent, { text: `Tive um problema e parei:\n\n${text}`, isError: true, costUsd: agent.summary.costUsd, durationMs: 0, turns: 0 })
       }

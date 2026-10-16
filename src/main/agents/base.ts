@@ -40,7 +40,7 @@ export abstract class AgentBase extends EventEmitter {
         subagents: undefined,
         subagentsDone: undefined,
       }
-      const agent: Agent = { summary, log: p.log, started: true }
+      const agent: Agent = { summary, log: p.log, started: p.started ?? true }
       this.agents.set(summary.id, agent)
       if (summary.role === 'orchestrator') this.watchSquad(agent)
     }
@@ -161,7 +161,7 @@ export abstract class AgentBase extends EventEmitter {
   protected persist(): void {
     this.store.agents = [...this.agents.values()]
       .filter((a) => a.summary.source === 'office' && !a.demo)
-      .map((a) => ({ summary: { ...a.summary, subagentsDone: undefined }, log: a.log.slice(-PERSISTED_LOG) }))
+      .map((a) => ({ summary: { ...a.summary, subagentsDone: undefined }, log: a.log.slice(-PERSISTED_LOG), started: a.started }))
   }
 
   // ---------- implemented by the later parts ----------

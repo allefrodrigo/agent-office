@@ -16,6 +16,8 @@ import { cleanVideo } from './validate'
 export interface PersistedAgent {
   summary: AgentSummary
   log: LogEntry[]
+  /** False while the conversation has not begun (new or just cleared): there is nothing to resume yet. Missing = older file, assumed begun. */
+  started?: boolean
 }
 
 interface Data {
