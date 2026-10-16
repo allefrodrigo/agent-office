@@ -114,6 +114,8 @@ export abstract class AgentOffice extends AgentBase {
     if (same) {
       if (this.busy(same)) throw new Error(`${same.summary.name} já está rodando um ciclo. Espere terminar ou interrompa pelo painel.`)
       same.summary.permissionMode = defaults.permissionMode
+      // The squad keeps its memory in files: re-reading every past cycle only costs tokens.
+      if (this.store.settings.freshSquadCycle) this.freshStart(same.summary.id, 'Ciclo novo, conversa nova: o squad guarda a memória nos arquivos dele.')
       this.sendMessage(same.summary.id, task, display)
       return same.summary
     }
@@ -305,8 +307,15 @@ export abstract class AgentOffice extends AgentBase {
     this.setStatus(agent, 'working', 'Organizando a memória')
   }
 
+  /** Clears an agent that already talked, so the next message starts a new conversation; `note` says why. */
+  freshStart(id: string, note: string): void {
+    const agent = this.agents.get(id)
+    if (!agent?.started || this.busy(agent)) return
+    this.clearContext(id, note)
+  }
+
   /** Same agent, brand-new conversation: closes the session and starts the next one from zero. */
-  clearContext(id: string): void {
+  clearContext(id: string, note = 'Contexto limpo. A próxima mensagem começa uma conversa nova.'): void {
     const agent = this.agents.get(id)
     if (!agent || agent.summary.source !== 'office') return
     this.cancelAgentRequests(id)
@@ -319,7 +328,8 @@ export abstract class AgentOffice extends AgentBase {
     agent.compacting = false
     agent.summary.sessionId = randomUUID()
     agent.summary.context = undefined
-    this.addLog(agent, 'system', 'Contexto limpo. A próxima mensagem começa uma conversa nova.')
+    agent.summary.lastTurnAt = undefined
+    this.addLog(agent, 'system', note)
     this.setStatus(agent, 'idle', 'Memória limpa, esperando instruções')
     this.upsert(agent)
   }

@@ -131,6 +131,10 @@ describe('today e query', () => {
     expect(t.agents).toEqual({ 'ag-1': { name: 'Ada', cwd: '/proj', usd: 1 }, 'ag-2': { name: 'Bob', cwd: '/proj/sub', usd: 2 } })
   })
 
+  it('spentToday soma o escritório inteiro só de hoje (teto diário)', () => {
+    expect(book.spentToday()).toBe(3)
+  })
+
   it('query corta por pasta (com subpastas) e por dias, e devolve cópia', () => {
     const inProj = book.query({ cwd: '/proj/' })
     expect(Object.keys(inProj.days).sort()).toEqual(['/proj', '/proj/sub'])

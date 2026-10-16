@@ -1,3 +1,4 @@
+import { adviseAgent, memoryLevel } from '@shared/economy'
 import type { AgentSummary } from '@shared/types'
 import { accountChip } from '../accounts'
 import { formatCost, h, icon } from '../dom'
@@ -7,7 +8,8 @@ import { renderHelpers } from '../panel-helpers'
 import { osText } from '../os-text'
 import { portrait } from '../portrait'
 import { saveAgentAsTemplate } from '../templates'
-import { BADGE_OPEN_KEY, branchChip, contextLevel, helpersChip, modelLabel, shortPath } from './helpers'
+import { adviceBanner, warnTokens } from './economy'
+import { BADGE_OPEN_KEY, branchChip, helpersChip, modelLabel, shortPath } from './helpers'
 import { PanelSearch } from './search'
 
 /** The agent badge: photo with the memory ring, details, memory menu and the rarer actions. */
@@ -31,6 +33,7 @@ export abstract class PanelHead extends PanelSearch {
         h('button', { class: 'btn btn-small', onclick: () => this.actions.openItem(a.id, result.id) }, 'Ver resultado'),
       )
     } else this.banner.className = 'panel-banner hidden'
+    this.renderAdvice(a)
 
     const terminal = a.source === 'terminal'
     this.terminal = terminal
@@ -78,7 +81,7 @@ export abstract class PanelHead extends PanelSearch {
     const office = a.source === 'office'
     const open = this.badgeOpen
     const ctx = office ? a.context : undefined
-    const level = ctx ? contextLevel(ctx.percent) : 'ok'
+    const level = ctx ? memoryLevel(ctx, warnTokens(this.state.settings)) : 'ok'
     // A pending permission rides on the LED, so the name keeps its room.
     const led = (withLabel: boolean) =>
       h(
@@ -226,7 +229,7 @@ export abstract class PanelHead extends PanelSearch {
   /** How full the agent's memory is, in ten blocks, with ways to free it. */
   protected memoryBlocks(a: AgentSummary, busy: boolean): HTMLElement {
     const c = a.context!
-    const level = contextLevel(c.percent)
+    const level = memoryLevel(c, warnTokens(this.state.settings))
     const lit = Math.min(10, Math.round(c.percent / 10))
     const hint =
       level === 'full'
@@ -256,6 +259,15 @@ export abstract class PanelHead extends PanelSearch {
         }, 'Limpar'),
       ),
       hint ? h('div', { class: 'ctx-hint' }, hint) : null,
+    )
+  }
+
+  /** The economy banner; also called every minute, since an idle agent goes cold with no event. */
+  protected renderAdvice(a: AgentSummary): void {
+    const advice = adviseAgent(a, warnTokens(this.state.settings))
+    this.adviceEl.className = advice ? `panel-advice advice-${advice.kind}` : 'panel-advice hidden'
+    this.adviceEl.replaceChildren(
+      ...(advice ? adviceBanner(a, advice, { clear: () => void this.clear(a), compact: () => window.office.compact(a.id) }) : []),
     )
   }
 

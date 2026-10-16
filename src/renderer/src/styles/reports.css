@@ -579,3 +579,116 @@
     animation: none;
   }
 }
+
+/* Economia de tokens: where the money went, tips, and agents to clear now. */
+.eco {
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.eco-split,
+.eco-now {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.eco-split-k {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.eco-bar {
+  display: flex;
+  height: 10px;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.eco-bar i {
+  display: block;
+  height: 100%;
+}
+
+.eco-read { background: var(--blue); }
+.eco-write { background: var(--amber); }
+.eco-output { background: var(--green); }
+.eco-input { background: var(--muted); }
+
+.eco-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 12px;
+}
+
+.eco-key {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.eco-key small {
+  color: var(--muted);
+}
+
+.eco-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+
+.eco-tips {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+.eco-tips li {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.eco-tips svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--amber);
+}
+
+.eco-agent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(245, 165, 36, 0.08);
+}
+
+.eco-agent-cold {
+  background: rgba(239, 91, 91, 0.08);
+}
+
+.eco-agent-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.eco-agent-main span {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

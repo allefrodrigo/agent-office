@@ -8,6 +8,7 @@ import { dataSection } from '../data'
 import { h, icon } from '../dom'
 import { portrait } from '../portrait'
 import { updateSettingsBox } from '../updates'
+import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { cleanError, field, modal } from './common'
 import { brainFields, meterField, MODES } from './brain'
 import { brandFields } from './brand'
@@ -60,6 +61,17 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   mode.value = s.defaultPermissionMode
   const maxSubs = h('input', { class: 'input', type: 'number', min: 0, max: 100, step: 1, value: s.maxSubagents ?? 10 }) as HTMLInputElement
   const budget = h('input', { class: 'input', type: 'number', min: 0, step: 0.5, value: s.agentBudgetUsd ?? 0 }) as HTMLInputElement
+  const daily = h('input', { class: 'input', type: 'number', min: 0, step: 1, value: s.dailyBudgetUsd ?? 0 }) as HTMLInputElement
+  // Typed in thousands of tokens: "200" reads better than "200000".
+  const warnK = h('input', { class: 'input', type: 'number', min: 0, step: 50, value: Math.round((s.contextWarnTokens ?? DEFAULT_CONTEXT_WARN_TOKENS) / 1000) }) as HTMLInputElement
+  const check = (on: boolean | undefined) => {
+    const c = h('input', { type: 'checkbox' }) as HTMLInputElement
+    c.checked = on !== false
+    return c
+  }
+  const freshTicket = check(s.freshTicketSession)
+  const freshSquad = check(s.freshSquadCycle)
+  const coldAsk = check(s.coldConfirm)
   const updates = updateSettingsBox(root, s.updateChannel)
   const video = videoFields(state)
 
@@ -129,6 +141,11 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       // An emptied field keeps the current value instead of saving 0 (no limit).
       ...(numberField(maxSubs.value) !== undefined ? { maxSubagents: Math.max(0, Math.round(numberField(maxSubs.value)!)) } : {}),
       ...(numberField(budget.value) !== undefined ? { agentBudgetUsd: Math.max(0, numberField(budget.value)!) } : {}),
+      ...(numberField(daily.value) !== undefined ? { dailyBudgetUsd: Math.max(0, numberField(daily.value)!) } : {}),
+      ...(numberField(warnK.value) !== undefined ? { contextWarnTokens: Math.max(0, Math.round(numberField(warnK.value)! * 1000)) } : {}),
+      freshTicketSession: freshTicket.checked,
+      freshSquadCycle: freshSquad.checked,
+      coldConfirm: coldAsk.checked,
       updateChannel: updates.value(),
       video: video.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
@@ -173,13 +190,27 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       h(
         'div',
         { class: 'bridge-box' },
-        h('div', { class: 'bridge-title' }, icon('coin', 16), 'Limites dos agentes'),
+        h('div', { class: 'bridge-title' }, icon('coin', 16), 'Economia de tokens'),
+        h(
+          'div',
+          { class: 'field-hint' },
+          'O que mais gasta é a memória: cada chamada relê a conversa inteira, e um agente parado por mais de 1h paga para recarregá-la. Limpe entre tarefas diferentes.',
+        ),
         h(
           'div',
           { class: 'field-row' },
-          field('Subagentes ao mesmo tempo', maxSubs, 'Por agente. 0 = limite do Claude Code (20).'),
+          field('Teto de custo por dia (US$)', daily, 'O escritório todo. Ao chegar nele, os agentes param até a meia-noite. 0 = sem teto.'),
           field('Teto de custo por agente (US$)', budget, 'Ao chegar nele, o agente para e avisa. 0 = sem teto.'),
         ),
+        h(
+          'div',
+          { class: 'field-row' },
+          field('Avisar memória acima de (mil tokens)', warnK, 'O painel sugere limpar ou compactar. 0 = só pela porcentagem.'),
+          field('Subagentes ao mesmo tempo', maxSubs, 'Por agente. 0 = limite do Claude Code (20).'),
+        ),
+        h('label', { class: 'check' }, freshTicket, 'Ticket delegado a um agente que já está aqui começa conversa nova'),
+        h('label', { class: 'check' }, freshSquad, 'Cada ciclo de squad começa conversa nova (a memória do squad fica nos arquivos)'),
+        h('label', { class: 'check' }, coldAsk, 'Perguntar antes de acordar um agente com memória fria e grande'),
       ),
       h(
         'div',

@@ -5,7 +5,8 @@ import { DEFAULT_BRAND } from '../../world/brand'
 import { arrowList, asDialog, keepFocus, rove } from '../a11y'
 import { accountChip } from '../accounts'
 import { formatCost, h, icon, timeAgo } from '../dom'
-import { contextLevel, helpersChip } from '../panel'
+import { memoryLevel } from '@shared/economy'
+import { helpersChip, tokensLabel, warnTokens } from '../panel'
 import { portrait } from '../portrait'
 import type { Radio } from '../radio'
 import { InfoCard } from './info'
@@ -344,7 +345,7 @@ export class Hud {
         ),
         h('div', { class: 'roster-activity' }, activity),
         a.context
-          ? h('div', { class: `ctx-mini ctx-${contextLevel(a.context.percent)}`, title: `Contexto: ${a.context.percent}%` }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, a.context.percent)}%` }))
+          ? h('div', { class: `ctx-mini ctx-${memoryLevel(a.context, warnTokens(this.state.settings))}`, title: `Contexto: ${a.context.percent}% · ${tokensLabel(a.context.used)}` }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, a.context.percent)}%` }))
           : null,
       ),
       h(
