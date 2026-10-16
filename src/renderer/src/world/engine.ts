@@ -61,7 +61,8 @@ export class Engine {
     this.scene.add(sun, sun.target)
     this.sun = sun
 
-    this.composer = new EffectComposer(this.renderer)
+    // 8 bits per channel: the scene is flat pixel art, half floats only doubled the full-screen buffers
+    this.composer = new EffectComposer(this.renderer, new THREE.WebGLRenderTarget(1, 1, { type: THREE.UnsignedByteType }))
     this.pixelPass = new RenderPixelatedPass(pixelSize, this.scene, this.camera, { normalEdgeStrength: 0.35, depthEdgeStrength: 0.55 })
     this.composer.addPass(this.pixelPass)
     this.composer.addPass(new OutputPass())
