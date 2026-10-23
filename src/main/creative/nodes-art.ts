@@ -77,6 +77,7 @@ async function copyFor(job: CreativeJob, ctx: NodeRunCtx, dir: string): Promise<
       cwd: dir,
       images: [],
       schema: COPY_SCHEMA,
+      readFrom: [brief],
     },
     ctx,
   )
@@ -160,6 +161,7 @@ export async function carousel(job: CreativeJob, ctx: NodeRunCtx): Promise<Creat
       cwd: dir,
       images: refs,
       schema,
+      readFrom: [brief, artDir],
     },
     ctx,
   )

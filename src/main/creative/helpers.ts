@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CreativeJob, PortValue } from '@shared/creative'
-import { runClaude } from './claude'
+import { pathsIn, runClaude } from './claude'
 import { parseJsonAnswer, runCodex } from './codex'
 
 // What every studio node shares: the run context, text work on the chosen engine, names and inputs.
@@ -18,7 +18,8 @@ export interface NodeRunCtx {
 /** Text work (analysis, writing) on the engine the node picked: Claude by default, Codex when asked. */
 export async function think(
   engine: unknown,
-  run: { prompt: string; cwd: string; images: string[]; schema?: Record<string, unknown> },
+  /** `readFrom`: the player's own texts; folders they name become readable (plus the floor). */
+  run: { prompt: string; cwd: string; images: string[]; schema?: Record<string, unknown>; readFrom?: string[] },
   ctx: NodeRunCtx,
 ): Promise<{ text: string; structured?: unknown; by: string }> {
   if (engine === 'codex') {
@@ -32,7 +33,8 @@ export async function think(
   }
   const model = engine === 'claude-opus' ? 'opus' : engine === 'claude-haiku' ? 'haiku' : 'sonnet'
   ctx.progress(`Claude ${model} está pensando…`)
-  const r = await runClaude({ prompt: run.prompt, cwd: run.cwd, model, images: run.images, schema: run.schema, env: ctx.claudeEnv, signal: ctx.signal, onProgress: ctx.progress })
+  const readRoots = run.readFrom ? [ctx.root, ...pathsIn(run.readFrom)] : undefined
+  const r = await runClaude({ prompt: run.prompt, cwd: run.cwd, model, images: run.images, schema: run.schema, env: ctx.claudeEnv, readRoots, signal: ctx.signal, onProgress: ctx.progress })
   return { text: r.text, structured: r.structured ?? (run.schema ? parseJsonAnswer(r.text) : undefined), by: `Claude ${model} · US$ ${r.costUsd.toFixed(2)}` }
 }
 
