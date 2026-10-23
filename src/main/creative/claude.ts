@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, realpathSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path'
 import { query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
@@ -35,11 +35,23 @@ const READ_TOOLS = ['Read', 'Glob', 'Grep', 'LS']
 // Never readable, even inside an allowed folder: keys, tokens, logins, env files.
 const SECRET = /(^|[\\/])(\.ssh|\.aws|\.gnupg|\.config|\.claude[^\\/]*|\.codex|\.docker|\.kube|\.netrc|Keychains|\.env[^\\/]*|[^\\/]*\.(pem|key|p12|pfx)|id_[a-z0-9]+|credentials[^\\/]*|[^\\/]*secret[^\\/]*|[^\\/]*token[^\\/]*)([\\/]|$)/i
 
-/** realpath of the deepest part that exists, plus the rest (a file not made yet still resolves its folder's links). */
-const real = (p: string): string => {
+const lexists = (p: string): boolean => {
+  try {
+    lstatSync(p)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * realpath of the deepest part that exists, plus the rest (a file not made yet still resolves its folder's links).
+ * A link to nowhere gives null: it can't be checked, so it is never readable.
+ */
+const real = (p: string): string | null => {
   const parts: string[] = []
   let cur = p
-  while (!existsSync(cur)) {
+  while (!lexists(cur)) {
     const up = dirname(cur)
     if (up === cur) return p
     parts.unshift(basename(cur))
@@ -48,7 +60,7 @@ const real = (p: string): string => {
   try {
     return join(realpathSync(cur), ...parts)
   } catch {
-    return p
+    return null
   }
 }
 
@@ -58,10 +70,10 @@ export function readable(raw: unknown, cwd: string, roots: string[]): boolean {
   // glob patterns: check the fixed part before the first wildcard
   const fixed = raw.split(/[*?[{]/)[0]
   const p = real(resolve(cwd, fixed || '.'))
-  if (SECRET.test(p) || SECRET.test(raw)) return false
+  if (!p || SECRET.test(p) || SECRET.test(raw)) return false
   return roots.some((r) => {
     const root = real(r)
-    return p === root || p.startsWith(root.endsWith(sep) ? root : root + sep)
+    return !!root && (p === root || p.startsWith(root.endsWith(sep) ? root : root + sep))
   })
 }
 
@@ -70,9 +82,12 @@ export function pathsIn(texts: string[]): string[] {
   const home = homedir()
   const out = new Set<string>()
   for (const t of texts)
-    for (const m of t.matchAll(/(?:~|\/)[^\s"'`,;()<>]+/g)) {
-      const p = m[0].replace(/^~/, home).replace(/[.:]+$/, '')
-      if (isAbsolute(p) && p !== home && p !== '/' && p.split(sep).length > 3 && existsSync(p) && !SECRET.test(p)) out.add(p)
+    // ~/x, /x and, on Windows, C:\x or C:/x
+    for (const m of t.matchAll(/(?:~|(?<![\w])[A-Za-z]:(?=[\\/])|\/)[^\s"'`,;()<>]+/g)) {
+      const named = m[0].replace(/^~/, home).replace(/[.:]+$/, '')
+      if (!isAbsolute(named)) continue
+      const p = resolve(named)
+      if (p !== home && p !== '/' && p.split(sep).length > 3 && existsSync(p) && !SECRET.test(p)) out.add(p)
     }
   return [...out].slice(0, 10)
 }

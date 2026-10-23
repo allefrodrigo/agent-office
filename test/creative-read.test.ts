@@ -11,6 +11,7 @@ mkdirSync(floor, { recursive: true })
 mkdirSync(project, { recursive: true })
 writeFileSync(join(project, '.env'), 'X=1')
 symlinkSync('/etc', join(floor, 'fora'))
+symlinkSync(join(root, 'ainda-nao-existe'), join(floor, 'quebrado'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
 describe('o que o Claude do estúdio pode ler', () => {
@@ -26,6 +27,7 @@ describe('o que o Claude do estúdio pode ler', () => {
     expect(readable(join(project, '.env'), floor, [floor, project])).toBe(false)
     expect(readable(join(homedir(), '.ssh', 'id_ed25519'), floor, [homedir()])).toBe(false)
     expect(readable(join(floor, 'fora', 'passwd'), floor, [floor])).toBe(false)
+    expect(readable(join(floor, 'quebrado', 'x.md'), floor, [floor])).toBe(false)
     expect(readable('/**/*.ts', floor, [floor])).toBe(false)
   })
 

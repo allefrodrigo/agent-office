@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, lstatSync } from 'node:fs'
 import { lstat, readdir, rm } from 'node:fs/promises'
-import { join, relative, sep } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
 import type { WorktreeEntry } from '@shared/types'
 import { headOf } from './repo'
 import { git, SHA_RE } from './run'
@@ -23,8 +23,9 @@ async function registered(repo: string): Promise<Map<string, string>> {
   const dir = join(repo, WORKTREES_DIR) + sep
   const found = new Map<string, string>()
   let path = ''
-  for (const line of out.split('\n')) {
-    if (line.startsWith('worktree ')) path = line.slice(9)
+  for (const line of out.split(/\r?\n/)) {
+    // git prints C:/x/y on Windows: resolve gives the C:\x\y that readdir and join use
+    if (line.startsWith('worktree ')) path = resolve(line.slice(9))
     else if (line.startsWith('branch refs/heads/') && path.startsWith(dir)) found.set(path, line.slice(18))
     else if (line === 'detached' && path.startsWith(dir)) found.set(path, '')
   }
