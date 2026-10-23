@@ -23,7 +23,6 @@ describe('flow graph', () => {
     expect(order.indexOf('n-video')).toBeLessThan(order.indexOf('n-analyze'))
     expect(order.indexOf('n-analyze')).toBeLessThan(order.indexOf('n-image'))
     expect(order.indexOf('n-image')).toBeLessThan(order.indexOf('n-post'))
-    expect(order.at(-1)).toBe('n-pauta')
     expect(upstreamOrder(f, 'n-image')).toEqual(['n-video', 'n-brief', 'n-analyze', 'n-image'])
   })
 
@@ -49,8 +48,8 @@ describe('flow graph', () => {
 
   it('lists required inputs with nothing on them', () => {
     const f = starterFlow()
-    const pauta = f.nodes.find((n) => n.id === 'n-pauta')!
-    expect(missingInputs(f, pauta)).toEqual(['imagens', 'post'])
+    const post = f.nodes.find((n) => n.id === 'n-post')!
+    expect(missingInputs(f, post)).toEqual(['briefing'])
   })
 
   it('a post feeds text inputs, not the other way round', () => {
@@ -83,7 +82,7 @@ describe('flow file', () => {
 
   it('saves and loads the floor flow', () => {
     saveFlow(dir, starterFlow())
-    expect(loadFlow(dir)?.nodes.length).toBe(6)
+    expect(loadFlow(dir)?.nodes.length).toBe(5)
   })
 
   it('a job names a creative floor and a node that runs', () => {

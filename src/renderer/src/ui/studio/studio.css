@@ -160,9 +160,6 @@
 .k-Gerar .st-pal-icon {
   color: var(--g-gen);
 }
-.k-Publicar .st-pal-icon {
-  color: var(--g-pub);
-}
 
 .st-pal-text {
   display: flex;
@@ -384,9 +381,6 @@
 .st-node.g-Gerar {
   --g: var(--g-gen);
   width: 320px;
-}
-.st-node.g-Publicar {
-  --g: var(--g-pub);
 }
 .st-node.g-Agentes:has(.st-text) {
   width: 340px;

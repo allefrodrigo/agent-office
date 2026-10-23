@@ -88,11 +88,6 @@ export async function cropTo(src: string, aspect: string, dest: string): Promise
   return dest
 }
 
-/** JPEG for the Meta API (≤ 8 MB, no alpha). */
-export async function toJpeg(src: string, dest: string): Promise<void> {
-  await run(need('ffmpeg'), ['-y', '-v', 'error', '-i', src, '-q:v', '2', '-pix_fmt', 'yuvj420p', dest], undefined, 60_000)
-}
-
 /** A JPEG of at most 1024 px on the long side (what a model needs to see an image). */
 export async function toJpegSmall(src: string, dest: string): Promise<void> {
   await run(need('ffmpeg'), ['-y', '-v', 'error', '-i', src, '-vf', "scale='min(1024,iw)':'min(1024,ih)':force_original_aspect_ratio=decrease", '-q:v', '3', '-pix_fmt', 'yuvj420p', dest], undefined, 60_000)

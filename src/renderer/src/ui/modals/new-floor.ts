@@ -35,7 +35,7 @@ export function openNewFloor(root: HTMLElement, state: State, toast: (t: string,
       }
       if (kind === 'creative') {
         hint.className = ''
-        hint.textContent = 'Imagens em criativos/imagens, análises em criativos/analises e posts em social-media/posts.json.'
+        hint.textContent = 'Imagens em criativos/imagens e análises em criativos/analises.'
         return
       }
       const found = await window.office.listSquads(p)

@@ -1,13 +1,13 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import type { CreativeJob, CreativeJobResult, PostDraft } from '@shared/creative'
 import { runCodex } from './codex'
 import { imagesOf, int, runDir, slug, stamp, str, texts, think, type NodeRunCtx } from './helpers'
 import { carousel, editImage, narrate, overlay } from './nodes-art'
-import { cropTo, frames, probe, toJpeg, transcribe } from './media'
+import { cropTo, frames, probe, transcribe } from './media'
 
 // What each studio node does. Outputs go to the floor folder:
-//   criativos/analises/*.md   criativos/imagens/*.png   social-media/jpg + posts.json
+//   criativos/analises/*.md   criativos/imagens/*.png
 // and the scratch of each run (frames, audio, schemas) to .criativo/runs/<node>-<time>/.
 
 export type { NodeRunCtx }
@@ -20,8 +20,6 @@ export async function runNode(job: CreativeJob, ctx: NodeRunCtx): Promise<Creati
       return generateImage(job, ctx)
     case 'write-post':
       return writePost(job, ctx)
-    case 'pauta':
-      return toPauta(job, ctx)
     case 'edit-image':
       return editImage(job, ctx)
     case 'overlay':
@@ -166,47 +164,4 @@ async function writePost(job: CreativeJob, ctx: NodeRunCtx): Promise<CreativeJob
   }
   if (!post.legenda) throw new Error('A legenda voltou vazia. Rode de novo.')
   return { outputs: { post: { type: 'post', post } }, note: `${r.by} · ${post.legenda.length} caracteres · ${post.hashtags.length} hashtags` }
-}
-
-interface Manifest {
-  geradoEm: string
-  pecas: { id: string; formato: string; titulo: string; arquivos: string[]; legenda: string; hashtags: string[]; alt: string; legendaFonte: string }[]
-}
-
-async function toPauta(job: CreativeJob, ctx: NodeRunCtx): Promise<CreativeJobResult> {
-  const images = imagesOf(job.inputs.images)
-  const postIn = job.inputs.post?.find((v) => v.type === 'post')
-  if (!images.length) throw new Error('Ligue as imagens do post.')
-  if (!postIn || postIn.type !== 'post') throw new Error('Ligue um nó "Escrever post".')
-  const post = postIn.post
-  const formato = images.length > 1 && post.formato !== 'story' ? 'carrossel' : post.formato === 'carrossel' ? 'feed' : post.formato
-  if (images.length > 10) throw new Error('Um carrossel tem no máximo 10 imagens.')
-  const folder = join(ctx.root, 'social-media')
-  const jpgDir = join(folder, 'jpg')
-  mkdirSync(jpgDir, { recursive: true })
-  const id = `estudio-${stamp()}-${slug(post.titulo)}`
-  ctx.progress('Convertendo para JPEG…')
-  const arquivos: string[] = []
-  for (const [i, src] of images.entries()) {
-    const name = `${id}-${String(i + 1).padStart(2, '0')}.jpg`
-    await toJpeg(src, join(jpgDir, name))
-    arquivos.push(`jpg/${name}`)
-  }
-  const file = join(folder, 'posts.json')
-  let manifest: Manifest = { geradoEm: new Date().toISOString(), pecas: [] }
-  if (existsSync(file)) {
-    try {
-      const old = JSON.parse(readFileSync(file, 'utf8')) as Manifest
-      if (Array.isArray(old.pecas)) manifest = old
-    } catch {
-      throw new Error(`O ${relative(ctx.root, file)} existe mas não é JSON válido. Conserte ou apague antes de enviar.`)
-    }
-  }
-  manifest.geradoEm = new Date().toISOString()
-  manifest.pecas.push({ id, formato, titulo: post.titulo, arquivos, legenda: post.legenda, hashtags: post.hashtags, alt: post.alt, legendaFonte: 'estudio' })
-  writeFileSync(file, JSON.stringify(manifest, null, 2) + '\n')
-  return {
-    outputs: {},
-    note: `${formato} com ${arquivos.length} ${arquivos.length === 1 ? 'imagem' : 'imagens'} em social-media/posts.json · ${manifest.pecas.length} no manifesto`,
-  }
 }

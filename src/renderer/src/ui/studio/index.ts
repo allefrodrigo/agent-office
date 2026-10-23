@@ -15,12 +15,12 @@ import { tabBar } from './tabs'
 import { usageStrip } from './usage'
 
 // Estúdio criativo: a node canvas (like ComfyUI) over the creative floor. Inputs (video, images,
-// text) feed agents (video analysis, post writing) and ChatGPT image generation; the result goes
-// to the Pauta manifest. Pan by dragging the background or scrolling, zoom with pinch or ⌘/Ctrl+wheel.
+// text) feed agents (video analysis, post writing) and ChatGPT image generation; the results land
+// in the floor folder. Pan by dragging the background or scrolling, zoom with pinch or ⌘/Ctrl+wheel.
 
 type Toast = (t: string, k?: 'info' | 'ok' | 'err') => void
 
-const GROUPS: NodeDef['group'][] = ['Entradas', 'Agentes', 'Gerar', 'Publicar']
+const GROUPS: NodeDef['group'][] = ['Entradas', 'Agentes', 'Gerar']
 const KIND_ICON: Partial<Record<NodeKind, string>> = {
   video: 'eye',
   image: 'image',
@@ -32,7 +32,6 @@ const KIND_ICON: Partial<Record<NodeKind, string>> = {
   carousel: 'copy',
   narrate: 'volume',
   'write-post': 'message',
-  pauta: 'send',
 }
 const kindIcon = (k: NodeKind) => KIND_ICON[k] ?? 'spark'
 /** Nodes that spend Codex (images), whatever else the plan does. */
@@ -529,15 +528,6 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
         if (v) parts.push(valueView(v, node, port.key))
       }
       parts.push(h('div', { class: `st-note${stale ? ' stale' : ''}` }, stale ? 'Desatualizado: algo mudou antes deste nó. ' : '', res.note ?? '', ` · ${new Date(res.at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`))
-      if (node.kind === 'pauta' && !stale)
-        parts.push(
-          h(
-            'button',
-            { class: 'btn btn-small', title: 'Contrata um agente no andar com a skill /social-agendar: ele propõe o calendário e só agenda com o seu OK', onclick: () => void schedule() },
-            icon('bot', 14),
-            'Agendar com agente',
-          ),
-        )
     } else if (!node.error) parts.push(h('div', { class: 'st-note' }, def.hint))
     return h('div', { class: 'st-out' }, ...parts)
   }
@@ -864,32 +854,6 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
   }
   runAllBtn.addEventListener('click', () => void runAll())
   stopBtn.addEventListener('click', () => s.stop())
-
-  async function schedule(): Promise<void> {
-    const folder = `${floor.cwd.replace(/[\\/]+$/, '')}/social-media`
-    const yes = await confirmDialog(el, {
-      title: 'Agendar no Pauta?',
-      text: `Um agente sobe para o andar ${floor.name} e roda /social-agendar em ${folder}. Ele propõe o calendário e só agenda depois do seu OK.`,
-      confirm: 'Chamar agente',
-      cancel: 'Agora não',
-    })
-    if (!yes) return
-    try {
-      const mode = state.settings.defaultPermissionMode
-      const a = await window.office.hire({
-        name: '',
-        cwd: floor.cwd,
-        task: `/social-agendar ${folder}`,
-        permissionMode: mode === 'bypassPermissions' ? 'default' : mode,
-        worktree: false,
-      })
-      opts.toast(`${a.name} vai agendar os posts. Acompanhe no painel dele.`, 'ok')
-      close()
-      opts.openAgent(a.id)
-    } catch (err) {
-      opts.toast(cleanError(err), 'err')
-    }
-  }
 
   // ---------- dialogs ----------
   function preview(path: string): void {

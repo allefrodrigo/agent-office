@@ -4,7 +4,7 @@
 /** What travels on a wire. A post (caption + hashtags) also feeds text inputs. */
 export type PortType = 'video' | 'image' | 'text' | 'post' | 'audio'
 
-export type NodeKind = 'video' | 'image' | 'text' | 'analyze-video' | 'generate-image' | 'edit-image' | 'overlay' | 'carousel' | 'narrate' | 'write-post' | 'pauta'
+export type NodeKind = 'video' | 'image' | 'text' | 'analyze-video' | 'generate-image' | 'edit-image' | 'overlay' | 'carousel' | 'narrate' | 'write-post'
 
 export type ParamDef =
   | { key: string; label: string; type: 'text'; placeholder?: string; rows?: number }
@@ -27,7 +27,7 @@ export interface NodeDef {
   kind: NodeKind
   title: string
   /** Palette group. */
-  group: 'Entradas' | 'Agentes' | 'Gerar' | 'Publicar'
+  group: 'Entradas' | 'Agentes' | 'Gerar'
   /** Integration that runs it by default; input nodes run nothing. 'claude' nodes may switch to Codex (param `engine`). */
   engine?: 'codex' | 'claude' | 'local' | 'elevenlabs'
   hint: string
@@ -272,19 +272,6 @@ export const NODE_DEFS: Record<NodeKind, NodeDef> = {
       { key: 'tone', label: 'Tom de voz', type: 'text', rows: 2, placeholder: 'Opcional. Ex.: direto, bem-humorado, sem emoji em excesso.' },
     ],
   },
-  pauta: {
-    kind: 'pauta',
-    title: 'Enviar ao Pauta',
-    group: 'Publicar',
-    engine: 'local',
-    hint: 'Grava imagens em JPEG e o post no posts.json da pasta social-media, pronto para /social-agendar.',
-    inputs: [
-      { key: 'images', label: 'imagens', type: 'image', multi: true },
-      { key: 'post', label: 'post', type: 'post' },
-    ],
-    outputs: [],
-    params: [],
-  },
 }
 
 /** Default params of a new node. */
@@ -310,8 +297,6 @@ export function defaultParams(kind: NodeKind): Record<string, unknown> {
       return { slides: 5, aspect: '4:5', engine: 'claude-sonnet', style: '', layout: 'base', tema: 'escuro', fonte: 'sans', cor: '' }
     case 'narrate':
       return { voice: '', model: 'eleven_multilingual_v2', script: 'claude' }
-    case 'pauta':
-      return {}
   }
 }
 
@@ -439,7 +424,6 @@ export function starterFlow(): Flow {
       n('n-analyze', 'analyze-video', 400, 60),
       n('n-image', 'generate-image', 780, 60),
       n('n-post', 'write-post', 780, 720),
-      n('n-pauta', 'pauta', 1180, 400),
     ],
     edges: [
       { id: 'e1', from: 'n-video', fromPort: 'video', to: 'n-analyze', toPort: 'video' },
@@ -447,8 +431,6 @@ export function starterFlow(): Flow {
       { id: 'e3', from: 'n-analyze', fromPort: 'text', to: 'n-image', toPort: 'prompt' },
       { id: 'e4', from: 'n-analyze', fromPort: 'text', to: 'n-post', toPort: 'brief' },
       { id: 'e5', from: 'n-image', fromPort: 'image', to: 'n-post', toPort: 'images' },
-      { id: 'e6', from: 'n-image', fromPort: 'image', to: 'n-pauta', toPort: 'images' },
-      { id: 'e7', from: 'n-post', fromPort: 'post', to: 'n-pauta', toPort: 'post' },
     ],
     view: { x: 0, y: 0, zoom: 0.85 },
   }
@@ -473,17 +455,15 @@ export const FLOW_TEMPLATES: { id: string; title: string; hint: string; build():
   {
     id: 'post',
     title: 'Post a partir de briefing',
-    hint: 'Texto → imagem → legenda → Pauta',
+    hint: 'Texto → imagem → legenda',
     build: () => ({
       version: 1,
-      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-image', 'generate-image', 420, 40), node('n-post', 'write-post', 820, 40), node('n-pauta', 'pauta', 1220, 200)],
+      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-image', 'generate-image', 420, 40), node('n-post', 'write-post', 820, 40)],
       edges: [
         edge('e1', 'n-text', 'text', 'n-image', 'prompt'),
         edge('e2', 'n-refs', 'image', 'n-image', 'refs'),
         edge('e3', 'n-text', 'text', 'n-post', 'brief'),
         edge('e4', 'n-image', 'image', 'n-post', 'images'),
-        edge('e5', 'n-image', 'image', 'n-pauta', 'images'),
-        edge('e6', 'n-post', 'post', 'n-pauta', 'post'),
       ],
       view: { x: 20, y: 20, zoom: 0.8 },
     }),
@@ -491,10 +471,10 @@ export const FLOW_TEMPLATES: { id: string; title: string; hint: string; build():
   {
     id: 'art',
     title: 'Anúncio com texto',
-    hint: 'Texto → imagem → título por cima → Pauta',
+    hint: 'Texto → imagem → título por cima → legenda',
     build: () => ({
       version: 1,
-      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-image', 'generate-image', 420, 40), node('n-art', 'overlay', 820, 40), node('n-post', 'write-post', 820, 760), node('n-pauta', 'pauta', 1240, 360)],
+      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-image', 'generate-image', 420, 40), node('n-art', 'overlay', 820, 40), node('n-post', 'write-post', 820, 760)],
       edges: [
         edge('e1', 'n-text', 'text', 'n-image', 'prompt'),
         edge('e2', 'n-refs', 'image', 'n-image', 'refs'),
@@ -502,8 +482,6 @@ export const FLOW_TEMPLATES: { id: string; title: string; hint: string; build():
         edge('e4', 'n-text', 'text', 'n-art', 'copy'),
         edge('e5', 'n-text', 'text', 'n-post', 'brief'),
         edge('e6', 'n-art', 'image', 'n-post', 'images'),
-        edge('e7', 'n-art', 'image', 'n-pauta', 'images'),
-        edge('e8', 'n-post', 'post', 'n-pauta', 'post'),
       ],
       view: { x: 20, y: 20, zoom: 0.7 },
     }),
@@ -511,17 +489,15 @@ export const FLOW_TEMPLATES: { id: string; title: string; hint: string; build():
   {
     id: 'carousel',
     title: 'Carrossel',
-    hint: 'Briefing → slides com texto → legenda → Pauta',
+    hint: 'Briefing → slides com texto → legenda',
     build: () => ({
       version: 1,
-      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-car', 'carousel', 420, 40), node('n-post', 'write-post', 840, 40), node('n-pauta', 'pauta', 1240, 260)],
+      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-car', 'carousel', 420, 40), node('n-post', 'write-post', 840, 40)],
       edges: [
         edge('e1', 'n-text', 'text', 'n-car', 'brief'),
         edge('e2', 'n-refs', 'image', 'n-car', 'refs'),
         edge('e3', 'n-car', 'text', 'n-post', 'brief'),
         edge('e4', 'n-car', 'image', 'n-post', 'images'),
-        edge('e5', 'n-car', 'image', 'n-pauta', 'images'),
-        edge('e6', 'n-post', 'post', 'n-pauta', 'post'),
       ],
       view: { x: 20, y: 20, zoom: 0.75 },
     }),
