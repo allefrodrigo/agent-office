@@ -2,6 +2,14 @@ import type { ProjectFloor } from './types'
 
 /** Project floors are capped so the elevator panel stays short. */
 export const MAX_PROJECT_FLOORS = 6
+/** Creative floors (Estúdio criativo) count apart: a full building still gets its studio. */
+export const MAX_CREATIVE_FLOORS = 2
+
+/** Room left for another floor of this kind. */
+export function canAddFloor(projects: ProjectFloor[], kind: 'project' | 'creative'): boolean {
+  const n = projects.filter((p) => (p.kind === 'creative') === (kind === 'creative')).length
+  return n < (kind === 'creative' ? MAX_CREATIVE_FLOORS : MAX_PROJECT_FLOORS)
+}
 
 const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
 

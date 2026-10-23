@@ -103,6 +103,8 @@ export interface GameHooks {
   onComputer(): void
   /** Player clicked the board in the Diretoria of a project floor. */
   onRunSquad(project: ProjectFloor): void
+  /** The studio tag on a creative floor's board. */
+  onStudio(project: ProjectFloor): void
   /** The player (and the camera) arrived on another floor. */
   onFloor(floor: number): void
   /** Player clicked the lounge TV: Claude FM on/off. */

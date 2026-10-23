@@ -138,4 +138,6 @@ export interface ProjectFloor {
   uniform?: boolean
   /** false = new agents here work straight in the project folder, no worktree by default. */
   worktrees?: false
+  /** 'creative' = Estúdio criativo (needs Codex): a node canvas for images and posts; outputs go to the folder. */
+  kind?: 'creative'
 }

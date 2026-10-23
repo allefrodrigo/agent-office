@@ -9,6 +9,8 @@ import type { AppInfo, BridgeStatus, CaffeineMode, QuitWait, Settings, UpdateIns
 import type { SquadInfo } from './squads'
 import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
+import type { CodexUsage, CreativeJob, CreativeJobResult, CreativeStatus, ElevenVoice, Flow } from '../creative'
+import type { FlowTab, LibraryItem } from '../creative-library'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
@@ -136,6 +138,12 @@ export type OfficeEvent =
   | { type: 'caffeine'; awake: boolean }
   /** Waiting for the agents before quitting; null = not leaving (any more). */
   | { type: 'quit'; wait: QuitWait | null }
+  /** Estúdio criativo: what a running node is doing now. */
+  | { type: 'creative:progress'; jobId: string; text: string }
+  /** `codex login` printed its sign-in link (the browser may not have opened). */
+  | { type: 'creative:login-url'; url: string }
+  /** Codex plan limits were read again (after a Codex run or on request). */
+  | { type: 'creative:usage'; usage: CodexUsage }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -321,5 +329,40 @@ export interface OfficeAPI {
   togglePlugin(id: string, enabled: boolean): Promise<ToolsView>
   /** Shows a skill's SKILL.md in the file manager. */
   revealSkill(name: string): Promise<void>
+  // ---------- Estúdio criativo (creative floors) ----------
+  /** Codex (login), ffmpeg and whisper on this machine. */
+  creativeStatus(): Promise<CreativeStatus>
+  /** `codex login` with ChatGPT; resolves with the new status when the browser flow ends. */
+  codexLogin(): Promise<CreativeStatus>
+  codexCancelLogin(): Promise<void>
+  /** ElevenLabs: use a key file of ~/.config/elevenlabs, a pasted key (kept in the keychain), or none. */
+  elevenUseFile(name: string): Promise<CreativeStatus>
+  elevenStoreKey(key: string): Promise<CreativeStatus>
+  elevenForget(): Promise<CreativeStatus>
+  elevenVoices(): Promise<ElevenVoice[]>
+  /** Codex plan limits; cached for a minute unless `force`. */
+  codexUsage(force?: boolean): Promise<CodexUsage>
+  codexLogout(): Promise<CreativeStatus>
+  /** The default folder of a creative floor (made if missing). */
+  creativeFolder(): Promise<string>
+  /** File dialog for a video or images; [] when cancelled. */
+  pickMedia(kind: 'video' | 'image', multi?: boolean): Promise<string[]>
+  /** Runs one node; progress comes as creative:progress events. */
+  runCreative(job: CreativeJob): Promise<CreativeJobResult>
+  cancelCreative(jobId: string): Promise<void>
+  /** The floor's flows (tabs), in order; migrates the old single flow on first call. */
+  listFlows(floorId: string): Promise<FlowTab[]>
+  loadFlowTab(floorId: string, flowId: string): Promise<Flow | null>
+  saveFlowTab(floorId: string, flowId: string, flow: Flow): Promise<void>
+  /** A new tab (after `after` when given). */
+  createFlow(floorId: string, name: string, flow?: Flow, after?: string): Promise<FlowTab>
+  renameFlow(floorId: string, flowId: string, name: string): Promise<FlowTab[]>
+  /** Moves the flow file to .criativo/fluxos/lixeira; returns the tabs left. */
+  deleteFlow(floorId: string, flowId: string): Promise<FlowTab[]>
+  reorderFlows(floorId: string, order: string[]): Promise<FlowTab[]>
+  /** What the floor generated (images, analyses, posts, audios…), newest first. */
+  listLibrary(floorId: string): Promise<LibraryItem[]>
+  /** An analysis (.md) of the floor. */
+  readLibraryText(floorId: string, path: string): Promise<string>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

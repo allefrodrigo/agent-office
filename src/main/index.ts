@@ -41,6 +41,9 @@ import { ToolsDesk } from './backstage/tools'
 import { registerRoutinesIpc } from './ipc/routines'
 import { registerTicketsIpc } from './ipc/tickets'
 import { registerWorktreesIpc } from './ipc/worktrees'
+import { registerCreativeIpc } from './ipc/creative'
+import { registerCreativeLibraryIpc } from './ipc/creative-library'
+import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
@@ -189,6 +192,9 @@ if (stressError) {
   // process.exit, not app.exit: nothing below may run, not even initLog.
   process.exit(1)
 }
+
+// Estúdio criativo: local images and videos reach the page through office-media://, never file://.
+registerMediaScheme()
 
 // Windows only shows notifications for apps with an AppUserModelID.
 app.setAppUserModelId('dev.allef.agentoffice')
@@ -470,6 +476,9 @@ app.whenReady().then(async () => {
   registerSquadsIpc(ipc)
   registerRoutinesIpc(ipc)
   registerBackstageIpc(ipc)
+  registerCreativeIpc(ipc)
+  registerCreativeLibraryIpc(ipc)
+  handleMediaScheme()
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
   session.defaultSession.webRequest.onBeforeSendHeaders({ urls: ['https://www.youtube-nocookie.com/embed/*'] }, (d, cb) => {

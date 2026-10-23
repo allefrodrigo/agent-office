@@ -1,4 +1,4 @@
-import { MAX_PROJECT_FLOORS } from '@shared/projects'
+import { canAddFloor } from '@shared/projects'
 import type { AgentStatus, AgentSummary } from '@shared/types'
 import type { State } from '../../state'
 import { DEFAULT_BRAND } from '../../world/brand'
@@ -267,14 +267,14 @@ export class Hud {
           'button',
           { class: `floor-btn${n === this.floor ? ' on' : ''}${badge && act.waiting ? ' pulse' : ''}`, title: n === this.floor ? `Você está no ${name}` : `Ir para ${name} pelo elevador`, onclick: () => this.actions.goFloor(n) },
           h('span', { class: 'floor-num' }, n === 0 ? 'T' : String(n)),
-          h('span', { class: 'floor-name' }, name),
+          h('span', { class: 'floor-name' }, n > 0 && this.state.settings.projects[n - 1]?.kind === 'creative' ? `🎨 ${name}` : name),
           badge,
         )
       })
       .reverse()
     const add =
-      names.length - 1 < MAX_PROJECT_FLOORS
-        ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto: quem você contrata ou chama lá trabalha na pasta dele', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Andar de projeto'))
+      canAddFloor(this.state.settings.projects, 'project') || canAddFloor(this.state.settings.projects, 'creative')
+        ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto (quem você contrata ou chama lá trabalha na pasta dele) ou o andar criativo, com o estúdio de imagens e posts', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Novo andar'))
         : null
     this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), ...rows, ...(add ? [add] : []))
   }

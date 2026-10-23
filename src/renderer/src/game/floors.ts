@@ -3,6 +3,7 @@ import type { ProjectFloor, SquadInfo } from '@shared/types'
 import { brandOf, releaseLogos } from '../world/brand'
 import { disposeTree } from '../world/dispose'
 import * as L from '../world/layout'
+import { buildRooftop } from '../world/rooftop'
 import { buildUpperFloor } from '../world/upper-floor'
 import { Tag } from '../world/overlays'
 import { GameBase } from './base'
@@ -48,9 +49,9 @@ export abstract class GameFloors extends GameBase {
   /** Builds the project floors again when the floors or their squads change. */
   setProjects(projects: ProjectFloor[], squads: SquadInfo[], notify = true): void {
     const squadsOf = (p: ProjectFloor) => squads.filter((q) => q.cwd === p.cwd)
-    const plans = projects.map((p) => L.projectPlan(squadsOf(p)))
+    const plans = projects.map((p) => (p.kind === 'creative' ? L.rooftopPlan() : L.projectPlan(squadsOf(p))))
     const logoKey = (p: ProjectFloor) => (p.logo ? `${p.logo.length}:${p.logo.slice(-48)}` : '')
-    const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
+    const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, p.kind, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
     if (key === this.uppersKey) return
     this.uppersKey = key
     const playerOn = this.upperOf(this.player.floor)?.project.id
@@ -70,13 +71,16 @@ export abstract class GameFloors extends GameBase {
     this.uppers = projects.map((project, i) => {
       const n = i + 1
       const plan = plans[i]
-      const scene = buildUpperFloor(plan, brandOf(project))
+      const scene = project.kind === 'creative' ? buildRooftop(plan, brandOf(project)) : buildUpperFloor(plan, brandOf(project))
       scene.reducedMotion = this.reducedEffects
       this.engine.scene.add(scene.group)
-      this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
+      this.overlays.label(project.kind === 'creative' ? 'Cobertura' : 'Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
       for (const r of [...plan.team, ...plan.sectors]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
       let boardTag: Tag | null = null
-      if (squadsOf(project).length) {
+      if (project.kind === 'creative') {
+        boardTag = this.overlays.add(new Tag(scene.board, '🎨 Abrir estúdio criativo', false, () => this.hooks.onStudio(project)))
+        boardTag.setDot('term')
+      } else if (squadsOf(project).length) {
         boardTag = this.overlays.add(new Tag(scene.board, '▶ Contratar squad', false, () => this.hooks.onRunSquad(project)))
         boardTag.setDot('term')
       }

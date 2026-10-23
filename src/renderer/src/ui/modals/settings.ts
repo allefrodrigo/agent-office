@@ -1,5 +1,5 @@
 import { HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
-import { floorNameFor, MAX_PROJECT_FLOORS } from '@shared/projects'
+import { canAddFloor, floorNameFor } from '@shared/projects'
 import type { Look, OfficePermissionMode, ProjectFloor } from '@shared/types'
 import type { State } from '../../state'
 import { DEFAULT_VIDEO, QUALITY_LABELS, QUALITY_PRESETS, qualityOf, type FpsLimit, type Quality, type ShadowMapSize, type VideoSettings } from '@shared/video'
@@ -109,7 +109,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
           })
         : [h('div', { class: 'field-hint' }, 'Nenhum andar: o escritório fica só no térreo.')]),
     )
-    addFloor.classList.toggle('hidden', floors.length >= MAX_PROJECT_FLOORS)
+    addFloor.classList.toggle('hidden', !canAddFloor(floors, 'project'))
   }
   addFloor.addEventListener('click', async () => {
     const p = await window.office.pickFolder()
