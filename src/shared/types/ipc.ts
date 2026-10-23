@@ -1,13 +1,16 @@
 // What crosses the IPC bridge: the full state, the events and window.office.
 
 import type { AccountStatus, PlanUsage } from './accounts'
-import type { AgentBrain, AgentSummary, AgentTemplate, HireRequest, OfficePermissionMode, ResultChanges, SessionEntry } from './agents'
+import type { BgProcess, ToolsView } from './backstage'
+import type { AgentBrain, AgentSummary, AgentTemplate, HireRequest, OfficePermissionMode, ResultChanges, SessionEntry, WorktreeFloor } from './agents'
 import type { AgentResult, AttachmentInput, LogEntry, PermissionDecision, PermissionRequest } from './conversation'
 import type { Ledger, LedgerQuery, LedgerToday } from './ledger'
-import type { BridgeStatus, Settings, UpdateInstallResult, UpdateStatus } from './settings'
+import type { AppInfo, BridgeStatus, CaffeineMode, QuitWait, Settings, UpdateInstallResult, UpdateStatus } from './settings'
 import type { SquadInfo } from './squads'
 import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
+import type { CodexUsage, CreativeJob, CreativeJobResult, CreativeStatus, ElevenVoice, Flow } from '../creative'
+import type { FlowTab, LibraryItem } from '../creative-library'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
@@ -55,10 +58,14 @@ export interface OfficeState {
   dataNotices: DataNotice[]
   /** The Mac (or PC) runs on battery now; the scene may switch to Economia. */
   onBattery: boolean
-  /** Scheduled tasks, shown on the ground floor totem. */
+  /** Background processes of the agents, as last scanned (Bastidores). */
+  backstage: BgProcess[]
+  /** Scheduled tasks, shown on the routines board of every floor. */
   routines: Routine[]
   /** Jobs the Mac schedules itself (launchd), shown beside the routines. Empty off macOS. */
   macJobs: MacJob[]
+  /** The café corner holds the screen awake right now. */
+  caffeineAwake: boolean
   /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
   forceTour?: boolean
 }
@@ -122,10 +129,21 @@ export type OfficeEvent =
   | { type: 'update'; update: UpdateStatus }
   /** The charger was plugged in or pulled out. */
   | { type: 'power'; onBattery: boolean }
+  | { type: 'backstage'; processes: BgProcess[] }
   /** A routine changed, ran or finished: the whole list. */
   | { type: 'routines'; routines: Routine[] }
   /** The Mac's own scheduled jobs changed (read every minute). */
   | { type: 'macJobs'; jobs: MacJob[] }
+  /** The café corner took or let go of the screen. */
+  | { type: 'caffeine'; awake: boolean }
+  /** Waiting for the agents before quitting; null = not leaving (any more). */
+  | { type: 'quit'; wait: QuitWait | null }
+  /** Estúdio criativo: what a running node is doing now. */
+  | { type: 'creative:progress'; jobId: string; text: string }
+  /** `codex login` printed its sign-in link (the browser may not have opened). */
+  | { type: 'creative:login-url'; url: string }
+  /** Codex plan limits were read again (after a Codex run or on request). */
+  | { type: 'creative:usage'; usage: CodexUsage }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -170,6 +188,20 @@ export interface OfficeAPI {
   prepareFire(agentId: string): Promise<'plain' | 'confirmed' | 'cancelled'>
   /** Resolves a note for the toast when the agent's worktree was kept or removed. */
   fire(agentId: string): Promise<string | void>
+  /** Café corner: keep the screen awake never, while agents work, or always. */
+  setCaffeine(mode: CaffeineMode): Promise<void>
+  /** "Sair": asks (native dialog), then waits for the agents, interrupts them or stays. */
+  quitApp(): Promise<void>
+  /** On the "saindo" banner: interrupt whoever is still working and quit now. */
+  quitNow(): Promise<void>
+  /** On the "saindo" banner: stay. */
+  cancelQuit(): Promise<void>
+  /** Bastidores → Worktrees: every agent copy, by floor, with size and what removing it would lose. */
+  listWorktrees(): Promise<WorktreeFloor[]>
+  /** Removes one copy after a native confirmation. Null = cancelled; else a line for the toast. */
+  removeWorktreeAt(root: string): Promise<string | null>
+  /** Removes every copy with nothing to lose (on one floor, or all), after a native confirmation. */
+  cleanWorktrees(floorId?: string): Promise<string | null>
   /** Whether the folder is inside a git repo (the worktree option starts on). */
   isGitRepo(cwd: string): Promise<boolean>
   /** Unified diff of one file listed in a result's changes. */
@@ -277,5 +309,60 @@ export interface OfficeAPI {
   macJobLog(label: string): Promise<string>
   /** Opens a Mac job's log in the default app. */
   openMacJobLog(label: string): Promise<void>
+  /** Version, package.json fields and this machine, for the "Sobre" window. */
+  appInfo(): Promise<AppInfo>
+  /**
+   * Hires an agent that downloads the newest release from GitHub and installs it.
+   * One at a time: while it is in the office, a new call returns it instead.
+   */
+  selfUpdate(): Promise<AgentSummary>
+  /** Stops a background process (a BgProcess id); an office agent's task stops through its CLI. */
+  stopProcess(id: string): Promise<void>
+  /** The end of what a background task printed (office agents only). */
+  processOutput(id: string): Promise<string>
+  /** MCP servers, skills and plugins, with the last 7 days of use. */
+  toolsView(): Promise<ToolsView>
+  /** Turns an MCP server on or off for every office agent, now and on the next start. */
+  toggleMcp(name: string, enabled: boolean): Promise<ToolsView>
+  reconnectMcp(name: string): Promise<ToolsView>
+  /** Writes enabledPlugins in ~/.claude/settings.json and reloads the running agents. */
+  togglePlugin(id: string, enabled: boolean): Promise<ToolsView>
+  /** Shows a skill's SKILL.md in the file manager. */
+  revealSkill(name: string): Promise<void>
+  // ---------- Estúdio criativo (creative floors) ----------
+  /** Codex (login), ffmpeg and whisper on this machine. */
+  creativeStatus(): Promise<CreativeStatus>
+  /** `codex login` with ChatGPT; resolves with the new status when the browser flow ends. */
+  codexLogin(): Promise<CreativeStatus>
+  codexCancelLogin(): Promise<void>
+  /** ElevenLabs: use a key file of ~/.config/elevenlabs, a pasted key (kept in the keychain), or none. */
+  elevenUseFile(name: string): Promise<CreativeStatus>
+  elevenStoreKey(key: string): Promise<CreativeStatus>
+  elevenForget(): Promise<CreativeStatus>
+  elevenVoices(): Promise<ElevenVoice[]>
+  /** Codex plan limits; cached for a minute unless `force`. */
+  codexUsage(force?: boolean): Promise<CodexUsage>
+  codexLogout(): Promise<CreativeStatus>
+  /** The default folder of a creative floor (made if missing). */
+  creativeFolder(): Promise<string>
+  /** File dialog for a video or images; [] when cancelled. */
+  pickMedia(kind: 'video' | 'image', multi?: boolean): Promise<string[]>
+  /** Runs one node; progress comes as creative:progress events. */
+  runCreative(job: CreativeJob): Promise<CreativeJobResult>
+  cancelCreative(jobId: string): Promise<void>
+  /** The floor's flows (tabs), in order; migrates the old single flow on first call. */
+  listFlows(floorId: string): Promise<FlowTab[]>
+  loadFlowTab(floorId: string, flowId: string): Promise<Flow | null>
+  saveFlowTab(floorId: string, flowId: string, flow: Flow): Promise<void>
+  /** A new tab (after `after` when given). */
+  createFlow(floorId: string, name: string, flow?: Flow, after?: string): Promise<FlowTab>
+  renameFlow(floorId: string, flowId: string, name: string): Promise<FlowTab[]>
+  /** Moves the flow file to .criativo/fluxos/lixeira; returns the tabs left. */
+  deleteFlow(floorId: string, flowId: string): Promise<FlowTab[]>
+  reorderFlows(floorId: string, order: string[]): Promise<FlowTab[]>
+  /** What the floor generated (images, analyses, posts, audios…), newest first. */
+  listLibrary(floorId: string): Promise<LibraryItem[]>
+  /** An analysis (.md) of the floor. */
+  readLibraryText(floorId: string, path: string): Promise<string>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

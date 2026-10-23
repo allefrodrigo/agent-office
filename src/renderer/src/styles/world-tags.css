@@ -25,3 +25,17 @@
 .dot-money {
   background: var(--board-amber);
 }
+
+/* the café corner's tag: the dot is the machine's LED */
+.dot-coffee-off {
+  background: #5b6070;
+}
+
+.dot-coffee-armed {
+  background: #ffb347;
+}
+
+.dot-coffee-awake {
+  background: #55efc4;
+  box-shadow: 0 0 6px #55efc4;
+}

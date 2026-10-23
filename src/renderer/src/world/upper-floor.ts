@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { brandSign, type Brand } from './brand'
 import * as F from './furniture'
-import { beacon, costBoard } from './props'
+import { beacon, costBoard, routinesBoard } from './props'
 import { workstation } from './workstation'
 import { box, panel } from './kit'
 import { mergeStatic } from './merge'
@@ -57,20 +57,20 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     place(F.bossChair(), d.seat.x, d.seat.z, 0)
     place(F.simpleChair('#6c5ce7'), d.side.x, d.side.z, -Math.PI / 2)
   }
-  // back wall, left to right: plant, the company's sign, cycle board, then the elevator
-  place(F.plant('tall', '#e9edf2'), dx0 + 0.5, 0.5)
-  grid.block(dx0, 0)
-  place(brandSign(brand, 2.4), dx0 + 2.4, 0.03, 0, 1.75)
+  // back wall, left to right: the company's sign, cycle board, routines board, then the elevator
+  place(brandSign(brand, 2.4), dx0 + 1.6, 0.03, 0, 1.75)
   place(F.plant('fern'), dx0 + 0.5, dz1 - 0.5)
   grid.block(dx0, dz1 - 1)
   place(F.plant('flower', '#f5f3ee'), dx1 - 0.5, dz1 - 0.5)
   grid.block(dx1 - 1, dz1 - 1)
   const dash = new LoopScreen(48, 26, dashboardPainter, 4)
   loops.push(dash)
-  place(F.tv(dash.texture), dx0 + 5, 0.06, 0, 1.6)
+  place(F.tv(dash.texture), dx0 + 4, 0.06, 0, 1.6)
   const board = new THREE.Object3D()
-  board.position.set(dx0 + 5, 2.05, 0.3)
+  board.position.set(dx0 + 4, 2.05, 0.3)
   group.add(board)
+  const routines = routinesBoard()
+  place(routines.group, dx0 + 6, 0.06, 0, 1.22)
   // the elevator opens into the Diretoria
   const elev = F.elevator()
   place(elev.group, ELEVATOR.x, 0.04)
@@ -126,6 +126,7 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     board,
     money,
     alarm,
+    routines,
     reducedMotion: false,
     update(dt: number) {
       money.update(dt)

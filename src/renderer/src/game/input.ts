@@ -94,8 +94,12 @@ export abstract class GameInput extends GameMovement {
       this.hooks.onTv()
       return
     }
-    if (this.onTotem(x, y)) {
+    if (this.onRoutinesBoard(x, y)) {
       this.hooks.onRoutines()
+      return
+    }
+    if (this.onCoffee(x, y)) {
+      this.hooks.onCoffee()
       return
     }
     if (this.player.floor > 0) {
@@ -119,8 +123,13 @@ export abstract class GameInput extends GameMovement {
     return this.player.floor === 0 && this.engine.pick(x, y, [this.office.tv.group]).length > 0
   }
 
-  protected onTotem(x: number, y: number): boolean {
-    return this.player.floor === 0 && this.engine.pick(x, y, [this.totem.view.group]).length > 0
+  /** Every floor has one, in your office or the Diretoria. */
+  protected onRoutinesBoard(x: number, y: number): boolean {
+    return this.engine.pick(x, y, [this.floorOf(this.player.floor).routines.group]).length > 0
+  }
+
+  protected onCoffee(x: number, y: number): boolean {
+    return this.player.floor === 0 && this.engine.pick(x, y, [this.office.coffee.group]).length > 0
   }
 
   protected onSkull(x: number, y: number): boolean {
@@ -150,7 +159,7 @@ export abstract class GameInput extends GameMovement {
       document.body.style.cursor = this.agentAt(x, y) ? 'pointer' : ''
       return
     }
-    if (this.onTv(x, y) || this.onSkull(x, y) || this.onTotem(x, y)) {
+    if (this.onTv(x, y) || this.onSkull(x, y) || this.onRoutinesBoard(x, y) || this.onCoffee(x, y)) {
       this.hover.visible = false
       document.body.style.cursor = 'pointer'
       return
@@ -176,6 +185,8 @@ export abstract class GameInput extends GameMovement {
         return new THREE.Vector3(SKULL_HOME.x, 1, SKULL_HOME.z)
       case 'tv':
         return this.office.tv.screen.getWorldPosition(new THREE.Vector3())
+      case 'routines':
+        return this.office.routines.anchor.getWorldPosition(new THREE.Vector3()).setY(1.6)
       default:
         return null
     }

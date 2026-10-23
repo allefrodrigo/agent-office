@@ -2,7 +2,7 @@ import { ipcMain } from 'electron'
 import { cleanRoutineDraft } from '../validate'
 import { id, type IpcContext } from './context'
 
-/** Rotinas: tarefas agendadas, controladas pelo totem do térreo. */
+/** Rotinas: tarefas agendadas, controladas pelo quadro de rotinas de cada andar. */
 export function registerRoutinesIpc(ctx: IpcContext): void {
   const { store, manager, routines, macJobs } = ctx
   const routineId = (raw: unknown) => id(raw)

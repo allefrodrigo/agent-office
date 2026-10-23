@@ -164,19 +164,22 @@ export function rendererError(raw: unknown): void {
   log.error(`Janela (${kind}): ${message}${where ? ` @ ${where}` : ''}${stack ? `\n${stack}` : ''}`)
 }
 
+/** `claude --version`, or what kept it from answering. */
+export async function claudeVersion(): Promise<string> {
+  const claude = findClaude()
+  if (!claude) return 'não encontrado'
+  return new Promise<string>((resolve) =>
+    execFile(claude, ['--version'], { timeout: 5000 }, (err, out) => resolve(err ? `erro: ${err.message}` : out.trim())),
+  )
+}
+
 /** Version, OS, Claude Code version and the last 200 log lines, ready to paste in a bug report. */
 export async function diagnostics(): Promise<string> {
-  const claude = findClaude()
-  const claudeVersion = claude
-    ? await new Promise<string>((resolve) =>
-        execFile(claude, ['--version'], { timeout: 5000 }, (err, out) => resolve(err ? `erro: ${err.message}` : out.trim())),
-      )
-    : 'não encontrado'
   const lines = [
     `Agent Office ${app.getVersion()}${app.isPackaged ? '' : ' (dev)'}`,
     `Electron ${process.versions.electron} · Chrome ${process.versions.chrome} · Node ${process.versions.node}`,
     `Sistema: ${type()} ${release()} ${arch()} (${process.platform})`,
-    `Claude Code: ${claudeVersion}`,
+    `Claude Code: ${await claudeVersion()}`,
     `Logs: ${logDir()}`,
     '',
     '--- últimas 200 linhas do log ---',

@@ -28,6 +28,19 @@ export interface Line {
   tokens: Tokens
   fast: boolean
   toolCalls: number
+  /** Skills and MCP servers this line calls: 'skill:<name>', 'mcp:<server>'. */
+  uses: string[]
+}
+
+/** 'skill:<name>' for the Skill tool, 'mcp:<server>' for mcp__<server>__<tool>; null for any other tool. */
+export function useKey(block: { name?: unknown; input?: unknown }): string | null {
+  const name = typeof block.name === 'string' ? block.name : ''
+  if (name === 'Skill') {
+    const skill = (block.input as { skill?: unknown } | undefined)?.skill
+    return typeof skill === 'string' && skill && skill.length <= 200 ? `skill:${skill}` : null
+  }
+  const server = /^mcp__(.+?)__/.exec(name)?.[1]
+  return server ? `mcp:${server}` : null
 }
 
 export function parseLine(raw: string): Line | null {
@@ -61,7 +74,7 @@ export function parseLine(raw: string): Line | null {
     messages: 1,
     costUsd: 0,
   }
-  const content = Array.isArray(msg.content) ? (msg.content as { type?: string }[]) : []
+  const content = Array.isArray(msg.content) ? (msg.content as { type?: string; name?: unknown; input?: unknown }[]) : []
   const id = typeof msg.id === 'string' ? msg.id : ''
   const req = typeof o.requestId === 'string' ? o.requestId : ''
   return {
@@ -72,5 +85,6 @@ export function parseLine(raw: string): Line | null {
     tokens,
     fast: u.speed === 'fast',
     toolCalls: content.filter((c) => c?.type === 'tool_use').length,
+    uses: content.flatMap((c) => (c?.type === 'tool_use' ? (useKey(c) ?? []) : [])),
   }
 }

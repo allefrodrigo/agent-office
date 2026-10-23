@@ -1,11 +1,12 @@
-import { MAX_PROJECT_FLOORS } from '@shared/projects'
+import { canAddFloor } from '@shared/projects'
 import type { AgentStatus, AgentSummary } from '@shared/types'
 import type { State } from '../../state'
 import { DEFAULT_BRAND } from '../../world/brand'
 import { arrowList, asDialog, keepFocus, rove } from '../a11y'
 import { accountChip } from '../accounts'
 import { formatCost, h, icon, timeAgo } from '../dom'
-import { contextLevel, helpersChip } from '../panel'
+import { memoryLevel } from '@shared/economy'
+import { helpersChip, tokensLabel, warnTokens } from '../panel'
 import { portrait } from '../portrait'
 import type { Radio } from '../radio'
 import { InfoCard } from './info'
@@ -30,6 +31,12 @@ export interface HudActions {
   accounts(): void
   /** Relatórios: spend by project, from the cost book. */
   reports(): void
+  /** Sobre: version, machine and "Pedir para um agente me atualizar" (the version chip). */
+  about(): void
+  /** Bastidores: background processes, MCP servers and skills. */
+  backstage(tab?: 'bg' | 'mcp' | 'skills' | 'wt'): void
+  /** Sair do Agent Office: asks, waits for the agents or interrupts them. */
+  quit(): void
 }
 
 const COMPACT_KEY = 'roster-compact'
@@ -96,7 +103,7 @@ export class Hud {
     const brand = h(
       'div',
       { class: 'brand' + (mac ? ' brand-mac' : '') },
-      h('div', { class: 'brand-row' }, h('span', { class: 'brand-mark' }, '✳'), h('span', { class: 'brand-name' }, 'Agent Office'), h('span', { class: 'brand-version', title: `Build de ${__APP_BUILD__}` }, `v${__APP_VERSION__}`)),
+      h('div', { class: 'brand-row' }, h('span', { class: 'brand-mark' }, '✳'), h('span', { class: 'brand-name' }, 'Agent Office'), h('button', { class: 'brand-version', title: `Sobre o Agent Office (build de ${__APP_BUILD__})`, onclick: () => actions.about() }, `v${__APP_VERSION__}`)),
       this.stats,
     )
 
@@ -143,10 +150,12 @@ export class Hud {
       this.inboxBtn,
       this.boardBtn,
       h('button', { class: 'dock-btn', title: 'Relatórios: gasto por projeto, agente e modelo (R)', onclick: () => actions.reports() }, icon('report')),
+      h('button', { class: 'dock-btn', title: 'Bastidores: segundo plano, MCP e skills (B)', onclick: () => actions.backstage() }, icon('rack')),
       h('button', { class: 'dock-btn', 'data-tour': 'resume', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
       h('button', { class: 'dock-btn', 'data-tour': 'home', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
       radio.button,
       this.gearBtn,
+      h('button', { class: 'dock-btn dock-quit', title: 'Sair do Agent Office', 'aria-label': 'Sair do Agent Office', onclick: () => actions.quit() }, icon('power')),
     )
     const zoom = h(
       'div',
@@ -157,7 +166,7 @@ export class Hud {
     this.floorsEl = h('div', { class: 'floors card', 'data-tour': 'floors' })
     // The roster ends above the elevator panel, which grows with every floor.
     new ResizeObserver(() => document.documentElement.style.setProperty('--floors-h', `${this.floorsEl.offsetHeight}px`)).observe(this.floorsEl)
-    this.infoCard = new InfoCard(state, actions)
+    this.infoCard = new InfoCard(state, actions, (t, k) => this.toast(t, k))
     const side = h('div', { class: 'hud-side' + (mac ? ' hud-side-mac' : '') }, this.infoCard.info)
     this.inbox = h('div', { class: 'inbox card hidden' })
     // A popover, not a modal: the office goes on behind it. ↑/↓ pick, Enter opens, Esc closes.
@@ -258,14 +267,14 @@ export class Hud {
           'button',
           { class: `floor-btn${n === this.floor ? ' on' : ''}${badge && act.waiting ? ' pulse' : ''}`, title: n === this.floor ? `Você está no ${name}` : `Ir para ${name} pelo elevador`, onclick: () => this.actions.goFloor(n) },
           h('span', { class: 'floor-num' }, n === 0 ? 'T' : String(n)),
-          h('span', { class: 'floor-name' }, name),
+          h('span', { class: 'floor-name' }, n > 0 && this.state.settings.projects[n - 1]?.kind === 'creative' ? `🎨 ${name}` : name),
           badge,
         )
       })
       .reverse()
     const add =
-      names.length - 1 < MAX_PROJECT_FLOORS
-        ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto: quem você contrata ou chama lá trabalha na pasta dele', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Andar de projeto'))
+      canAddFloor(this.state.settings.projects, 'project') || canAddFloor(this.state.settings.projects, 'creative')
+        ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto (quem você contrata ou chama lá trabalha na pasta dele) ou o andar criativo, com o estúdio de imagens e posts', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Novo andar'))
         : null
     this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), ...rows, ...(add ? [add] : []))
   }
@@ -336,7 +345,7 @@ export class Hud {
         ),
         h('div', { class: 'roster-activity' }, activity),
         a.context
-          ? h('div', { class: `ctx-mini ctx-${contextLevel(a.context.percent)}`, title: `Contexto: ${a.context.percent}%` }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, a.context.percent)}%` }))
+          ? h('div', { class: `ctx-mini ctx-${memoryLevel(a.context, warnTokens(this.state.settings))}`, title: `Contexto: ${a.context.percent}% · ${tokensLabel(a.context.used)}` }, h('div', { class: 'ctx-fill', style: `width:${Math.min(100, a.context.percent)}%` }))
           : null,
       ),
       h(
@@ -360,6 +369,11 @@ export class Hud {
       this.actions.openAgent(a.id)
     })
     return row
+  }
+
+  /** Bastidores from the keyboard (B). */
+  openBackstage(): void {
+    this.actions.backstage()
   }
 
   /** Opens or closes the inbox popover (dock button or I). */

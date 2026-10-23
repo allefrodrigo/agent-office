@@ -1,6 +1,7 @@
 import type { LogEntry } from '@shared/types'
 import type { State } from '../../state'
 import { h, icon } from '../dom'
+import { escapeAction, type EscapeAction } from './escape'
 import { BADGE_OPEN_KEY, type LogFilter, type PanelActions, type PendingFile } from './helpers'
 
 /**
@@ -11,9 +12,15 @@ export abstract class PanelBase {
   readonly el: HTMLDivElement
   protected head: HTMLDivElement
   protected banner: HTMLDivElement
+  /** Token economy: the best move for the agent's memory (clear, compact), when there is one. */
+  protected adviceEl: HTMLDivElement
   protected feed: HTMLDivElement
   protected composer: HTMLDivElement
   protected input: HTMLTextAreaElement
+  /** Red stop button beside "Enviar": shown while an office agent works. */
+  protected stopBtn: HTMLButtonElement
+  /** The open "Interromper?" dialog; aborting it closes the dialog without interrupting. */
+  protected interruptAsk: AbortController | null = null
   protected picker: HTMLInputElement
   protected chips: HTMLDivElement
   /** Files waiting to go with the next message. */
@@ -52,6 +59,7 @@ export abstract class PanelBase {
   ) {
     this.head = h('div', { class: 'panel-head' })
     this.banner = h('div', { class: 'panel-banner hidden' })
+    this.adviceEl = h('div', { class: 'panel-advice hidden', role: 'status' })
     this.feed = h('div', { class: 'panel-feed' })
     this.feed.addEventListener('click', (e) => {
       const card = (e.target as HTMLElement).closest('.final-open')?.closest<HTMLElement>('.entry-final')
@@ -61,15 +69,16 @@ export abstract class PanelBase {
     this.feed.addEventListener('scroll', () => {
       this.stickToBottom = this.feed.scrollTop + this.feed.clientHeight >= this.feed.scrollHeight - 30
     })
-    this.input = h('textarea', { class: 'composer-input', rows: 2, placeholder: 'Mande uma nova instrução…', 'aria-label': 'Mensagem para o agente (Enter envia, Esc vai ao cartão aberto)' })
+    this.input = h('textarea', { class: 'composer-input', rows: 2, placeholder: 'Mande uma nova instrução…', 'aria-label': 'Mensagem para o agente (Enter envia; Esc interrompe o agente que está trabalhando ou vai ao cartão aberto)' })
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault()
         this.send()
       } else if (e.key === 'Escape' && !e.isComposing) {
-        // Leaves the box: to the card waiting for a decision, or out, so shortcuts work again.
         e.preventDefault()
-        if (!this.actions.focusCard()) this.input.blur()
+        // Idle: leaves the box, to the card waiting for a decision or out, so shortcuts work again.
+        if (this.escape(true) === 'ask-interrupt') void this.askInterrupt()
+        else if (!this.actions.focusCard()) this.input.blur()
       }
       e.stopPropagation()
     })
@@ -85,6 +94,11 @@ export abstract class PanelBase {
       this.picker.value = ''
     })
     this.chips = h('div', { class: 'composer-files hidden' })
+    this.stopBtn = h(
+      'button',
+      { class: 'btn btn-danger-solid btn-icon hidden', title: 'Parar o agente (Esc)', 'aria-label': 'Parar o agente (Esc)', onclick: () => void this.interruptNow() },
+      icon('stop', 16),
+    )
     this.composer = h(
       'div',
       { class: 'composer' },
@@ -94,6 +108,7 @@ export abstract class PanelBase {
         { class: 'composer-row' },
         h('button', { class: 'btn btn-icon', title: 'Anexar arquivos (ou arraste, ou cole uma imagem)', onclick: () => this.picker.click() }, icon('clip', 16)),
         this.input,
+        this.stopBtn,
         h('button', { class: 'btn btn-primary btn-icon', title: 'Enviar (Enter)', onclick: () => this.send() }, icon('send', 16)),
       ),
       this.picker,
@@ -125,7 +140,7 @@ export abstract class PanelBase {
     )
     this.renderTools()
     this.helpersEl = h('div', { class: 'panel-helpers-slot' })
-    this.el = h('div', { class: 'panel card hidden', 'data-tour': 'panel', role: 'region', 'aria-label': 'Painel do agente' }, this.head, this.banner, this.helpersEl, this.tools, this.searchBar, this.feed, this.composer)
+    this.el = h('div', { class: 'panel card hidden', 'data-tour': 'panel', role: 'region', 'aria-label': 'Painel do agente' }, this.head, this.banner, this.adviceEl, this.helpersEl, this.tools, this.searchBar, this.feed, this.composer)
     this.el.addEventListener('dragover', (e) => {
       if (!e.dataTransfer?.types.includes('Files') || this.terminal) return
       e.preventDefault()
@@ -159,18 +174,32 @@ export abstract class PanelBase {
         return
       }
       if (e.key !== 'Escape' || !this.agentId || document.activeElement === this.input) return
-      // Esc on the card closes the card only.
-      if (document.activeElement?.closest('.dialog')) return
-      if (this.memMenuOpen) {
+      const action = this.escape(false)
+      if (action === 'ask-interrupt') {
+        e.preventDefault()
+        void this.askInterrupt()
+      } else if (action === 'close-menu') {
         this.memMenuOpen = false
         this.render()
-      } else this.close()
+      } else if (action === 'close-panel') this.close()
     })
     window.addEventListener('click', () => {
       if (!this.memMenuOpen) return
       this.memMenuOpen = false
       this.render()
     })
+  }
+
+  /** An office agent of the panel with a turn in progress. */
+  protected busy(): boolean {
+    const a = this.agentId ? this.state.agents.get(this.agentId) : undefined
+    return a?.source === 'office' && (a.status === 'working' || a.status === 'starting' || a.status === 'waiting')
+  }
+
+  private escape(inInput: boolean): EscapeAction {
+    // Esc on a card, a window or the board belongs to it.
+    const overlay = !!document.activeElement?.closest('.dialog') || !!document.querySelector('.backdrop, .board:not(.hidden)')
+    return escapeAction({ busy: this.busy(), overlay, inInput, menuOpen: this.memMenuOpen })
   }
 
   abstract open(agentId: string, helper?: string | null): Promise<void>
@@ -183,5 +212,7 @@ export abstract class PanelBase {
   protected abstract step(d: 1 | -1): void
   protected abstract attach(list: File[]): void
   protected abstract send(): Promise<void>
+  protected abstract askInterrupt(): Promise<void>
+  protected abstract interruptNow(): Promise<void>
   protected abstract append(e: LogEntry, scroll?: boolean): void
 }

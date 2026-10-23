@@ -6,7 +6,7 @@ import { placeBalloon, resolveSteps, TourFlow, tourSteps, type FlagStore, type R
 type Point = { x: number; y: number }
 
 export interface TourHooks {
-  /** The world spot exists (the routines totem may not, yet). */
+  /** The world spot exists. */
   hasSpot(id: string): boolean
   /** Sends the camera to a spot of the ground floor; `instant` under reduced motion. */
   showSpot(id: string, instant: boolean): void

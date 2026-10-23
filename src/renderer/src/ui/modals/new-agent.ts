@@ -63,10 +63,10 @@ function folderField(
 
 /**
  * "Trabalhar numa cópia isolada (worktree)": shown only when the folder is a git repo,
- * and on by default there. value() is undefined while the folder is unknown, so the
- * main process decides (yes when it is a repo).
+ * and on by default there, unless the folder's floor turned worktrees off (Bastidores →
+ * Worktrees). value() is undefined while the folder is unknown, so the main process decides.
  */
-export function worktreeToggle(): { el: HTMLElement; set(cwd: string | undefined): void; value(): boolean | undefined } {
+export function worktreeToggle(projects: () => ProjectFloor[] = () => []): { el: HTMLElement; set(cwd: string | undefined): void; value(): boolean | undefined } {
   const box = h('input', { type: 'checkbox' }) as HTMLInputElement
   box.checked = true
   const el = h(
@@ -82,6 +82,7 @@ export function worktreeToggle(): { el: HTMLElement; set(cwd: string | undefined
     set: (cwd) => {
       asked = cwd ?? ''
       git = undefined
+      box.checked = projectFor(projects(), cwd)?.worktrees !== false
       el.classList.add('hidden')
       if (!cwd) return
       void window.office.isGitRepo(cwd).then((yes) => {
@@ -121,7 +122,7 @@ export function openNewAgent(
     const { toast } = opts
     const used = new Set([...state.agents.values()].map((a) => a.name))
     const name = h('input', { class: 'input', value: AGENT_NAMES.find((n) => !used.has(n)) ?? `Agente ${used.size + 1}`, maxlength: 40 })
-    const isolated = worktreeToggle()
+    const isolated = worktreeToggle(() => state.settings.projects)
     const folder = folderField(state, project, (p) => isolated.set(p))
     isolated.set(folder.cwd())
     const task = h('textarea', { class: 'input', rows: 5, placeholder: 'Ex.: Adicione testes para o módulo de pagamentos e corrija o que quebrar.' })

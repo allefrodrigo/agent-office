@@ -90,7 +90,12 @@ export abstract class AgentSdk extends AgentOffice {
       this.book?.switched(s, s.sessionId, s.account ?? MAIN_ACCOUNT, before, 'start')
     }
     const limits = this.store.settings
-    const budget = limits.agentBudgetUsd > 0 ? limits.agentBudgetUsd - (s.spentUsd ?? 0) : undefined
+    // Counts only what this query spends, so it gets what is left of the tighter cap.
+    const left = [
+      limits.agentBudgetUsd > 0 ? limits.agentBudgetUsd - (s.spentUsd ?? 0) : Infinity,
+      limits.dailyBudgetUsd > 0 ? limits.dailyBudgetUsd - (this.book?.spentToday() ?? 0) : Infinity,
+    ]
+    const budget = Math.min(...left) < Infinity ? Math.max(0.01, Math.min(...left)) : undefined
     this.setStatus(agent, 'starting', s.status === 'starting' ? s.activity : 'Voltando ao trabalho')
 
     const q = query({
@@ -104,7 +109,6 @@ export abstract class AgentSdk extends AgentOffice {
         // Subagent text comes too (not only tools), for the helper's own log (AO-46).
         forwardSubagentText: true,
         allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
-        // Counts only what this query spends, so it gets what is left of the agent's cap.
         ...(budget !== undefined ? { maxBudgetUsd: budget } : {}),
         ...(agent.started ? { resume: s.sessionId } : { sessionId: s.sessionId }),
         systemPrompt: {
@@ -157,6 +161,12 @@ export abstract class AgentSdk extends AgentOffice {
       if (this.replaced.has(q) || (agent.query && agent.query !== q)) return
       const text = err instanceof Error ? err.message : String(err)
       this.addLog(agent, 'error', text)
+      // Nothing was ever saved under this id (cleared, then closed before the first message):
+      // the next message starts it instead of resuming it again.
+      if (/No conversation found with session ID/i.test(text)) {
+        agent.started = false
+        this.addLog(agent, 'system', 'Essa conversa nunca chegou a começar. Mande a mensagem de novo para começar uma nova.')
+      }
       if (this.agents.has(agent.summary.id)) {
         this.deliver(agent, { text: `Tive um problema e parei:\n\n${text}`, isError: true, costUsd: agent.summary.costUsd, durationMs: 0, turns: 0 })
       }
@@ -166,6 +176,7 @@ export abstract class AgentSdk extends AgentOffice {
         agent.input = undefined
         // Subagents live inside the CLI process, so they ended with it.
         this.clearSubagents(agent)
+        this.clearBackground(agent)
         if (agent.summary.status === 'working' || agent.summary.status === 'starting') this.setStatus(agent, 'idle', 'Aguardando instruções')
       }
     }
@@ -176,6 +187,8 @@ export abstract class AgentSdk extends AgentOffice {
       case 'system':
         if (msg.subtype === 'init') {
           agent.summary.model = msg.model
+          agent.init = { skills: msg.skills ?? [], plugins: msg.plugins ?? [], mcp: msg.mcp_servers ?? [] }
+          this.applyMcpOff(agent)
           if (agent.summary.status === 'starting') this.setStatus(agent, 'working', 'Lendo a tarefa')
         } else if (msg.subtype === 'status' && msg.status === 'compacting') {
           this.setStatus(agent, agent.summary.status, 'Organizando a memória')
@@ -185,6 +198,7 @@ export abstract class AgentSdk extends AgentOffice {
           this.addLog(agent, 'system', `${trigger === 'auto' ? 'O contexto encheu e foi compactado sozinho' : 'Conversa compactada'}${freed}.`)
           if (post_tokens !== undefined && agent.summary.context) this.setContext(agent, post_tokens, agent.summary.context.max)
         } else {
+          this.trackBackground(agent, msg)
           this.trackSubagents(agent, msg)
         }
         return
@@ -213,6 +227,7 @@ export abstract class AgentSdk extends AgentOffice {
             const line = describeTool(block.name, input)
             const file = input.file_path ?? input.notebook_path
             if (agent.task && WRITE_TOOLS.has(block.name) && typeof file === 'string' && file.length < 4096) agent.task.touched.set(file, block.name)
+            if ((block.name === 'Bash' || block.name === 'Monitor') && typeof input.command === 'string') this.rememberCommand(agent, block.id, input.command)
             this.addLog(agent, 'tool', toolDetail(block.name, input) || line, block.name)
             this.setActivity(agent, line)
           }
@@ -246,6 +261,7 @@ export abstract class AgentSdk extends AgentOffice {
               ? this.budgetText(agent)
               : msg.errors.join('\n') || `Parei: ${msg.subtype}`
         agent.summary.costUsd = msg.total_cost_usd
+        agent.summary.lastTurnAt = Date.now()
         this.readContext(agent)
         // The turn is over, so no foreground subagent can still be running (covers an interrupt that lost its notification).
         for (const sub of agent.summary.subagents ?? []) if (!sub.background) this.retire(agent, sub, 'completed')

@@ -3,6 +3,7 @@ import { watch } from 'node:fs'
 import { basename } from 'node:path'
 import type { AgentBrain, AgentStatus, AgentSummary, AttachmentInput, HireRequest, LogEntry, OfficePermissionMode, SquadInfo, SquadProgress, SubagentInfo, WorktreeInfo } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
+import { projectFor } from '@shared/projects'
 import { buildMessage } from '../attachments'
 import { findSquad, readProgress, squadDir, type SquadDefinition } from '../squads'
 import { createWorktree } from '../git'
@@ -53,9 +54,11 @@ export abstract class AgentOffice extends AgentBase {
    * The worktree for a new agent in `cwd`. `wanted` false = none; missing or true = one
    * when `cwd` is in a git repo. A folder without git just works as before; a repo where
    * the worktree can't be made (no commit yet…) also falls back, with a note in the log.
+   * Missing on a floor with worktrees turned off = none.
    */
   protected async isolate(cwd: string, name: string, id: string, wanted: boolean | undefined): Promise<{ worktree?: WorktreeInfo; note?: string }> {
     if (wanted === false) return {}
+    if (wanted === undefined && projectFor(this.store.settings.projects, cwd)?.worktrees === false) return {}
     try {
       const worktree = await createWorktree(cwd, name, id)
       return worktree ? { worktree, note: `Trabalhando numa cópia isolada (worktree) no branch ${worktree.branch}: ${worktree.root}` } : {}
@@ -111,6 +114,8 @@ export abstract class AgentOffice extends AgentBase {
     if (same) {
       if (this.busy(same)) throw new Error(`${same.summary.name} já está rodando um ciclo. Espere terminar ou interrompa pelo painel.`)
       same.summary.permissionMode = defaults.permissionMode
+      // The squad keeps its memory in files: re-reading every past cycle only costs tokens.
+      if (this.store.settings.freshSquadCycle) this.freshStart(same.summary.id, 'Ciclo novo, conversa nova: o squad guarda a memória nos arquivos dele.')
       this.sendMessage(same.summary.id, task, display)
       return same.summary
     }
@@ -302,8 +307,15 @@ export abstract class AgentOffice extends AgentBase {
     this.setStatus(agent, 'working', 'Organizando a memória')
   }
 
+  /** Clears an agent that already talked, so the next message starts a new conversation; `note` says why. */
+  freshStart(id: string, note: string): void {
+    const agent = this.agents.get(id)
+    if (!agent?.started || this.busy(agent)) return
+    this.clearContext(id, note)
+  }
+
   /** Same agent, brand-new conversation: closes the session and starts the next one from zero. */
-  clearContext(id: string): void {
+  clearContext(id: string, note = 'Contexto limpo. A próxima mensagem começa uma conversa nova.'): void {
     const agent = this.agents.get(id)
     if (!agent || agent.summary.source !== 'office') return
     this.cancelAgentRequests(id)
@@ -316,7 +328,8 @@ export abstract class AgentOffice extends AgentBase {
     agent.compacting = false
     agent.summary.sessionId = randomUUID()
     agent.summary.context = undefined
-    this.addLog(agent, 'system', 'Contexto limpo. A próxima mensagem começa uma conversa nova.')
+    agent.summary.lastTurnAt = undefined
+    this.addLog(agent, 'system', note)
     this.setStatus(agent, 'idle', 'Memória limpa, esperando instruções')
     this.upsert(agent)
   }

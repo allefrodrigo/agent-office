@@ -48,6 +48,11 @@ export class Bridge {
   /** session_id -> PID of the claude process, learned from its hook connections. */
   private pids = new Map<string, number>()
 
+  /** The claude process of a terminal session, once a hook connection told us (Bastidores). */
+  pidOf(sessionId: string | undefined): number | undefined {
+    return sessionId ? this.pids.get(sessionId) : undefined
+  }
+
   constructor(
     private manager: AgentManager,
     private port: number,

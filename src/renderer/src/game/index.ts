@@ -1,4 +1,3 @@
-import { totemView } from '@shared/routines'
 import type { State } from '../state'
 import { Aura } from '../world/aura'
 import type { Avatar } from '../world/avatar'
@@ -71,7 +70,7 @@ export class Game extends GameInput {
     if (this.boardsIn <= 0) this.syncBoards()
     this.showFloor()
     this.updateSkull()
-    this.updateTotem(dt)
+    this.updateRoutines(dt)
     this.effects.update(dt)
 
     this.recheck -= dt
@@ -92,23 +91,6 @@ export class Game extends GameInput {
     this.updateWatch()
     if (this.follow) this.engine.target.set(this.player.position.x, 0, this.player.position.z)
     this.engine.step(dt)
-  }
-
-  /**
-   * The totem's screen and LED. The text is worked out once a second and the canvas is
-   * drawn only when it changed (the countdown moves once a minute above one minute).
-   */
-  private updateTotem(dt: number): void {
-    this.totemIn -= dt
-    if (this.totemIn > 0) return
-    this.totemIn = 1
-    const view = totemView(this.state.routines, Date.now(), this.state.macJobs)
-    // the tag is HTML: it only touches the DOM when its text changes
-    this.totem.tag.setDot(`routine-${view.led}`)
-    // the screen is pixel art: the balloon carries the line in letters people can read
-    this.totem.tag.setBubble(view.line, view.led === 'wait' ? 'wait' : 'idle')
-    if (this.totem.tag.el.title !== view.line) this.totem.tag.el.title = view.line
-    if (this.totem.view.show(view) && this.player.floor === 0) this.wake(100)
   }
 
   /** Draws the scene and moves the HTML tags along. Skipped while the window is hidden. */

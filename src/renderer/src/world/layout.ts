@@ -322,3 +322,21 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
   const commons = FRONT_ROOMS.filter((rect) => !sectors.some((s) => s.rect === rect))
   return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf, commons }
 }
+
+/** The rooftop (creative floor) is the back strip of the building: x 11..32, z 0..13. */
+export const ROOF_RECT: Rect = [11, 0, 32, 13]
+export const STUDIO_ROOM = 'Estúdio'
+
+/**
+ * The creative floor sits on top of the building: one open studio (6 desks under a pergola),
+ * the penthouse by the elevator where the studio screen is, no front rooms and no squads.
+ */
+export function rooftopPlan(): ProjectPlan {
+  const base = projectPlan([])
+  const rect = BACK_ROOMS[0]
+  const { desks, stand } = roomDesks(rect, true, DESKS_PER_ROOM, 0)
+  const team: SectorRoom[] = [{ name: STUDIO_ROOM, rect, top: true, desks, stand, members: [] }]
+  const teamStand: [number, number][] = []
+  for (let x = ROOF_RECT[0] + 1; x < DIRECTOR_RECT[0]; x++) teamStand.push([x, 11])
+  return { ...base, team, teamDesks: desks, teamStand, sectors: [], partitions: [], commons: [] }
+}

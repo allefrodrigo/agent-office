@@ -49,6 +49,8 @@ export interface Upper {
   alarmTag: Tag
   /** Over the spending board: the exact total. */
   moneyTag: Tag
+  /** "Rotinas" over the Diretoria's routines board. */
+  routinesTag: Tag
 }
 
 /** A subagent shown as a small copy of its parent, standing by the parent's desk. */
@@ -101,16 +103,18 @@ export interface GameHooks {
   onComputer(): void
   /** Player clicked the board in the Diretoria of a project floor. */
   onRunSquad(project: ProjectFloor): void
+  /** The studio tag on a creative floor's board. */
+  onStudio(project: ProjectFloor): void
   /** The player (and the camera) arrived on another floor. */
   onFloor(floor: number): void
   /** Player clicked the lounge TV: Claude FM on/off. */
   onTv(): void
-  /** Player clicked the routines totem by their office. */
+  /** Player clicked the routines board (your office or a Diretoria). */
   onRoutines(): void
+  /** Player clicked the copa's espresso machine: the café corner (keep the screen awake). */
+  onCoffee(): void
 }
 
-/** Tile outside the glass of the boss office, by its upper corner, where the routines totem stands. */
-export const TOTEM_TILE: [number, number] = [9, 2]
 /** Floor spot by the boss office where the skeleton stands. */
 export const SKULL_HOME = { x: 2.5, y: 0, z: 12.3 }
 /** Seconds the camera gets to reach a dismissed agent before the skull drops. */

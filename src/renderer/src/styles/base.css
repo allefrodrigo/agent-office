@@ -59,5 +59,4 @@ button {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(14px) saturate(1.2);
 }

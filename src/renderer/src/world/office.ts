@@ -4,7 +4,7 @@ import { box, mat } from './kit'
 import { mergeStatic } from './merge'
 import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition, type Zone } from './layout'
 import { Grid } from './pathfinding'
-import { beacon, costBoard, type Beacon, type CostBoard } from './props'
+import { beacon, coffeeCorner, costBoard, routinesBoard, type Beacon, type CoffeeCorner, type CostBoard, type RoutinesBoard } from './props'
 import { arcadePainter, LoopScreen, Screen } from './screens'
 import { workstation } from './workstation'
 import { floorTexture, rugTexture, WindowSky } from './textures'
@@ -23,6 +23,8 @@ export interface Office {
   money: CostBoard
   /** Spins when an account this floor runs on hit its plan limit. */
   alarm: Beacon
+  /** Next routine and the routines' LED, on the wall of your office or the Diretoria; a click opens Rotinas. */
+  routines: RoutinesBoard
   /** Effects toned down (AO-32): the beacon turns slowly and stops strobing. */
   reducedMotion: boolean
 }
@@ -33,6 +35,8 @@ export const CALM_BEACON = 0.15
 export interface GroundFloor extends Office {
   /** Lounge monitor where Claude FM plays. */
   tv: F.MonitorTv
+  /** The copa's espresso machine: a click opens the café corner (keep the screen awake). */
+  coffee: CoffeeCorner
 }
 
 const WALL = '#aaa6d6'
@@ -82,6 +86,9 @@ export function buildOffice(): GroundFloor {
   place(F.art('mondrian', 1.1, 0.8), 0.04, 2.4, Math.PI / 2, 1.6)
   place(F.sofa(2, '#d97757'), 0.45, 6, Math.PI / 2)
   grid.blockRect(0, 5, 1, 2)
+  // the routines board above the sofa
+  const routines = routinesBoard()
+  place(routines.group, 0.06, 6, Math.PI / 2, 1.22)
   place(F.floorLamp(), 0.5, 4.5)
   grid.block(0, 4)
   place(F.plant('fern'), 0.5, 8.5)
@@ -128,8 +135,6 @@ export function buildOffice(): GroundFloor {
   // ---------- corridor ----------
   place(F.plant('tall', '#e9edf2'), 10.5, 0.5)
   grid.block(10, 0)
-  // the routines totem stands here, against the boss office glass (added by the game; TOTEM_TILE)
-  grid.block(9, 2)
   place(F.art('mountains', 1.0, 0.75), 0.04, 9.9, Math.PI / 2, 1.6)
 
   // ---------- café: counter and fridge on the side wall, tables, the spending board ----------
@@ -137,7 +142,8 @@ export function buildOffice(): GroundFloor {
   place(counter, 0.35, 16, Math.PI / 2)
   grid.blockRect(0, 14, 1, 4)
   place(F.wallCabinets(4), 0.2, 16, Math.PI / 2)
-  place(F.coffeeMachine(), 0.4, 14.6, Math.PI / 2, 0.91)
+  const coffee = coffeeCorner()
+  place(coffee.group, 0.4, 14.6, Math.PI / 2, 0.91)
   place(F.microwave(), 0.4, 15.6, Math.PI / 2, 0.91)
   place(F.mug('#e17055'), 0.5, 16.3, 0, 0.91)
   place(F.mug('#74b9ff'), 0.45, 16.5, 0, 0.91)
@@ -254,11 +260,14 @@ export function buildOffice(): GroundFloor {
     floor,
     deskScreens,
     tv,
+    coffee,
     money,
     alarm,
+    routines,
     reducedMotion: false,
     update(dt: number) {
       money.update(dt)
+      coffee.update(dt)
       alarm.update(this.reducedMotion ? dt * CALM_BEACON : dt)
       for (const s of deskScreens) s.update(dt)
       for (const l of loops) l.update(dt)

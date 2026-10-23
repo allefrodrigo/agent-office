@@ -6,6 +6,7 @@ import { lookFromSeed } from '@shared/describe'
 import { floorNameFor } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { DEFAULT_VIDEO } from '@shared/video'
+import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { mainAccount } from './accounts'
 import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
@@ -16,6 +17,8 @@ import { cleanVideo } from './validate'
 export interface PersistedAgent {
   summary: AgentSummary
   log: LogEntry[]
+  /** False while the conversation has not begun (new or just cleared): there is nothing to resume yet. Missing = older file, assumed begun. */
+  started?: boolean
 }
 
 interface Data {
@@ -45,6 +48,11 @@ const DEFAULT_SETTINGS: Settings = {
   ticketAutoCloseDays: 7,
   maxSubagents: 10,
   agentBudgetUsd: 0,
+  dailyBudgetUsd: 0,
+  freshTicketSession: true,
+  freshSquadCycle: true,
+  contextWarnTokens: DEFAULT_CONTEXT_WARN_TOKENS,
+  coldConfirm: true,
   templates: [],
   video: DEFAULT_VIDEO,
 }

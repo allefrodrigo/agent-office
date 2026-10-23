@@ -1,9 +1,11 @@
 import * as THREE from 'three'
+import type { RoutineLed, RoutinesView } from '@shared/routines'
 import { animated } from './merge'
 import { box, cylinder, panel } from './kit'
 import { shared } from './dispose'
+import { canvas, pixelTexture } from './textures'
 
-// Live pieces of the office: the spending board and the limit alarm.
+// Live pieces of the office: the spending board, the routines board and the limit alarm.
 
 /** "$ 8,92" */
 export function money(usd: number): string {
@@ -116,6 +118,94 @@ export function costBoard(title: string, width = 2.4): CostBoard {
   }
 }
 
+export interface RoutinesBoard {
+  group: THREE.Group
+  /** Above the frame, where the "Rotinas" tag attaches. */
+  anchor: THREE.Object3D
+  /** Redraws the board and its LED when the view changed; true if it did. */
+  show(view: RoutinesView): boolean
+}
+
+const LED_COLORS: Record<RoutineLed, string> = { ok: '#2ee86b', wait: '#ffc02e', fail: '#ff3b4a', none: '#6b6a7d' }
+// Smooth text turns to mush in the office's chunky pixels, so the routines board draws
+// a few big pixel glyphs (3x5, tripled or doubled) and the tag's balloon carries the line in words.
+const RW = 48
+const RH = 28
+
+/** 3x5 glyphs, rows top to bottom, '1' = lit. */
+const FONT: Record<string, string> = {
+  '0': '111101101101111', '1': '010110010010111', '2': '110001010100111', '3': '110001010001110', '4': '101101111001001',
+  '5': '111100110001110', '6': '011100111101111', '7': '111001010010010', '8': '111101111101111', '9': '111101111001110',
+  D: '110101101101110', H: '101101111101101', M: '101111111101101', S: '011100010001110',
+  '!': '010010010000010', '>': '100110111110100', '+': '000010111010000', '-': '000000111000000',
+}
+
+/** Draws `text` centered across the board, its top at `y`; glyphs step 4 cells apart. */
+function drawGlyphs(ctx: CanvasRenderingContext2D, text: string, y: number, scale: number): void {
+  const x = Math.floor((RW - (text.length * 4 - 1) * scale) / 2)
+  ;[...text].forEach((ch, i) => {
+    const g = FONT[ch] ?? FONT['-']
+    for (let k = 0; k < 15; k++) if (g[k] === '1') ctx.fillRect(x + (i * 4 + (k % 3)) * scale, y + Math.floor(k / 3) * scale, scale, scale)
+  })
+}
+
+/**
+ * The routines board, the spending board's sibling on the wall (facing +z): the next
+ * routine's countdown in big pixel glyphs, a light per routine underneath and a status
+ * LED on the frame. It hangs in your office and in every Diretoria. Origin at the bottom
+ * center. The canvas is drawn only when it changes, never per frame.
+ */
+export function routinesBoard(width = 1.3): RoutinesBoard {
+  // clicked (raycast on its group) and its LED changes color: kept out of the merge
+  const g = animated(new THREE.Group())
+  const [c, ctx] = canvas(RW, RH)
+  const tex = pixelTexture(c)
+  const h = (width * RH) / RW
+  box(g, width + 0.12, h + 0.12, 0.06, '#1b1d27', 0, -0.06, 0, false)
+  panel(g, width, h, tex, 0, h / 2, 0.035)
+  // the LED on the frame's top right corner, with a darker socket
+  const lx = width / 2 - 0.12
+  box(g, 0.18, 0.04, 0.12, '#14161f', lx, h + 0.06, 0.03, false)
+  const ledMat = new THREE.MeshBasicMaterial({ color: LED_COLORS.none, toneMapped: false })
+  box(g, 0.11, 0.11, 0.11, ledMat, lx, h + 0.1, 0.03, false)
+  const anchor = new THREE.Object3D()
+  anchor.position.set(0, h + 0.5, 0.1)
+  g.add(anchor)
+
+  let key = ''
+  return {
+    group: g,
+    anchor,
+    show(view) {
+      const k = `${JSON.stringify(view.screen)}\n${view.led}\n${view.dots.join()}`
+      if (k === key) return false
+      key = k
+      const led = LED_COLORS[view.led]
+      ledMat.color.set(led)
+      ctx.fillStyle = '#0e1018'
+      ctx.fillRect(0, 0, RW, RH)
+      // a strip in the LED's color along the top
+      ctx.fillStyle = led
+      ctx.fillRect(0, 0, RW, 2)
+      // the countdown, or a symbol for what is going on, as big as it fits
+      const sc = view.screen
+      const text = sc.kind === 'count' ? sc.text : { wait: '!', run: '>', add: '+', idle: '-' }[sc.kind]
+      const scale = [3, 2, 1].find((n) => (text.length * 4 - 1) * n <= RW - 4) ?? 1
+      ctx.fillStyle = sc.kind === 'wait' ? '#ffc02e' : sc.kind === 'count' ? '#ffb347' : sc.kind === 'run' ? '#9fe6b8' : '#b3b1cb'
+      drawGlyphs(ctx, text, 2 + Math.floor((20 - 5 * scale) / 2), scale)
+      // a light per routine along the bottom, as many as fit
+      const dots = view.dots.slice(0, Math.floor((RW - 2) / 5))
+      const x0 = Math.floor((RW - (dots.length * 5 - 2)) / 2)
+      dots.forEach((d, i) => {
+        ctx.fillStyle = LED_COLORS[d]
+        ctx.fillRect(x0 + i * 5, 23, 3, 3)
+      })
+      tex.needsUpdate = true
+      return true
+    },
+  }
+}
+
 export interface Beacon {
   group: THREE.Group
   /** Spins and flashes while on. */
@@ -215,4 +305,64 @@ function radialTexture(): THREE.CanvasTexture {
   // one glow for every beacon on every floor
   radial = shared(new THREE.CanvasTexture(c))
   return radial
+}
+
+export interface CoffeeCorner {
+  group: THREE.Group
+  /** Above the machine, where the "Café" tag attaches. */
+  anchor: THREE.Object3D
+  /** off = LED dark; armed = waits for an agent to work (amber); awake = holding the screen (green, steaming). */
+  set(state: 'off' | 'armed' | 'awake'): void
+  update(dt: number): void
+}
+
+const COFFEE_LED = { off: '#2b2f3a', armed: '#ffb347', awake: '#55efc4' }
+
+/**
+ * The café corner's espresso machine (facing +z), the copa's switch for keeping the
+ * screen awake: a status LED on the front and steam puffs while it holds the screen.
+ * A clear box around it makes the small machine easy to click. Origin at the bottom center.
+ */
+export function coffeeCorner(): CoffeeCorner {
+  const g = animated(new THREE.Group())
+  box(g, 0.4, 0.5, 0.34, '#2d3436', 0, 0, 0)
+  box(g, 0.34, 0.08, 0.04, '#636e72', 0, 0.36, 0.17, false)
+  box(g, 0.16, 0.025, 0.14, '#636e72', 0, 0.05, 0.12, false)
+  box(g, 0.05, 0.1, 0.05, '#b2bec3', 0, 0.26, 0.15, false)
+  cylinder(g, 0.045, 0.04, 0.09, '#ffffff', 0, 0.075, 0.12, 8)
+  const ledMat = new THREE.MeshBasicMaterial({ color: COFFEE_LED.off, toneMapped: false })
+  box(g, 0.06, 0.06, 0.03, ledMat, 0.12, 0.42, 0.18, false)
+  const puffs: THREE.Mesh[] = []
+  for (let i = 0; i < 3; i++) {
+    const m = box(g, 0.06, 0.06, 0.06, new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0, depthWrite: false }), 0, 0.2, 0.12, false)
+    m.visible = false
+    puffs.push(m)
+  }
+  // Invisible but hit by the raycast: the machine alone is a few pixels wide.
+  box(g, 0.7, 0.9, 0.6, new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }), 0, 0, 0, false)
+  const anchor = new THREE.Object3D()
+  anchor.position.set(0, 1.05, 0)
+  g.add(anchor)
+
+  let state: 'off' | 'armed' | 'awake' = 'off'
+  let t = 0
+  return {
+    group: g,
+    anchor,
+    set(next) {
+      state = next
+      ledMat.color.set(COFFEE_LED[next])
+      for (const p of puffs) p.visible = next === 'awake'
+    },
+    update(dt) {
+      if (state !== 'awake') return
+      t += dt
+      puffs.forEach((p, i) => {
+        const k = (t * 0.5 + i / puffs.length) % 1
+        p.position.set(Math.sin((k + i) * 5) * 0.03, 0.2 + k * 0.45, 0.12)
+        p.scale.setScalar(0.05 + k * 0.07)
+        ;(p.material as THREE.MeshBasicMaterial).opacity = 0.55 * (1 - k)
+      })
+    },
+  }
 }

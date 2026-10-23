@@ -115,8 +115,8 @@ export function tourSteps(platform: string): TourStep[] {
     },
     {
       id: 'routines',
-      title: 'Totem de rotinas',
-      text: 'Suas rotinas ficam neste totem. Clique nele para ver e agendar.',
+      title: 'Quadro de rotinas',
+      text: 'Suas rotinas ficam neste quadro, aqui e na Diretoria de cada andar. Clique nele para ver e agendar.',
       targets: [{ world: 'routines' }],
       place: 'right',
     },

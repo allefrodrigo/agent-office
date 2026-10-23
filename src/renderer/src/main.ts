@@ -20,8 +20,18 @@ import { announce, isTyping, mountLiveRegions } from './ui/a11y'
 import { openShortcuts } from './ui/shortcuts'
 import { Tour } from './ui/tour'
 import { autoStart, tourDone } from './ui/tour-plan'
+import { openAbout } from './ui/about'
+import { openBackstage, refreshBackstage } from './ui/backstage'
+import { isSafe, sizeText } from './ui/backstage/worktrees'
+import { openCoffee } from './ui/coffee'
+import { mountQuitBanner } from './ui/quit'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 import { osText } from './ui/os-text'
+import { openStudio } from './ui/studio'
+import { setLoginUrl } from './ui/studio/integrations'
+import { studioProgress } from './ui/studio/session'
+import { setCodexUsage } from './ui/studio/usage'
+import { h, icon } from './ui/dom'
 
 // Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
 window.addEventListener('error', (e) => {
@@ -138,14 +148,35 @@ async function boot(): Promise<void> {
       game.focusAgent(a.id)
     })
 
-  /** A project folder becomes a floor; the player rides up to it. */
+  /** A project folder becomes a floor; the player rides up to it. A creative floor opens its studio. */
   const newFloor = async () => {
     const floor = await openNewFloor(ui, state, toast)
     if (!floor) return
     game.setProjects(state.settings.projects, state.squads)
     game.goFloor(state.settings.projects.findIndex((p) => p.id === floor.id) + 1)
-    toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
+    if (floor.kind === 'creative') {
+      toast(`Andar ${floor.name} pronto. O estúdio salva tudo em ${floor.cwd}.`, 'ok')
+      studio(floor)
+    } else toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
   }
+
+  /** Estúdio criativo of a creative floor, full screen. */
+  const studio = (floor: ProjectFloor) =>
+    void openStudio(ui, state, floor, {
+      toast,
+      openAgent: (id) => {
+        panel.open(id)
+        game.focusAgent(id)
+      },
+    })
+  // On a creative floor, a button at the top opens its studio.
+  const studioLaunch = h('button', { class: 'studio-launch', hidden: true }, icon('spark', 16), 'Abrir estúdio criativo', h('small', {}, 'E'))
+  studioLaunch.addEventListener('click', () => {
+    const p = game.currentProject
+    if (p?.kind === 'creative') studio(p)
+  })
+  ui.append(studioLaunch)
+  const syncLaunch = () => (studioLaunch.hidden = game.currentProject?.kind !== 'creative')
 
   const radio = new Radio(document.getElementById('overlay')!)
 
@@ -169,8 +200,13 @@ async function boot(): Promise<void> {
     onSkull: () => openSkull(ui, state, dismiss),
     onComputer: () => void newAgent('summon'),
     onRunSquad: (project) => hireSquad(project),
-    onFloor: (n) => hud.setFloors(game.floors, n),
+    onStudio: (project) => studio(project),
+    onFloor: (n) => {
+      hud.setFloors(game.floors, n)
+      syncLaunch()
+    },
     onTv: () => void radio.toggle(),
+    onCoffee: () => openCoffee(ui, state, toast),
     onRoutines: () =>
       openRoutines(ui, state, {
         toast,
@@ -201,6 +237,24 @@ async function boot(): Promise<void> {
     newFloor: () => void newFloor(),
     accounts: () => openAccounts(ui, state, toast),
     reports: () => openReports(ui, state, { project: game.currentProject, toast }),
+    quit: () => void window.office.quitApp().catch((err) => toast(cleanError(err), 'err')),
+    backstage: (tab) =>
+      openBackstage(ui, state, {
+        tab,
+        toast,
+        openAgent: (id) => {
+          panel.open(id)
+          game.focusAgent(id)
+        },
+      }),
+    about: () =>
+      openAbout(ui, {
+        toast,
+        openAgent: (id) => {
+          panel.open(id)
+          game.focusAgent(id)
+        },
+      }),
     board: (ticketId) => {
       if (ticketId) board.open(ticketId)
       else board.toggle()
@@ -228,6 +282,19 @@ async function boot(): Promise<void> {
     focusCard: () => dialog.focus(),
     chooseAccount: (id, limit) => dialog.chooseAccount(id, limit),
   })
+  mountQuitBanner(ui, state, toast)
+  // Once per start, after the office settles: copies nobody uses any more are only disk space.
+  setTimeout(() => {
+    void window.office
+      .listWorktrees()
+      .then((floors) => {
+        const safe = floors.flatMap((f) => f.items).filter(isSafe)
+        if (!safe.length) return
+        const size = sizeText(safe.reduce((n, w) => n + (w.size ?? 0), 0))
+        toast(`${safe.length === 1 ? '1 cópia esquecida ocupa' : `${safe.length} cópias esquecidas ocupam`} ${size}. Limpe em Bastidores (B) → Worktrees.`, 'info')
+      })
+      .catch(() => undefined)
+  }, 30_000)
 
   const dialog = new Dialog(ui, state, {
     reply: (id) => {
@@ -252,6 +319,8 @@ async function boot(): Promise<void> {
     if (a instanceof HTMLInputElement || a instanceof HTMLTextAreaElement || a instanceof HTMLSelectElement) return
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
     if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
+    if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.openBackstage()
+    if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && game.currentProject?.kind === 'creative') studio(game.currentProject)
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()
@@ -300,6 +369,7 @@ async function boot(): Promise<void> {
   }
 
   hud.setFloors(game.floors, game.currentFloor)
+  syncLaunch()
   mountUpdateNotice(ui)
 
   // Configurações → Vídeo (AO-32): shadows and effects apply live; on battery, Economia if asked.
@@ -324,6 +394,7 @@ async function boot(): Promise<void> {
   state.onChange(() => {
     applyVideo()
     game.setProjects(state.settings.projects, state.squads)
+    syncLaunch()
     hud.render()
     panel.render()
     dialog.sync()
@@ -345,6 +416,9 @@ async function boot(): Promise<void> {
 
   window.office.onEvent((e) => {
     if (e.type === 'data:notice') return notice(e.notice)
+    if (e.type === 'creative:progress') return studioProgress(e.jobId, e.text)
+    if (e.type === 'creative:login-url') return setLoginUrl(e.url)
+    if (e.type === 'creative:usage') return setCodexUsage(e.usage)
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
     // Clique na notificação do sistema: o cartão abre na hora, sem esperar a caminhada.
@@ -357,6 +431,12 @@ async function boot(): Promise<void> {
     if (e.type === 'system') {
       state.system = e.system
       return hud.renderInfo()
+    }
+    // A new scan of what the agents left running: the card and the open Bastidores window.
+    if (e.type === 'backstage') {
+      state.backstage = e.processes
+      hud.renderInfo()
+      return refreshBackstage()
     }
     const before = e.type === 'ticket:upsert' ? state.tickets.get(e.ticket.id) : undefined
     state.apply(e)

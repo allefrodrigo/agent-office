@@ -31,10 +31,10 @@ export function field(label: string, control: HTMLElement, hint?: HTMLElement | 
   return h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), control, hint ? h('span', { class: 'field-hint' }, hint) : null)
 }
 
-/** Styled yes/no dialog. Resolves true on confirm, false on cancel/Esc/backdrop. */
+/** Styled yes/no dialog. Resolves true on confirm, false on cancel/Esc/backdrop, or when `signal` aborts. */
 export function confirmDialog(
   root: HTMLElement,
-  opts: { title: string; text: string; confirm: string; cancel: string; danger?: boolean; warn?: string },
+  opts: { title: string; text: string; confirm: string; cancel: string; danger?: boolean; warn?: string; signal?: AbortSignal },
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let done = false
@@ -51,6 +51,7 @@ export function confirmDialog(
     el.classList.add('backdrop-confirm')
     root.append(el)
     ok.focus()
+    opts.signal?.addEventListener('abort', () => finish(false), { once: true })
   })
 }
 

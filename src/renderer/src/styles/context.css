@@ -72,3 +72,54 @@
   background: rgba(62, 207, 142, 0.12);
   color: var(--green-text);
 }
+
+/* Token economy: the best move for the agent's memory, under the badge. */
+.panel-advice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 12px;
+  line-height: 1.4;
+  background: rgba(245, 165, 36, 0.1);
+  border: 1px solid rgba(245, 165, 36, 0.28);
+}
+
+.advice-cold {
+  background: rgba(239, 91, 91, 0.1);
+  border-color: rgba(239, 91, 91, 0.3);
+}
+
+.advice-main {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--amber-text);
+}
+
+.advice-cold .advice-main {
+  color: var(--red-text);
+}
+
+.advice-main svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.advice-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.advice-text span {
+  color: var(--muted);
+}
+
+.advice-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}

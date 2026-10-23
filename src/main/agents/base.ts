@@ -39,8 +39,10 @@ export abstract class AgentBase extends EventEmitter {
         activity: 'Aguardando instruções',
         subagents: undefined,
         subagentsDone: undefined,
+        // Saved before lastTurnAt existed: the last log line is close enough.
+        lastTurnAt: p.summary.lastTurnAt ?? p.log.at(-1)?.t,
       }
-      const agent: Agent = { summary, log: p.log, started: true }
+      const agent: Agent = { summary, log: p.log, started: p.started ?? true }
       this.agents.set(summary.id, agent)
       if (summary.role === 'orchestrator') this.watchSquad(agent)
     }
@@ -161,7 +163,7 @@ export abstract class AgentBase extends EventEmitter {
   protected persist(): void {
     this.store.agents = [...this.agents.values()]
       .filter((a) => a.summary.source === 'office' && !a.demo)
-      .map((a) => ({ summary: { ...a.summary, subagentsDone: undefined }, log: a.log.slice(-PERSISTED_LOG) }))
+      .map((a) => ({ summary: { ...a.summary, subagentsDone: undefined }, log: a.log.slice(-PERSISTED_LOG), started: a.started }))
   }
 
   // ---------- implemented by the later parts ----------
@@ -173,6 +175,10 @@ export abstract class AgentBase extends EventEmitter {
   protected abstract subagentMessage(agent: Agent, parentToolUseId: string, role: 'assistant' | 'user', content: unknown): void
   protected abstract retire(agent: Agent, sub: SubagentInfo, status: NonNullable<SubagentInfo['status']>, line?: string): void
   protected abstract clearSubagents(agent: Agent): void
+  protected abstract trackBackground(agent: Agent, msg: Extract<SDKMessage, { type: 'system' }>): void
+  protected abstract clearBackground(agent: Agent): void
+  protected abstract rememberCommand(agent: Agent, toolUseId: string, command: string): void
+  protected abstract applyMcpOff(agent: Agent): void
   protected abstract askPlayer(
     agent: Agent,
     tool: string,

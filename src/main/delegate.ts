@@ -49,6 +49,8 @@ export class TicketDesk {
       agent = a
       this.board.assign(t.id, { kind: 'agent', name: a.name, id: a.id }, by)
       this.board.move(t.id, 'doing', undefined, by)
+      // A new ticket rarely needs the last one's conversation, and re-reading it costs every call.
+      if (this.settings().freshTicketSession) this.manager.freshStart(a.id, `Ticket novo (${t.key}), conversa nova: o histórico anterior não vai junto.`)
       this.manager.sendMessage(a.id, ticketBrief(t), display)
     } else {
       if (!t.cwd) throw new Error('Defina a pasta do projeto no ticket antes de contratar um agente para ele.')

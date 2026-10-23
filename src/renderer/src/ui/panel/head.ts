@@ -1,13 +1,15 @@
+import { adviseAgent, memoryLevel } from '@shared/economy'
 import type { AgentSummary } from '@shared/types'
 import { accountChip } from '../accounts'
 import { formatCost, h, icon } from '../dom'
 import { STATUS_LABEL } from '../hud'
-import { EFFORTS } from '../modals'
+import { cleanError, confirmDialog, EFFORTS } from '../modals'
 import { renderHelpers } from '../panel-helpers'
 import { osText } from '../os-text'
 import { portrait } from '../portrait'
 import { saveAgentAsTemplate } from '../templates'
-import { BADGE_OPEN_KEY, branchChip, contextLevel, helpersChip, modelLabel, shortPath } from './helpers'
+import { adviceBanner, warnTokens } from './economy'
+import { BADGE_OPEN_KEY, branchChip, helpersChip, modelLabel, shortPath } from './helpers'
 import { PanelSearch } from './search'
 
 /** The agent badge: photo with the memory ring, details, memory menu and the rarer actions. */
@@ -31,16 +33,46 @@ export abstract class PanelHead extends PanelSearch {
         h('button', { class: 'btn btn-small', onclick: () => this.actions.openItem(a.id, result.id) }, 'Ver resultado'),
       )
     } else this.banner.className = 'panel-banner hidden'
+    this.renderAdvice(a)
 
     const terminal = a.source === 'terminal'
     this.terminal = terminal
     this.composer.classList.toggle('disabled', terminal)
     this.input.disabled = terminal
+    const busy = this.busy()
+    this.stopBtn.classList.toggle('hidden', !busy)
+    // The agent finished while "Interromper?" was open: nothing left to stop.
+    if (!busy) this.interruptAsk?.abort()
     this.input.placeholder = terminal
       ? 'Sessão do terminal: responda por lá. Permissões chegam aqui.'
       : a.status === 'working' || a.status === 'starting'
         ? 'Mande uma instrução (entra na fila do agente)…'
         : 'Mande uma nova tarefa…'
+  }
+
+  /** Esc on a busy agent: confirm first, so a stray Esc does not stop the work. */
+  protected async askInterrupt(): Promise<void> {
+    const a = this.agentId ? this.state.agents.get(this.agentId) : undefined
+    if (!a || this.interruptAsk) return
+    const ask = new AbortController()
+    this.interruptAsk = ask
+    const yes = await confirmDialog(this.root, {
+      title: `Interromper ${a.name}?`,
+      text: 'O trabalho em andamento para agora. O que já foi feito fica salvo e você pode mandar uma nova instrução.',
+      confirm: 'Interromper',
+      cancel: 'Continuar trabalhando',
+      danger: true,
+      signal: ask.signal,
+    })
+    this.interruptAsk = null
+    if (yes && this.agentId === a.id) await this.interruptNow()
+    else if (this.agentId === a.id) this.input.focus()
+  }
+
+  /** The red button: a click is deliberate, so it stops without asking. */
+  protected async interruptNow(): Promise<void> {
+    if (!this.agentId || !this.busy()) return
+    await window.office.interrupt(this.agentId).catch((err) => this.actions.toast(cleanError(err), 'err'))
   }
 
   /** The agent's badge: photo ringed by memory use, name, and an LED with what it is doing. Opens for details. */
@@ -49,7 +81,7 @@ export abstract class PanelHead extends PanelSearch {
     const office = a.source === 'office'
     const open = this.badgeOpen
     const ctx = office ? a.context : undefined
-    const level = ctx ? contextLevel(ctx.percent) : 'ok'
+    const level = ctx ? memoryLevel(ctx, warnTokens(this.state.settings)) : 'ok'
     // A pending permission rides on the LED, so the name keeps its room.
     const led = (withLabel: boolean) =>
       h(
@@ -80,7 +112,6 @@ export abstract class PanelHead extends PanelSearch {
             h('div', { class: 'ab-name-row' }, name, a.source === 'terminal' ? h('span', { class: 'chip chip-term' }, 'terminal') : null, branchChip(a), open ? null : accountChip(this.state, a), helpersChip(a, !open)),
             open ? h('div', { class: 'ab-role' }, a.role === 'orchestrator' ? 'Orquestrador' : 'Agente', accountChip(this.state, a)) : led(false),
           ),
-          office && busy ? h('button', { class: 'icon-btn', title: 'Interromper', onclick: () => window.office.interrupt(a.id) }, icon('stop', 15)) : null,
           h('button', { class: 'icon-btn ab-toggle', title: open ? 'Menos detalhes' : 'Mais detalhes', onclick: () => this.toggleBadge() }, icon('chevron', 16)),
           h('button', { class: 'icon-btn', title: 'Fechar (Esc)', onclick: () => this.close() }, icon('x', 16)),
         ),
@@ -198,7 +229,7 @@ export abstract class PanelHead extends PanelSearch {
   /** How full the agent's memory is, in ten blocks, with ways to free it. */
   protected memoryBlocks(a: AgentSummary, busy: boolean): HTMLElement {
     const c = a.context!
-    const level = contextLevel(c.percent)
+    const level = memoryLevel(c, warnTokens(this.state.settings))
     const lit = Math.min(10, Math.round(c.percent / 10))
     const hint =
       level === 'full'
@@ -228,6 +259,15 @@ export abstract class PanelHead extends PanelSearch {
         }, 'Limpar'),
       ),
       hint ? h('div', { class: 'ctx-hint' }, hint) : null,
+    )
+  }
+
+  /** The economy banner; also called every minute, since an idle agent goes cold with no event. */
+  protected renderAdvice(a: AgentSummary): void {
+    const advice = adviseAgent(a, warnTokens(this.state.settings))
+    this.adviceEl.className = advice ? `panel-advice advice-${advice.kind}` : 'panel-advice hidden'
+    this.adviceEl.replaceChildren(
+      ...(advice ? adviceBanner(a, advice, { clear: () => void this.clear(a), compact: () => window.office.compact(a.id) }) : []),
     )
   }
 
