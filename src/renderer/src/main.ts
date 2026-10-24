@@ -146,8 +146,8 @@ async function boot(): Promise<void> {
     }
   }
 
-  const openItem = (agentId: string, itemId?: string) => {
-    if (!dialog.open(agentId, itemId)) panel.open(agentId)
+  const openItem = (agentId: string, itemId?: string, read = false) => {
+    if (!dialog.open(agentId, itemId, read)) panel.open(agentId)
   }
 
   /** An orchestrator with its squad, in the Diretoria of the project's floor. */
@@ -284,7 +284,7 @@ async function boot(): Promise<void> {
   const panel = new AgentPanel(ui, state, {
     goTo: (id) => game.goToAgent(id),
     closeTerminal: (id) => void closeTerminal(id),
-    openItem: (agentId, itemId) => openItem(agentId, itemId),
+    openItem: (agentId, itemId, read) => openItem(agentId, itemId, read),
     toast,
     exportConversation: (id) => void exportConversation(state, id, toast),
     copyReport: (id) => void copyReport(state, id, toast),
@@ -312,6 +312,7 @@ async function boot(): Promise<void> {
     },
     toast,
     exportConversation: (id) => void exportConversation(state, id, toast),
+    figure: (id) => game.figure(id),
   })
 
   const board = new Board(ui, state, {

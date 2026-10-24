@@ -1,9 +1,8 @@
 import { ATTACH_LIMITS, formatBytes, kindFromName, limitError } from '@shared/attachments'
-import { adviseAgent } from '@shared/economy'
 import type { AttachmentInput, LogEntry } from '@shared/types'
 import { h, icon } from '../dom'
 import { cleanError, modal } from '../modals'
-import { askCold, warnTokens } from './economy'
+import { sendChecked } from './economy'
 import { entryCategory, entryView } from './entries'
 import { toBase64 } from './helpers'
 import { PanelHead } from './head'
@@ -92,18 +91,9 @@ export abstract class PanelComposer extends PanelHead {
     const agentId = this.agentId
     this.sending = true
     try {
-      // A cold agent with a big conversation: the cheap way is to clear before sending.
-      const a = this.state.agents.get(agentId)
-      const advice = a && this.state.settings.coldConfirm !== false ? adviseAgent(a, warnTokens(this.state.settings)) : null
-      if (a && advice?.kind === 'cold') {
-        const choice = await askCold(this.root, a, advice)
-        if (choice === 'cancel') return
-        if (choice === 'clear') await window.office.clearContext(agentId)
-      }
-      const attachments: AttachmentInput[] = await Promise.all(
-        files.map(async (f) => (f.path ? { name: f.name, mime: f.file.type, path: f.path } : { name: f.name, mime: f.file.type, dataBase64: await toBase64(f.file) })),
-      )
-      await window.office.send(agentId, text, attachments)
+      const attachments = (): Promise<AttachmentInput[]> =>
+        Promise.all(files.map(async (f) => (f.path ? { name: f.name, mime: f.file.type, path: f.path } : { name: f.name, mime: f.file.type, dataBase64: await toBase64(f.file) })))
+      if (!(await sendChecked(this.root, this.state, agentId, text, attachments))) return
       // Cleared only once it went, so a rejected file can be removed and the rest sent again.
       if (this.input.value.trim() === text) this.input.value = ''
       this.files = this.files.filter((f) => !files.includes(f))

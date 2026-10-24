@@ -18,7 +18,8 @@ export const MOD = navigator.userAgent.includes('Mac') ? '⌘' : 'Ctrl+'
 export interface PanelActions {
   goTo(id: string): void
   closeTerminal(id: string): void
-  openItem(agentId: string, itemId: string): void
+  /** `read`: a result opens straight on the reading screen (2D). */
+  openItem(agentId: string, itemId: string, read?: boolean): void
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
   exportConversation(agentId: string): void
   copyReport(agentId: string): void

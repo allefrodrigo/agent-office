@@ -150,6 +150,21 @@ export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number)
   return rect
 }
 
+/**
+ * The person standing towards the viewer, alone on a 48 x 64 canvas (CSS scales it up, pixelated):
+ * the avatar of the reading screen. `wave` picks the greeting pose. Null without a sheet.
+ */
+export function figureOf(av: Avatar, wave = false): HTMLCanvasElement | null {
+  const sheet = sheetOf(av)
+  if (!sheet) return null
+  const c = document.createElement('canvas')
+  c.width = CELL_W
+  c.height = CELL_H
+  c.className = 'figure'
+  c.getContext('2d')!.drawImage(sheet, (wave ? 3 : 0) * CELL_W, 0, CELL_W, CELL_H, 0, 0, CELL_W, CELL_H)
+  return c
+}
+
 /** Papers or a mug in hand (the sheets have no hands free for them). */
 function drawCarry(ctx: CanvasRenderingContext2D, av: Avatar, fx: number, fy: number, s: number): void {
   if (av.prop === 'none' || av.isDown) return

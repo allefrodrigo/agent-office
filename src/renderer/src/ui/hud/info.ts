@@ -41,6 +41,18 @@ function blocks(percent: number, count: number): HTMLElement {
   return h('div', { class: 'info-blocks' }, ...Array.from({ length: count }, (_, i) => h('i', { class: i < lit ? 'on' : '' })))
 }
 
+/** 2D: an HP-style gauge for the status window: label, bar, percent and an optional note. */
+function gauge(label: string, percent: number, note = '', title = ''): HTMLElement {
+  return h(
+    'div',
+    { class: `info-gauge ctx-${contextLevel(percent)}`, title },
+    h('span', { class: 'info-gauge-k' }, label),
+    h('span', { class: 'info-gauge-bar' }, h('i', { style: `width:${Math.min(100, Math.max(0, percent))}%` })),
+    h('span', { class: 'ctx-num' }, `${percent}%`),
+    h('small', {}, note),
+  )
+}
+
 /** 1.2 GB, 640 MB */
 function bytes(n: number, gbDigits = 1): string {
   if (n >= 1024 ** 3) return `${(n / 1024 ** 3).toFixed(gbDigits).replace('.', ',')} GB`
@@ -62,6 +74,8 @@ export class InfoCard {
   /** Plan limits and system load; see renderInfo. */
   readonly info: HTMLDivElement = h('div', { class: 'info card hidden', 'data-tour': 'info' })
   private infoOpen = localStorage.getItem(INFO_OPEN_KEY) === '1'
+  /** 2D view: an RPG status window, with a gauge per window instead of the table. */
+  private readonly flat = document.body.classList.contains('view-2d')
 
   constructor(
     private state: State,
@@ -128,8 +142,11 @@ export class InfoCard {
     const cols = new Map<string, string>()
     for (const r of shown) for (const w of r.u.windows) if (w.percent > 0 && !cols.has(w.key)) cols.set(w.key, w.label)
     const now = Date.now()
-    const table = shown.length
-      ? h(
+    const table = !shown.length
+      ? null
+      : this.flat
+        ? this.party(shown, cols, now)
+        : h(
           'table',
           { class: 'info-table' },
           h('tr', {}, h('th', {}, ''), ...[...cols.values()].map((label) => h('th', {}, label))),
@@ -165,9 +182,26 @@ export class InfoCard {
             ),
           ),
         )
-      : null
 
-    const sys = st
+    const sys = st && this.flat
+      ? [
+          h('div', { class: 'info-head' }, h('span', {}, 'Sistema')),
+          h(
+            'div',
+            { class: 'info-party' },
+            gauge('CPU', st.cpu, '', text.cpuTitle),
+            gauge('RAM', memPct, '', `Memória em uso: ${bytes(st.memUsed)} de ${bytes(st.memTotal, 0)}`),
+          ),
+          h(
+            'div',
+            { class: 'info-procs' },
+            h('span', { title: 'Este app: o jogo e a interface' }, 'escritório'),
+            h('b', {}, procText(st.app.cpu, st.app.mem)),
+            h('span', { title: text.agentsTitle }, `agentes (${st.claude.count})`),
+            h('b', {}, procText(st.claude.cpu, st.claude.mem)),
+          ),
+        ]
+      : st
       ? [
           h('div', { class: 'info-head' }, h('span', {}, 'Sistema')),
           h(
@@ -214,6 +248,36 @@ export class InfoCard {
         idleLine,
         ...sys,
         ...this.bgSection(bg),
+      ),
+    )
+  }
+
+  /** 2D: each account as a party member of a status screen, a gauge per plan window someone used. */
+  private party(shown: InfoRow[], cols: Map<string, string>, now: number): HTMLElement {
+    return h(
+      'div',
+      { class: 'info-party' },
+      ...shown.map((r) =>
+        h(
+          'div',
+          { class: 'info-member' },
+          h(
+            'div',
+            { class: 'info-name', title: [r.name, r.email].filter(Boolean).join(' · ') },
+            h('span', { class: 'info-px', style: `background:${r.color}` }),
+            h('span', { class: 'info-name-text' }, r.name),
+            r.agents ? h('span', { class: 'info-agents', title: r.agents === 1 ? '1 agente nesta conta' : `${r.agents} agentes nesta conta` }, String(r.agents)) : null,
+          ),
+          ...(r.loggedOut || (r.u.error && !r.u.windows.length)
+            ? [h('span', { class: 'info-flag' }, r.loggedOut ? 'sem login' : 'sem dados')]
+            : r.u.windows
+                .filter((w) => cols.has(w.key))
+                .map((w) => {
+                  const full = r.limitedUntil && w.percent >= 100
+                  const note = full ? `volta ${resetText(r.limitedUntil!)}` : w.resetsAt && w.percent ? `↻ ${leftText(w.resetsAt - now)}` : ''
+                  return gauge(w.label, w.percent, note, w.resetsAt ? `${w.label}: renova ${resetText(w.resetsAt)}` : w.label)
+                })),
+        ),
       ),
     )
   }

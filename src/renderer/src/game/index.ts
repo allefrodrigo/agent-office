@@ -3,6 +3,7 @@ import { Aura } from '../world/aura'
 import type { Avatar } from '../world/avatar'
 import { PixelEngine } from '../pixel/engine'
 import { PixelPainter } from '../pixel/painter'
+import { figureOf } from '../pixel/people'
 import type * as THREE from 'three'
 import { WindowSky } from '../world/textures'
 import { GameInput } from './input'
@@ -129,6 +130,12 @@ export class Game extends GameInput {
   draw(dt: number): void {
     this.engine.render(dt)
     this.overlays.update()
+  }
+
+  /** The agent's 2D sprite, standing, for the reading screen; null in the 3D view or without a sheet. */
+  figure(agentId: string, wave = false): HTMLCanvasElement | null {
+    const actor = this.actors.get(agentId)
+    return this.engine instanceof PixelEngine && actor ? figureOf(actor.avatar, wave) : null
   }
 
   /** People in the scene besides the player, for the dev leak test (dev/leak-test.ts). */

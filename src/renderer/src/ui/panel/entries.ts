@@ -127,8 +127,10 @@ export function entryView(e: LogEntry): HTMLElement {
           'div',
           { class: 'final-head' },
           h('div', { class: 'final-label' }, e.isError ? 'Erro' : 'Resultado entregue'),
-          // The panel opens it as a card (delegated click in PanelBase).
-          h('button', { class: 'icon-btn final-open', type: 'button', title: 'Abrir como cartão', 'aria-label': 'Abrir como cartão' }, icon('expand', 13)),
+          // The panel opens it as a card, or on the reading screen in 2D (delegated click in PanelBase).
+          document.body.classList.contains('view-2d')
+            ? h('button', { class: 'btn btn-small final-open final-read', type: 'button', title: 'Ler em tela cheia' }, icon('expand', 12), 'Ler')
+            : h('button', { class: 'icon-btn final-open', type: 'button', title: 'Abrir como cartão', 'aria-label': 'Abrir como cartão' }, icon('expand', 13)),
         ),
         renderMarkdown(e.text),
       )
