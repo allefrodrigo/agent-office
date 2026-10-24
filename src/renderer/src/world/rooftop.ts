@@ -4,13 +4,15 @@ import * as F from './furniture'
 import { box, mat } from './kit'
 import { DIRECTOR_RECT, ELEVATOR, H, ROOF_RECT, W, WALL_H, type ProjectPlan } from './layout'
 import { mergeStatic } from './merge'
-import { CALM_BEACON } from './office'
+import { CALM_BEACON, shell } from './office'
+import { glow, setNightLights } from './night'
 import { Grid } from './pathfinding'
 import { beacon, costBoard, routinesBoard } from './props'
 import { dashboardPainter, LoopScreen, Screen } from './screens'
 import { canvas, pixelTexture, rng, rugTexture, TILE_PX } from './textures'
 import type { UpperFloor } from './upper-floor'
 import { workstation } from './workstation'
+import { px } from './pixel-tag'
 
 // The creative floor: a rooftop on top of the building, smaller than a project floor. An open
 // studio under a pergola, a penthouse wall by the elevator with the studio screen, a deck, glass
@@ -74,16 +76,16 @@ export function buildRooftop(plan: ProjectPlan, brand: Brand): UpperFloor {
   floor.position.set(rx0 + rw / 2, -0.2, rz0 + rh / 2)
   floor.receiveShadow = true
   floor.name = 'floor'
-  group.add(floor)
+  group.add(px(floor, 'slab', { deck: true }))
   // the building's top edge: a thicker band under the deck
-  box(group, rw + 0.3, 0.5, rh + 0.3, '#3b3556', rx0 + rw / 2, -0.9, rz0 + rh / 2, false)
+  shell(box(group, rw + 0.3, 0.5, rh + 0.3, '#3b3556', rx0 + rw / 2, -0.9, rz0 + rh / 2, false))
 
   // ---------- penthouse wall by the elevator ----------
   const T = 0.25
   const px0 = DIRECTOR_RECT[0] - 4
-  box(group, rx1 - px0 + T, WALL_H, T, '#aaa6d6', (px0 + rx1) / 2, 0, -T / 2)
-  box(group, rx1 - px0 + T + 0.04, 0.08, T + 0.04, '#c9c5ea', (px0 + rx1) / 2, WALL_H, -T / 2, false)
-  box(group, rx1 - px0, 0.14, 0.05, '#6d6a8f', (px0 + rx1) / 2, 0, 0.025, false)
+  shell(box(group, rx1 - px0 + T, WALL_H, T, '#aaa6d6', (px0 + rx1) / 2, 0, -T / 2), 'wall')
+  shell(box(group, rx1 - px0 + T + 0.04, 0.08, T + 0.04, '#c9c5ea', (px0 + rx1) / 2, WALL_H, -T / 2, false), 'wall')
+  shell(box(group, rx1 - px0, 0.14, 0.05, '#6d6a8f', (px0 + rx1) / 2, 0, 0.025, false), 'wall')
   // its side wall, short, so the roof reads as open air past it
   box(group, T, WALL_H, 1.6, '#aaa6d6', px0 - T / 2, 0, 0.8)
   const elev = F.elevator()
@@ -136,19 +138,23 @@ export function buildRooftop(plan: ProjectPlan, brand: Brand): UpperFloor {
     }
     // pergola: posts on the corners, beams on top and thin slats across
     const wood = '#7a5235'
+    // over everyone's heads: the 2D view leaves it out, it would cover the desks
+    const pergola = px(new THREE.Group(), 'pergola')
+    group.add(pergola)
     const posts: [number, number][] = [
       [x0 + 0.3, z0 + 0.4],
       [x1 - 0.3, z0 + 0.4],
       [x0 + 0.3, z1 - 0.3],
       [x1 - 0.3, z1 - 0.3],
     ]
-    for (const [x, z] of posts) box(group, 0.16, 2.6, 0.16, wood, x, 0, z)
-    box(group, x1 - x0 - 0.4, 0.14, 0.12, wood, (x0 + x1) / 2, 2.6, z0 + 0.4, false)
-    box(group, x1 - x0 - 0.4, 0.14, 0.12, wood, (x0 + x1) / 2, 2.6, z1 - 0.3, false)
-    for (let x = x0 + 1; x < x1; x += 1.25) box(group, 0.07, 0.07, z1 - z0 - 0.6, wood, x, 2.74, (z0 + z1) / 2, false)
+    for (const [x, z] of posts) box(pergola, 0.16, 2.6, 0.16, wood, x, 0, z)
+    box(pergola, x1 - x0 - 0.4, 0.14, 0.12, wood, (x0 + x1) / 2, 2.6, z0 + 0.4, false)
+    box(pergola, x1 - x0 - 0.4, 0.14, 0.12, wood, (x0 + x1) / 2, 2.6, z1 - 0.3, false)
+    for (let x = x0 + 1; x < x1; x += 1.25) box(pergola, 0.07, 0.07, z1 - z0 - 0.6, wood, x, 2.74, (z0 + z1) / 2, false)
     // string lights along the front beam
     const bulb = new THREE.MeshBasicMaterial({ color: '#ffe8a3' })
-    for (let x = x0 + 0.8; x < x1 - 0.4; x += 0.7) box(group, 0.08, 0.08, 0.08, bulb, x, 2.42 + Math.sin(x * 1.7) * 0.06, z1 - 0.3, false)
+    for (let x = x0 + 0.8; x < x1 - 0.4; x += 0.7) box(pergola, 0.08, 0.08, 0.08, bulb, x, 2.42 + Math.sin(x * 1.7) * 0.06, z1 - 0.3, false)
+    for (const f of [0.3, 0.7]) glow(group, '#ffd98a', 2.6, 5, x0 + (x1 - x0) * f, 2.2, z1 - 0.6)
     place(F.plant('tall'), x0 + 0.7, z1 - 0.7)
     grid.block(x0, z1 - 1)
   }
@@ -172,11 +178,11 @@ export function buildRooftop(plan: ProjectPlan, brand: Brand): UpperFloor {
   const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 1.5, 12), mat('#8fa3b8'))
   tank.position.set(30.7, 0.9, 12.2)
   tank.castShadow = true
-  group.add(tank)
+  group.add(px(tank, 'tank'))
   box(group, 0.9, 0.15, 0.9, '#5d6b7a', 30.7, 0, 12.2)
   block(30, 11, 2, 2)
   for (const z of [8.3, 9.6]) {
-    box(group, 1.1, 0.7, 1.0, '#c9ced6', 31.2, 0, z)
+    px(box(group, 1.1, 0.7, 1.0, '#c9ced6', 31.2, 0, z), 'acUnit')
     const fan = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.02, 10), mat('#4a5361'))
     fan.position.set(31.2, 0.71, z)
     group.add(fan)
@@ -216,6 +222,9 @@ export function buildRooftop(plan: ProjectPlan, brand: Brand): UpperFloor {
     },
     setFloors(n: number) {
       elev.buttons.forEach((b, i) => (b.visible = i < n))
+    },
+    setNight(on: boolean) {
+      setNightLights(group, on)
     },
   }
 }

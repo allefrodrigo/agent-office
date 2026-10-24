@@ -2,12 +2,14 @@ import * as THREE from 'three'
 import * as F from './furniture'
 import { box, mat } from './kit'
 import { mergeStatic } from './merge'
-import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, type Partition, type Zone } from './layout'
+import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, ZONES, type Partition, type Zone } from './layout'
 import { Grid } from './pathfinding'
 import { beacon, coffeeCorner, costBoard, routinesBoard, type Beacon, type CoffeeCorner, type CostBoard, type RoutinesBoard } from './props'
 import { arcadePainter, LoopScreen, Screen } from './screens'
+import { setNightLights } from './night'
 import { workstation } from './workstation'
 import { floorTexture, rugTexture, WindowSky } from './textures'
+import { px } from './pixel-tag'
 
 export interface Office {
   group: THREE.Group
@@ -27,6 +29,8 @@ export interface Office {
   routines: RoutinesBoard
   /** Effects toned down (AO-32): the beacon turns slowly and stops strobing. */
   reducedMotion: boolean
+  /** Modo noturno: lamps, windows and screens light the room (world/night.ts). */
+  setNight(on: boolean): void
 }
 
 /** How fast the beacon runs with reduced effects: a slow turn, no strobe. */
@@ -286,6 +290,10 @@ export function buildOffice(): GroundFloor {
     setFloors(n: number) {
       elev.buttons.forEach((b, i) => (b.visible = i < n))
     },
+    setNight(on: boolean) {
+      setNightLights(group, on)
+      for (const s of skies) s.update(true)
+    },
   }
 }
 
@@ -304,24 +312,29 @@ export function buildShell(group: THREE.Group, zones?: Zone[]): THREE.Mesh {
   floor.position.set(W / 2, -0.2, H / 2)
   floor.receiveShadow = true
   floor.name = 'floor'
-  group.add(floor)
-  box(group, W, 0.04, 0.02, '#36304f', W / 2, -0.4, H + 0.01, false)
+  group.add(px(floor, 'slab', { zones: zones ?? ZONES }))
+  shell(box(group, W, 0.04, 0.02, '#36304f', W / 2, -0.4, H + 0.01, false))
 
   // ---------- back walls (z = 0 and x = 0) ----------
   const T = 0.25
-  box(group, W + T, WALL_H, T, WALL, (W - T) / 2, 0, -T / 2)
-  box(group, T, WALL_H, H, WALL, -T / 2, 0, H / 2)
-  box(group, W + T + 0.04, 0.08, T + 0.04, CAP, (W - T) / 2, WALL_H, -T / 2, false)
-  box(group, T + 0.04, 0.08, H + 0.02, CAP, -T / 2, WALL_H, H / 2, false)
+  shell(box(group, W + T, WALL_H, T, WALL, (W - T) / 2, 0, -T / 2), 'wall')
+  shell(box(group, T, WALL_H, H, WALL, -T / 2, 0, H / 2))
+  shell(box(group, W + T + 0.04, 0.08, T + 0.04, CAP, (W - T) / 2, WALL_H, -T / 2, false), 'wall')
+  shell(box(group, T + 0.04, 0.08, H + 0.02, CAP, -T / 2, WALL_H, H / 2, false))
   // wainscot + baseboard on the inner faces
-  box(group, W, 0.95, 0.03, WAINSCOT, W / 2, 0, 0.015, false)
-  box(group, 0.03, 0.95, H, WAINSCOT, 0.015, 0, H / 2, false)
-  box(group, W, 0.04, 0.045, CAP, W / 2, 0.95, 0.02, false)
-  box(group, 0.045, 0.04, H, CAP, 0.02, 0.95, H / 2, false)
-  box(group, W, 0.14, 0.05, BASEBOARD, W / 2, 0, 0.025, false)
-  box(group, 0.05, 0.14, H, BASEBOARD, 0.025, 0, H / 2, false)
+  shell(box(group, W, 0.95, 0.03, WAINSCOT, W / 2, 0, 0.015, false), 'wall')
+  shell(box(group, 0.03, 0.95, H, WAINSCOT, 0.015, 0, H / 2, false))
+  shell(box(group, W, 0.04, 0.045, CAP, W / 2, 0.95, 0.02, false), 'wall')
+  shell(box(group, 0.045, 0.04, H, CAP, 0.02, 0.95, H / 2, false))
+  shell(box(group, W, 0.14, 0.05, BASEBOARD, W / 2, 0, 0.025, false), 'wall')
+  shell(box(group, 0.05, 0.14, H, BASEBOARD, 0.025, 0, H / 2, false))
 
   return floor
+}
+
+/** Part of a floor's shell: the 2D view paints it once under everything; 'wall' marks the back wall's face. */
+export function shell<T extends THREE.Object3D>(obj: T, part: 'wall' | 'base' = 'base'): T {
+  return px(obj, 'shell', { part })
 }
 
 /** Glass partitions with doors; each pane also blocks its tile edge in the grid. */

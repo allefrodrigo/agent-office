@@ -59,6 +59,8 @@ export class Avatar {
   private gemOn = false
   /** Effort aura, built on first use. */
   private aura: Aura | null = null
+  private gemHex: string | null = null
+  private effortLevel: EffortLevel | undefined
 
   pose: Pose = 'stand'
   prop: Prop = 'none'
@@ -82,12 +84,15 @@ export class Avatar {
     readonly id: string,
   ) {
     this.root.add(this.body)
+    this.root.userData.avatarId = id
     this.anchor.position.y = TAG_Y
     this.root.add(this.anchor)
     if (!shadowGeo) shadowGeo = shared(new THREE.CircleGeometry(0.26, 12).rotateX(-Math.PI / 2))
     const shadow = new THREE.Mesh(shadowGeo, shadowMat)
     shadow.position.y = 0.025
     shadow.renderOrder = 1
+    // the 2D view draws its own shadow
+    shadow.userData.pxSkip = true
     this.root.add(shadow)
     this.build()
   }
@@ -234,6 +239,7 @@ export class Avatar {
   /** Shows the diamond over the head in this color; null hides it. */
   setGem(color: string | null): void {
     this.gemOn = !!color
+    this.gemHex = color
     this.anchor.position.y = color ? TAG_Y_GEM : TAG_Y
     if (!color) {
       if (this.gem) this.gem.visible = false
@@ -253,6 +259,7 @@ export class Avatar {
 
   /** Aura in the color of the effort level (missing hides it); flares while `working`. */
   setAura(effort: EffortLevel | undefined, working: boolean): void {
+    this.effortLevel = effort
     if (!effort && !this.aura) return
     if (!this.aura) {
       this.aura = new Aura(this.id)
@@ -294,6 +301,46 @@ export class Avatar {
 
   get isWalking(): boolean {
     return this.walking
+  }
+
+  // ---------- read by the 2D view (pixel/people.ts) ----------
+
+  /** Where it faces now (0 = +z), easing towards the last face() call. */
+  get facing(): number {
+    return this.angle
+  }
+
+  /** Walk cycle in radians; a full stride every 2π. */
+  get stride(): number {
+    return this.phase
+  }
+
+  /** Walking on a path or steered by the keys. */
+  get stepping(): boolean {
+    return this.walking || this.steer > 0
+  }
+
+  /** Seconds of flinch left after a hit. */
+  get flinch(): number {
+    return this.hurt
+  }
+
+  get gemColor(): string | null {
+    return this.gemOn ? this.gemHex : null
+  }
+
+  get effort(): EffortLevel | undefined {
+    return this.effortLevel
+  }
+
+  /** Shirt color of the company uniform, or null in its own clothes. */
+  get uniformColor(): string | null {
+    return this.uniform?.color ?? null
+  }
+
+  /** Seconds since it was knocked down, or -1. */
+  get downTime(): number {
+    return this.downT
   }
 
   /** Walking, turning, flinching or falling: the scene should draw at full rate (AO-29). */

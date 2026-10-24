@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import type { ProjectFloor } from '@shared/types'
 import { box, panel } from './kit'
 import { shared } from './dispose'
+import { live, px } from './pixel-tag'
 
 /** The office orange, for floors without a brand color. */
 export const DEFAULT_BRAND = '#d97757'
@@ -107,7 +108,8 @@ export function brandSign(b: Brand, width = 2.6): THREE.Group {
   c.width = Math.round(116 * width)
   c.height = 64
   const ctx = c.getContext('2d')!
-  const tex = new THREE.CanvasTexture(c)
+  // the logo may load after the first frame: the 2D view keeps redrawing it
+  const tex = live(new THREE.CanvasTexture(c))
   tex.colorSpace = THREE.SRGBColorSpace
   const img = b.logo ? logoImage(b.logo) : null
   const draw = () => {
@@ -134,5 +136,5 @@ export function brandSign(b: Brand, width = 2.6): THREE.Group {
   const h = (width * c.height) / c.width
   box(g, width + 0.08, h + 0.08, 0.04, '#2d3142', 0, -0.04, 0, false)
   panel(g, width, h, tex, 0, h / 2, 0.025)
-  return g
+  return px(g, 'brandSign')
 }

@@ -6,6 +6,7 @@ import * as L from '../world/layout'
 import { buildRooftop } from '../world/rooftop'
 import { buildUpperFloor } from '../world/upper-floor'
 import { Tag } from '../world/overlays'
+import { adaptUpper } from '../pixel/layout2d'
 import { GameBase } from './base'
 import { RIDE_S, SPAWN_POINT, type Actor } from './types'
 
@@ -72,7 +73,9 @@ export abstract class GameFloors extends GameBase {
       const n = i + 1
       const plan = plans[i]
       const scene = project.kind === 'creative' ? buildRooftop(plan, brandOf(project)) : buildUpperFloor(plan, brandOf(project))
+      if (this.flat) adaptUpper(scene, project.kind === 'creative')
       scene.reducedMotion = this.reducedEffects
+      scene.setNight(this.engine.night)
       this.engine.scene.add(scene.group)
       this.overlays.label(project.kind === 'creative' ? 'Cobertura' : 'Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
       for (const r of [...plan.team, ...plan.sectors]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)

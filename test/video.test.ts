@@ -17,6 +17,9 @@ describe('effectiveVideo', () => {
     const v = effectiveVideo({ ...QUALITY_PRESETS.high, batterySaver: true }, true)
     expect(v).toMatchObject({ shadows: false, fpsLimit: 30, effects: 'reduced', saving: true })
   })
+  it('a Economia da bateria não troca o visual (trocar recarrega a janela)', () => {
+    expect(effectiveVideo({ ...QUALITY_PRESETS.high, batterySaver: true, view: '2d' }, true).view).toBe('2d')
+  })
   it('na tomada, ou com a opção desmarcada, fica o que o jogador escolheu', () => {
     const high = { ...QUALITY_PRESETS.high, batterySaver: true }
     expect(effectiveVideo(high, false)).toEqual({ ...high, saving: false })

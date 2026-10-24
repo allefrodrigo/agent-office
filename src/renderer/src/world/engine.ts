@@ -3,6 +3,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js'
 import { RenderPixelatedPass } from 'three/addons/postprocessing/RenderPixelatedPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js'
 import { H, W } from './layout'
+import type { Viewport } from './viewport'
 
 // 2:1 pixel-art isometric: 45° around Y, 30° above the floor.
 const AZIMUTH = Math.PI / 4
@@ -10,7 +11,11 @@ const ELEVATION = Math.PI / 6
 const ZOOMS = [0.55, 0.7, 0.85, 1, 1.25, 1.5, 1.8]
 const BASE_VIEW = 15 // world units visible vertically at zoom 1
 
-export class Engine {
+const DAY = { sky: '#f4f1ff', ground: '#8c7f9f', fill: 2.1, sunColor: '#fff1dc', sun: 2.4, background: '#1c1d2e' }
+const NIGHT = { sky: '#6676b8', ground: '#2a2440', fill: 0.62, sunColor: '#8296ff', sun: 0.35, background: '#0a0b14' }
+
+export class Engine implements Viewport {
+  readonly kind = 'iso'
   readonly renderer: THREE.WebGLRenderer
   readonly scene = new THREE.Scene()
   readonly camera: THREE.OrthographicCamera
@@ -27,6 +32,9 @@ export class Engine {
   readonly target = new THREE.Vector3(W / 2, 0, H / 2)
   private focus = new THREE.Vector3(W / 2, 0, H / 2)
   private sun: THREE.DirectionalLight
+  private hemi: THREE.HemisphereLight
+  /** Modo noturno: main lights off, only windows, screens and lamps (see world/night.ts). */
+  night = false
   /** Something changed that the last drawn frame does not show (resize, zoom, shadows). */
   dirty = true
 
@@ -43,13 +51,14 @@ export class Engine {
     container.appendChild(this.renderer.domElement)
     this.renderer.domElement.classList.add('world-canvas')
 
-    this.scene.background = new THREE.Color('#1c1d2e')
+    this.scene.background = new THREE.Color(DAY.background)
     this.camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200)
 
     // lights: soft sky fill + one warm sun from the front-right so both back walls read
-    const hemi = new THREE.HemisphereLight('#f4f1ff', '#8c7f9f', 2.1)
+    const hemi = new THREE.HemisphereLight(DAY.sky, DAY.ground, DAY.fill)
     this.scene.add(hemi)
-    const sun = new THREE.DirectionalLight('#fff1dc', 2.4)
+    this.hemi = hemi
+    const sun = new THREE.DirectionalLight(DAY.sunColor, DAY.sun)
     sun.position.set(W / 2 + 7, 22, H / 2 + 12)
     sun.target.position.set(W / 2, 0, H / 2)
     sun.castShadow = true
@@ -91,6 +100,22 @@ export class Engine {
     this.renderer.shadowMap.enabled = on
     sun.castShadow = on
     this.renderer.shadowMap.needsUpdate = true
+    this.dirty = true
+  }
+
+  /**
+   * Day: the sky fill and the warm sun. Night: a faint blue fill so people still read
+   * across the room, and a weak moon that keeps the shadows.
+   */
+  setNight(on: boolean): void {
+    this.night = on
+    const l = on ? NIGHT : DAY
+    this.hemi.color.set(l.sky)
+    this.hemi.groundColor.set(l.ground)
+    this.hemi.intensity = l.fill
+    this.sun.color.set(l.sunColor)
+    this.sun.intensity = l.sun
+    ;(this.scene.background as THREE.Color).set(l.background)
     this.dirty = true
   }
 

@@ -319,7 +319,8 @@ describe('cleanSettings', () => {
   })
   it('video: aplica os campos válidos e mantém os inválidos', () => {
     const out = cleanSettings({ video: { ...QUALITY_PRESETS.saver, batterySaver: false } }, settings())
-    expect(out.video).toEqual({ ...QUALITY_PRESETS.saver, batterySaver: false })
+    // a patch without the view keeps the current one
+    expect(out.video).toEqual({ ...QUALITY_PRESETS.saver, batterySaver: false, view: 'iso' })
     const bad = cleanSettings({ video: { shadows: 'sim', shadowMapSize: 4096, fpsLimit: 144, effects: 'none', batterySaver: 1, evil: '<x>' } }, settings())
     expect(bad.video).toEqual(DEFAULT_VIDEO)
     expect(cleanSettings({ video: 'alta' }, settings()).video).toEqual(DEFAULT_VIDEO)
@@ -328,6 +329,11 @@ describe('cleanSettings', () => {
     expect(cleanVideo({ fpsLimit: 0, shadowMapSize: 1024 }, DEFAULT_VIDEO)).toEqual({ ...DEFAULT_VIDEO, fpsLimit: 0, shadowMapSize: 1024 })
     expect(cleanVideo({ fpsLimit: '30' }, DEFAULT_VIDEO).fpsLimit).toBe(DEFAULT_VIDEO.fpsLimit)
     expect(cleanVideo(null, DEFAULT_VIDEO)).toEqual(DEFAULT_VIDEO)
+  })
+  it('cleanVideo: o visual é isométrico ou 2D; outro valor mantém o atual', () => {
+    expect(cleanVideo({ view: '2d' }, DEFAULT_VIDEO).view).toBe('2d')
+    expect(cleanVideo({ view: '3d' }, { ...DEFAULT_VIDEO, view: '2d' }).view).toBe('2d')
+    expect(DEFAULT_VIDEO.view).toBe('iso')
   })
   it('updateChannel: só estável ou beta', () => {
     expect(cleanSettings({ updateChannel: 'beta' }, settings()).updateChannel).toBe('beta')

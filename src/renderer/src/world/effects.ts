@@ -49,6 +49,7 @@ export class Effects {
   sparks(at: THREE.Vector3, colors = ['#ffd166', '#ff7a1a', '#ffffff']): void {
     for (let i = 0; i < (this.reduced ? 3 : 7); i++) {
       const m = new THREE.Mesh(sparkGeo, mat(colors[i % colors.length]))
+      m.userData.fx = 'spark'
       m.position.copy(at)
       this.scene.add(m)
       const a = Math.random() * Math.PI * 2
@@ -63,6 +64,7 @@ export class Effects {
     for (let i = 0; i < n; i++) {
       const m = new THREE.MeshBasicMaterial({ color: i % 3 ? '#4b3a66' : '#7a5cc4', transparent: true, opacity: 0.85, depthWrite: false })
       const mesh = new THREE.Mesh(puffGeo, m)
+      mesh.userData.fx = 'smoke'
       const a = (i / n) * Math.PI * 2
       mesh.position.copy(at).add(new THREE.Vector3(Math.cos(a) * 0.15, 0.2 + Math.random() * 0.4, Math.sin(a) * 0.15))
       mesh.rotation.set(Math.random(), Math.random(), Math.random())
@@ -87,6 +89,7 @@ export class Effects {
     add(0.06, 0.08, 0.02, eye, -0.08, 0.28, 0.19)
     add(0.06, 0.08, 0.02, eye, 0.08, 0.28, 0.19)
     g.position.copy(at).add(new THREE.Vector3(0, 0.5, 0))
+    g.userData.fx = 'ghost'
     this.scene.add(g)
     this.particles.push({ mesh: g, vel: new THREE.Vector3(0, 0.9, 0), life: 1.8, max: 1.8, gravity: -0.2, fade: [body, eye] })
   }
@@ -97,6 +100,7 @@ export class Effects {
    */
   strike(at: THREE.Vector3, onHit: () => void): void {
     const obj = skull().group
+    obj.userData.fx = 'skull'
     obj.scale.setScalar(1.4)
     obj.position.set(at.x, HOVER_Y + 1.6, at.z)
     this.scene.add(obj)

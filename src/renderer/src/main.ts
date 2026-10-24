@@ -1,5 +1,6 @@
 import './styles/index.css'
 import { Game } from './game'
+import { PixelEngine } from './pixel/engine'
 import { bindPerfKeys, perf } from './perf'
 import { State } from './state'
 import { Board } from './ui/board'
@@ -33,6 +34,9 @@ import { studioProgress } from './ui/studio/session'
 import { setCodexUsage } from './ui/studio/usage'
 import { h, icon } from './ui/dom'
 
+/** localStorage: '1' when the office lights are off (modo noturno). */
+const NIGHT_KEY = 'office.night'
+
 // Errors nobody caught go to the app log (userData/logs), so a broken screen leaves a trace.
 window.addEventListener('error', (e) => {
   window.office.reportError({
@@ -51,6 +55,11 @@ async function boot(): Promise<void> {
   const initial = await window.office.getState()
   const initialNotices = initial.dataNotices ?? []
   const state = new State(initial)
+  // AGENT_OFFICE_VIEW=2d|iso (screenshots, bench) wins over the saved Visual for this run
+  const forcedView = initial.forceView
+  if (forcedView) state.settings.video = { ...(state.settings.video ?? DEFAULT_VIDEO), view: forcedView }
+  const bootView = state.settings.video?.view ?? 'iso'
+  document.body.classList.toggle('view-2d', bootView === '2d')
   const ui = document.getElementById('ui')!
   document.body.classList.add(`platform-${state.platform}`)
   // Empty from the start, so screen readers read what goes in later (AO-38).
@@ -232,6 +241,7 @@ async function boot(): Promise<void> {
     settings: (section) => openSettings(ui, state, toast, { section, tour: replayTour }),
     goHome: () => game.goHome(),
     zoom: (d) => game.zoom(d),
+    toggleNight: () => setNight(!game.engine.night),
     newAgent: () => void newAgent(),
     goFloor: (n) => game.goFloor(n),
     newFloor: () => void newFloor(),
@@ -321,6 +331,7 @@ async function boot(): Promise<void> {
     if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
     if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.openBackstage()
     if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && game.currentProject?.kind === 'creative') studio(game.currentProject)
+    if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) setNight(!game.engine.night)
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()
@@ -368,6 +379,15 @@ async function boot(): Promise<void> {
     closeDialog()
   }
 
+  // Modo noturno (L or the moon by the zoom), remembered on this machine
+  function setNight(on: boolean): boolean {
+    game.setNight(on)
+    hud.setNight(on)
+    localStorage.setItem(NIGHT_KEY, on ? '1' : '0')
+    return on
+  }
+  setNight(localStorage.getItem(NIGHT_KEY) === '1')
+
   hud.setFloors(game.floors, game.currentFloor)
   syncLaunch()
   mountUpdateNotice(ui)
@@ -391,7 +411,14 @@ async function boot(): Promise<void> {
   reduceMotion.addEventListener('change', applyVideo)
 
   let pixelSize = state.settings.pixelSize
+  let reloading = false
   state.onChange(() => {
+    // Configurações → Vídeo → Visual: the other view needs a fresh page (a new canvas, other floors)
+    if (!forcedView && (state.settings.video?.view ?? 'iso') !== bootView) {
+      if (!reloading) void window.office.reloadWindow()
+      reloading = true
+      return
+    }
     applyVideo()
     game.setProjects(state.settings.projects, state.squads)
     syncLaunch()
@@ -499,7 +526,7 @@ async function boot(): Promise<void> {
     game.draw(dt)
     tour.update()
     loop.draws++
-    perf.frame(game.engine.renderer, dt)
+    perf.frame(game.engine.renderer, dt, game.engine instanceof PixelEngine ? game.engine.draws : 0)
   }
   requestAnimationFrame(frame)
   setInterval(() => {

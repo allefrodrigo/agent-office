@@ -89,12 +89,24 @@ export function runBench(w: BrowserWindow, file: string): void {
     setTimeout(async () => {
       try {
         const paced = process.env.AGENT_OFFICE_BENCH_LIVE === '1'
+        // the first call starts the CPU counters; the second reads the average over the run
+        app.getAppMetrics()
         const report = await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000}, ${paced})`)
         const gpu = app.getGPUFeatureStatus()
+        // RAM and CPU of every Electron process (the 3D view's cost lives mostly in the GPU process)
+        const processes: Record<string, { mb: number; cpu: number }> = {}
+        for (const m of app.getAppMetrics()) {
+          const p = (processes[m.type] ??= { mb: 0, cpu: 0 })
+          p.mb += Math.round(m.memory.workingSetSize / 1024)
+          p.cpu = Math.round((p.cpu + m.cpu.percentCPUUsage) * 10) / 10
+        }
         const out = {
           version: app.getVersion(),
           date: new Date().toISOString(),
           demo: process.env.AGENT_OFFICE_DEMO ?? '',
+          view: process.env.AGENT_OFFICE_VIEW || 'settings',
+          memoryMB: Object.values(processes).reduce((n, p) => n + p.mb, 0),
+          processes,
           paced,
           platform: `${process.platform}-${process.arch}`,
           electron: process.versions.electron,
@@ -103,7 +115,7 @@ export function runBench(w: BrowserWindow, file: string): void {
           ...report,
         }
         writeFileSync(file, JSON.stringify(out, null, 2) + '\n')
-        console.log(`bench: ${out.frames} frames, ${out.frameMs.mean} ms/frame (p95 ${out.frameMs.p95}), ${out.drawCalls.mean} draw calls -> ${file}`)
+        console.log(`bench: ${out.frames} frames, ${out.frameMs.mean} ms/frame (p95 ${out.frameMs.p95}), ${out.drawCalls.mean} draw calls, ${out.memoryMB} MB -> ${file}`)
       } catch (err) {
         console.error('bench failed:', err)
         process.exitCode = 1

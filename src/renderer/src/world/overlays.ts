@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { Engine } from './engine'
+import type { Viewport } from './viewport'
 
 export type BubbleKind = 'work' | 'wait' | 'done' | 'error' | 'idle' | 'talk'
 
@@ -94,7 +94,7 @@ export class Overlays {
 
   constructor(
     private root: HTMLElement,
-    private engine: Engine,
+    private engine: Viewport,
   ) {}
 
   /** HTML elements following the world: name tags plus zone labels. */

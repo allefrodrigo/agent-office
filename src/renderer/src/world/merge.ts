@@ -23,6 +23,16 @@ import { shared } from './dispose'
 /** Stands in for every mat() color once merged. Shared: never disposed. */
 const PALETTE = shared(new THREE.MeshLambertMaterial({ color: '#ffffff', vertexColors: true, flatShading: true }))
 
+let merging = true
+
+/**
+ * Off in the 2D view: nothing reaches the GPU there, and the pixel painter reads each piece of
+ * furniture on its own. Set before the floors are built.
+ */
+export function setMerging(on: boolean): void {
+  merging = on
+}
+
 /** Keeps `obj` and everything under it out of mergeStatic. Returns it. */
 export function animated<T extends THREE.Object3D>(obj: T): T {
   obj.userData.animated = true
@@ -80,6 +90,7 @@ function baked(mesh: THREE.Mesh, toRoot: THREE.Matrix4): THREE.BufferGeometry {
  * Returns how many meshes were folded away.
  */
 export function mergeStatic(root: THREE.Object3D): number {
+  if (!merging) return 0
   root.updateMatrixWorld(true)
   const toRoot = root.matrixWorld.clone().invert()
   const buckets = new Map<string, { material: THREE.Material; sample: THREE.Mesh; meshes: THREE.Mesh[] }>()

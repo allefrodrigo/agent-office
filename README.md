@@ -139,6 +139,7 @@ Terminou? O agente entrega o relatório e vai relaxar: sofás, pufes, pebolim, f
 - **Andar = empresa** (Configurações → "Andares por projeto"): cada andar aceita um logo (PNG, JPG, WebP ou GIF, reduzido a 256 px) e uma cor; sem cor escolhida, vale a cor mais forte do logo. A placa da Diretoria mostra o logo e o nome, e o tapete dela ganha a cor da empresa. Marque "Agentes com a farda da empresa" para os agentes do andar usarem camisa na cor da empresa com o logo no peito; eles mantêm a farda quando descem até você.
 - **Painel de gasto**: cada andar tem um painel na parede com quanto os agentes dele gastaram nesta sessão (no térreo, o escritório inteiro). O valor sobe rolando a cada mudança, os maiores gastos passam embaixo, e a etiqueta acima mostra o valor exato (passe o mouse para ver por agente).
 - **Alarme de limite**: quando uma conta bate o limite do plano, o giroflex vermelho acima do painel acende e gira nos andares que usam essa conta (no térreo, com qualquer conta), com a etiqueta "Conta X no limite · volta 15:00".
+- **Visual 2D pixel art** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um RPG de 16 bits visto de cima, desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. No stress de 50 agentes, a página gasta cerca de 30% menos memória e um quarto da CPU. Sprites e como gerá-los com o Codex: [docs/arte-2d](docs/arte-2d/README.md).
 - **Mesas e áreas**: cada mesa tem um setup (um monitor, dois, ultrawide, notebook com monitor, monitor vertical) em mesas brancas, de madeira ou escuras. O térreo tem uma copa; nos andares de empresa, as salas da frente sem setor viram lounge, copa, jogos e canto de pufes.
 - **Conta sobre a cabeça**: cada agente do escritório tem um diamante girando sobre a cabeça, como no The Sims, na cor da conta em que está rodando. Com duas ou mais contas, a etiqueta do nome mostra também o nome da conta.
 - **Contexto do agente**: o painel mostra quanto da janela de contexto a conversa ocupa (os mesmos números do `/context`), e a lista de agentes tem uma barrinha. **Compactar** resume a conversa (`/compact`); **Limpar** começa uma conversa nova com o mesmo agente (`/clear`), sem dispensar.
@@ -396,6 +397,15 @@ src/
       skull.ts          caveira em voxel (a do armário e a que cai sobre o agente)
       props.ts          placar de gastos, quadro de rotinas (canvas redesenhado só quando muda, e o LED) e alarme de limite
       effects.ts        golpe da caveira, fumaça, faíscas, fantasma e efeitos sonoros
+      viewport.ts       o que o jogo pede de quem desenha (3D isométrico ou 2D)
+    pixel/              visual 2D pixel art (Configurações → Vídeo → Visual), sem WebGL
+      engine.ts         canvas 2D em resolução de arte, ampliado pelo CSS; zoom, cliques, projeção
+      painter.ts        assa cada andar (piso, paredes, móveis) e desenha tudo de trás para a frente
+      voxel.ts          achata as peças dos modelos 3D em pixel art (vale para o que ainda não tem sprite)
+      objects.ts        qual sprite do catálogo substitui cada móvel, conforme o lado para onde olha
+      people.ts         personagens pelas folhas 4x3 (de pé, andando, sentado, caído)
+      layout2d.ts       muda de lugar o que ficaria de perfil na parede lateral
+    assets/pixel/       sprites prontos (npm run pixel); o catálogo é src/shared/pixel-catalog.json
     game/               comportamento: status do agente -> onde ele vai e o que faz
                         (cada parte estende a anterior: base, floors, boards, actors, lounge,
                         deliveries, subagents, squads, skull, movement, input; index.ts monta o Game)
@@ -426,6 +436,7 @@ Checar tipos: `npm run typecheck`. Lint: `npm run lint`. Testes: `npm test`.
 
 Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem ponto e vírgula, aspas simples), mas o projeto ainda não foi todo formatado. Rode só nos arquivos que você mexeu: `npx prettier --write src/main/updater.ts`.
 
+- `AGENT_OFFICE_VIEW=2d` (ou `iso`) abre nesse visual sem mexer nas configurações; vale para `npm run dev`, capturas e `npm run bench` (o relatório traz RAM e CPU de cada processo).
 - `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis. Um trecho `keys:N Enter Alt+Right =texto ;; js` aperta teclas de verdade antes (Enter clica o botão em foco, Tab anda; `=texto` digita, `_` é espaço) e depois roda o js: serve para testar o app só pelo teclado. No modo demo, quem você contrata ou chama finge o trabalho (pede para rodar os testes e entrega um resultado) sem abrir o Claude Code.
 - `npm run contrast` mostra a razão de contraste dos textos do HUD, lida de `src/renderer/src/styles/`; `npm test` falha se algum par ficar abaixo de AA (4,5:1).
 - Tecla `?` no app lista todos os atalhos.

@@ -1,4 +1,4 @@
-import { app, clipboard, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, shell } from 'electron'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentSummary, OfficeState } from '@shared/types'
@@ -59,6 +59,7 @@ export function registerAppIpc(ctx: IpcContext): void {
     macJobs: macJobs.list(),
     caffeineAwake: caffeine.awake,
     forceTour: process.env.AGENT_OFFICE_TOUR === '1',
+    forceView: process.env.AGENT_OFFICE_VIEW === '2d' || process.env.AGENT_OFFICE_VIEW === 'iso' ? process.env.AGENT_OFFICE_VIEW : undefined,
   }))
   ipcMain.handle('office:setCaffeine', (_e, raw: unknown) => {
     const mode = raw === 'agents' || raw === 'on' ? raw : 'off'
@@ -67,6 +68,8 @@ export function registerAppIpc(ctx: IpcContext): void {
     caffeine.check()
   })
   ipcMain.handle('office:quitApp', async () => void (await quit.ask()))
+  // Configurações → Vídeo → Visual: the other view starts on a fresh page (the window blocks page navigation)
+  ipcMain.handle('office:reloadWindow', (e) => BrowserWindow.fromWebContents(e.sender)?.webContents.reload())
   ipcMain.handle('office:quitNow', () => quit.now())
   ipcMain.handle('office:cancelQuit', () => quit.cancelWait())
   ipcMain.handle('office:getLedger', (_e, q: unknown) => book.query(cleanLedgerQuery(q)))
