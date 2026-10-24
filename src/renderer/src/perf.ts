@@ -133,11 +133,16 @@ export const perf = {
   /**
    * Call once per drawn frame, after the last render call. The renderer stops
    * resetting its counters on each render() (the composer calls it several times),
-   * so draw calls and triangles add up the whole frame; they reset here.
+   * so draw calls and triangles add up the whole frame; they reset here. The 2D view has no
+   * renderer: it passes null and the sprites it drew as `draws`.
    */
-  frame(r: WebGLRenderer, _dt: number): void {
+  frame(r: WebGLRenderer | null, _dt: number, draws = 0): void {
     const now = performance.now()
-    if (renderer !== r) {
+    if (!r && !lastAt) {
+      lastAt = now
+      return
+    }
+    if (r && renderer !== r) {
       renderer = r
       r.info.autoReset = false
       r.info.reset()
@@ -147,12 +152,12 @@ export const perf = {
     last = {
       frameMs: now - lastAt,
       workMs: startedAt ? now - startedAt : 0,
-      calls: r.info.render.calls,
-      triangles: r.info.render.triangles,
+      calls: r ? r.info.render.calls : draws,
+      triangles: r ? r.info.render.triangles : 0,
     }
     lastAt = now
     startedAt = 0
-    r.info.reset()
+    r?.info.reset()
     recording?.push(last)
     if (el) {
       recent.push(last)

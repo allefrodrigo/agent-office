@@ -19,6 +19,8 @@ export interface HudActions {
   settings(section?: 'bridge'): void
   goHome(): void
   zoom(delta: number): void
+  /** Modo noturno on or off; returns the new state. */
+  toggleNight(): boolean
   resume(): void
   /** "Novo agente": talk, give a task or bring up a squad. */
   newAgent(): void
@@ -74,6 +76,8 @@ export class Hud {
   private rosterCount: HTMLSpanElement
   private stats: HTMLDivElement
   private inboxBtn: HTMLButtonElement
+  /** Moon by day (turns the lights off), sun by night. */
+  private nightBtn: HTMLButtonElement
   private inboxBadge: HTMLSpanElement
   private inbox: HTMLDivElement
   /** Amber dot on the gear while the terminal bridge is installed but not listening. */
@@ -99,6 +103,7 @@ export class Hud {
     radio: Radio,
   ) {
     const mac = state.platform === 'darwin'
+    this.nightBtn = h('button', { onclick: () => this.setNight(actions.toggleNight()) })
     this.stats = h('div', { class: 'brand-stats' })
     const brand = h(
       'div',
@@ -162,6 +167,7 @@ export class Hud {
       { class: 'zoom card' },
       h('button', { title: 'Aproximar', onclick: () => actions.zoom(1) }, icon('zoomIn', 16)),
       h('button', { title: 'Afastar', onclick: () => actions.zoom(-1) }, icon('zoomOut', 16)),
+      this.nightBtn,
     )
     this.floorsEl = h('div', { class: 'floors card', 'data-tour': 'floors' })
     // The roster ends above the elevator panel, which grows with every floor.
@@ -374,6 +380,13 @@ export class Hud {
   /** Bastidores from the keyboard (B). */
   openBackstage(): void {
     this.actions.backstage()
+  }
+
+  /** Shows the night button's state: the icon is what a click does next. */
+  setNight(on: boolean): void {
+    this.nightBtn.replaceChildren(icon(on ? 'sun' : 'moon', 16))
+    this.nightBtn.title = on ? 'Acender as luzes (L)' : 'Apagar as luzes: modo noturno (L)'
+    this.nightBtn.setAttribute('aria-pressed', String(on))
   }
 
   /** Opens or closes the inbox popover (dock button or I). */

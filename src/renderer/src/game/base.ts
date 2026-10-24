@@ -4,6 +4,11 @@ import type { State } from '../state'
 import { Avatar, type Uniform } from '../world/avatar'
 import { Engine } from '../world/engine'
 import * as L from '../world/layout'
+import { setMerging } from '../world/merge'
+import { px } from '../world/pixel-tag'
+import type { Viewport } from '../world/viewport'
+import { PixelEngine } from '../pixel/engine'
+import { adaptGround } from '../pixel/layout2d'
 import { buildOffice, type GroundFloor, type Office } from '../world/office'
 import { Overlays, Tag } from '../world/overlays'
 import { Effects } from '../world/effects'
@@ -15,7 +20,9 @@ import { center, OVERFLOW_TILES, SKULL_HOME, tileOf, type Actor, type GameHooks,
  * walking primitives. Each part extends the previous one; Game (index.ts) is the last.
  */
 export abstract class GameBase {
-  readonly engine: Engine
+  readonly engine: Viewport
+  /** Drawn by the 2D pixel-art view (Configurações → Vídeo → Visual) instead of the 3D one. */
+  protected readonly flat: boolean
   /** Ground floor. */
   readonly office: GroundFloor
   /** Project floors, 1º andar first. */
@@ -64,8 +71,12 @@ export abstract class GameBase {
     protected state: State,
     protected hooks: GameHooks,
   ) {
-    this.engine = new Engine(container, state.settings.pixelSize)
+    this.flat = state.settings.video?.view === '2d'
+    // in 2D nothing reaches the GPU: no merging, and the painter reads each piece on its own
+    setMerging(!this.flat)
+    this.engine = this.flat ? new PixelEngine(container) : new Engine(container, state.settings.pixelSize)
     this.office = buildOffice()
+    if (this.flat) adaptGround(this.office)
     this.engine.scene.add(this.office.group)
     this.overlays = new Overlays(overlayRoot, this.engine)
 
@@ -102,6 +113,7 @@ export abstract class GameBase {
     // the skeleton by the boss office: click it to dismiss an agent
     this.effects = new Effects(this.engine.scene)
     const sk = skeleton()
+    px(sk.group, 'skeleton')
     sk.group.position.set(SKULL_HOME.x, SKULL_HOME.y, SKULL_HOME.z)
     sk.group.rotation.y = FACE_CAMERA
     sk.group.scale.setScalar(1.05)

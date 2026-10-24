@@ -11,6 +11,7 @@ import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
 import type { CodexUsage, CreativeJob, CreativeJobResult, CreativeStatus, ElevenVoice, Flow } from '../creative'
 import type { FlowTab, LibraryItem } from '../creative-library'
+import type { ViewMode } from '../video'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
@@ -68,6 +69,8 @@ export interface OfficeState {
   caffeineAwake: boolean
   /** AGENT_OFFICE_TOUR=1: the guided tour opens even if the player has seen it. */
   forceTour?: boolean
+  /** AGENT_OFFICE_VIEW=2d|iso: this run draws the office that way, whatever the settings say (screenshots, bench). */
+  forceView?: ViewMode
 }
 
 /** A data file that did not parse: what happened, for the warning in the renderer. */
@@ -192,6 +195,8 @@ export interface OfficeAPI {
   setCaffeine(mode: CaffeineMode): Promise<void>
   /** "Sair": asks (native dialog), then waits for the agents, interrupts them or stays. */
   quitApp(): Promise<void>
+  /** Reloads this window (the agents live in the main process and stay): the Visual changed. */
+  reloadWindow(): Promise<void>
   /** On the "saindo" banner: interrupt whoever is still working and quit now. */
   quitNow(): Promise<void>
   /** On the "saindo" banner: stay. */

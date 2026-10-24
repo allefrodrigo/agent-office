@@ -1,6 +1,10 @@
 import type { State } from '../state'
 import { Aura } from '../world/aura'
 import type { Avatar } from '../world/avatar'
+import { PixelEngine } from '../pixel/engine'
+import { PixelPainter } from '../pixel/painter'
+import type * as THREE from 'three'
+import { WindowSky } from '../world/textures'
 import { GameInput } from './input'
 import { LOUNGE_AFTER_MS, type GameHooks } from './types'
 
@@ -13,6 +17,7 @@ export type { GameHooks } from './types'
 export class Game extends GameInput {
   constructor(container: HTMLElement, overlayRoot: HTMLElement, state: State, hooks: GameHooks) {
     super(container, overlayRoot, state, hooks)
+    if (this.engine instanceof PixelEngine) this.paintFlat(this.engine)
     this.setProjects(state.settings.projects, state.squads, false)
     for (const a of state.agents.values()) this.addActor(a, false)
     state.onChange(() => {
@@ -20,6 +25,25 @@ export class Game extends GameInput {
       this.wake()
     })
     this.bindInput(container)
+  }
+
+  /** The 2D view reads the floor on screen and who stands on it. */
+  private paintFlat(engine: PixelEngine): void {
+    new PixelPainter(engine, {
+      floor: () => this.floorOf(this.player.floor),
+      people: () => {
+        const view = this.player.floor
+        const here = (av: Avatar) => av.floor === view && av.root.visible
+        const out = here(this.player) ? [this.player] : []
+        for (const a of this.actors.values()) if (here(a.avatar)) out.push(a.avatar)
+        for (const h of this.helpers.values()) if (here(h.avatar)) out.push(h.avatar)
+        for (const m of this.members.values()) if (here(m.avatar)) out.push(m.avatar)
+        return out
+      },
+      skeleton: () => (this.player.floor === 0 ? this.skull.root : null),
+      hover: () => (this.hover.visible ? { x: this.hover.position.x, z: this.hover.position.z, ok: (this.hover.material as THREE.LineBasicMaterial).color.getHex() === 0xffffff } : null),
+      time: () => this.time,
+    })
   }
 
   // ---------- loop ----------
@@ -48,6 +72,14 @@ export class Game extends GameInput {
     this.office.reducedMotion = on
     for (const u of this.uppers) u.scene.reducedMotion = on
     this.reducedEffects = on
+  }
+
+  /** Modo noturno: main lights off; windows, screens and lamps light the floors. */
+  setNight(on: boolean): void {
+    WindowSky.forceNight = on
+    this.engine.setNight(on)
+    this.office.setNight(on)
+    for (const u of this.uppers) u.scene.setNight(on)
   }
 
   /** Moves everything by dt seconds; draws nothing (see draw). */

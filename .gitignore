@@ -1,4 +1,5 @@
-node_modules/
+# also a symlinked node_modules (agent worktrees)
+node_modules
 out/
 dist/
 .DS_Store
@@ -21,3 +22,10 @@ coverage/
 .env
 .env.*
 !.env.example
+
+# Imagens brutas do modo 2D (npm run pixel): ficam na máquina de quem gera; o repo guarda só os sprites
+/arte-2d/**/*.[pP][nN][gG]
+/arte-2d/**/*.[jJ][pP][gG]
+/arte-2d/**/*.[jJ][pP][eE][gG]
+/arte-2d/**/*.[wW][eE][bB][pP]
+/arte-2d/folhas/*.json

@@ -7,9 +7,11 @@ import { box, panel } from './kit'
 import { mergeStatic } from './merge'
 import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
 import { buildPartitions, buildShell, CALM_BEACON, type Office } from './office'
+import { setNightLights } from './night'
 import { Grid } from './pathfinding'
 import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
 import { rugTexture } from './textures'
+import { px } from './pixel-tag'
 
 /** A project floor. deskScreens holds the team desks first, then the sector desks (DeskSlot.index). */
 export interface UpperFloor extends Office {
@@ -146,6 +148,9 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     setFloors(n: number) {
       elev.buttons.forEach((b, i) => (b.visible = i < n))
     },
+    setNight(on: boolean) {
+      setNightLights(group, on)
+    },
   }
 }
 
@@ -250,5 +255,5 @@ function sign(text: string, bg: string, fg: string, width = 2.2): THREE.Group {
   const h = (width * c.height) / c.width
   box(g, width + 0.08, h + 0.08, 0.04, '#5f5a8c', 0, -0.04, 0, false)
   panel(g, width, h, tex, 0, h / 2, 0.025)
-  return g
+  return px(g, 'roomSign')
 }

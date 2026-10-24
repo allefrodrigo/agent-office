@@ -318,7 +318,8 @@ const videoFields = {
   fpsLimit: z.union([z.literal(0), z.literal(30), z.literal(60)]),
   effects: z.enum(['full', 'reduced']),
   batterySaver: z.boolean(),
-} satisfies { [K in keyof VideoSettings]: z.ZodType<VideoSettings[K]> }
+  view: z.enum(['iso', '2d']),
+} satisfies { [K in keyof VideoSettings]-?: z.ZodType<VideoSettings[K]> }
 
 /** Video settings from the renderer (or an old office.json) laid over `current`; unknown keys are dropped. */
 export function cleanVideo(raw: unknown, current: VideoSettings): VideoSettings {

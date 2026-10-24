@@ -9,6 +9,7 @@ const api: OfficeAPI = {
   summon: (cwd, mode, brain, worktree) => ipcRenderer.invoke('office:summon', cwd, mode, brain, worktree),
   setCaffeine: (mode) => ipcRenderer.invoke('office:setCaffeine', mode),
   quitApp: () => ipcRenderer.invoke('office:quitApp'),
+  reloadWindow: () => ipcRenderer.invoke('office:reloadWindow'),
   quitNow: () => ipcRenderer.invoke('office:quitNow'),
   cancelQuit: () => ipcRenderer.invoke('office:cancelQuit'),
   listWorktrees: () => ipcRenderer.invoke('office:listWorktrees'),

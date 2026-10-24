@@ -1,6 +1,8 @@
 import * as THREE from 'three'
 import { blob, box, cylinder, mat, panel } from './kit'
 import { animated } from './merge'
+import { px } from './pixel-tag'
+import { glow } from './night'
 import { artTexture, booksTexture, canvas, pixelTexture, whiteboardTexture, type WindowSky } from './textures'
 
 // Every factory builds its piece centered on the origin, standing on y = 0,
@@ -23,7 +25,7 @@ export function desk(w = 2, top = '#f3efe6', legs = METAL): THREE.Group {
   box(g, 0.42, 0.5, d - 0.12, '#e3ddd0', w / 2 - 0.36, 0.16, 0)
   box(g, 0.34, 0.02, 0.01, '#b9b1a1', w / 2 - 0.36, 0.5, d / 2 - 0.05, false)
   box(g, 0.34, 0.02, 0.01, '#b9b1a1', w / 2 - 0.36, 0.33, d / 2 - 0.05, false)
-  return g
+  return px(g, 'desk', { w, top, legs })
 }
 
 export function bossDesk(w = 3): THREE.Group {
@@ -34,7 +36,7 @@ export function bossDesk(w = 3): THREE.Group {
   box(g, 0.1, 0.7, d - 0.1, '#6e452c', -w / 2 + 0.08, 0, 0)
   box(g, 0.1, 0.7, d - 0.1, '#6e452c', w / 2 - 0.08, 0, 0)
   box(g, w - 0.4, 0.03, 0.02, '#c9a25a', 0, 0.45, d / 2 - 0.06, false)
-  return g
+  return px(g, 'bossDesk', { w })
 }
 
 export function monitor(screen: THREE.Texture, width = 0.9): { group: THREE.Group; screen: THREE.Mesh } {
@@ -44,7 +46,7 @@ export function monitor(screen: THREE.Texture, width = 0.9): { group: THREE.Grou
   box(g, 0.05, 0.2, 0.05, DARK, 0, 0.02, -0.02)
   box(g, width, h, 0.05, DARK, 0, 0.18, 0)
   const s = panel(g, width - 0.07, h - 0.07, screen, 0, 0.18 + h / 2, 0.027)
-  return { group: g, screen: s }
+  return { group: px(g, 'monitor'), screen: s }
 }
 
 export function monitorBack(width = 0.8): THREE.Group {
@@ -54,7 +56,7 @@ export function monitorBack(width = 0.8): THREE.Group {
   box(g, 0.05, 0.2, 0.05, DARK, 0, 0.02, 0.02)
   box(g, width, h, 0.05, '#3a3d4d', 0, 0.18, 0)
   box(g, 0.2, 0.14, 0.03, DARK, 0, 0.3, -0.035)
-  return g
+  return px(g, 'monitorBack')
 }
 
 export function keyboard(): THREE.Group {
@@ -62,7 +64,7 @@ export function keyboard(): THREE.Group {
   box(g, 0.46, 0.025, 0.15, '#e7eaf0', 0, 0, 0, false)
   box(g, 0.42, 0.006, 0.11, '#b8bfcc', 0, 0.025, 0, false)
   box(g, 0.07, 0.025, 0.1, '#e7eaf0', 0.34, 0, 0.01, false)
-  return g
+  return px(g, 'keyboard')
 }
 
 export function laptop(color = '#c7ccd6'): THREE.Group {
@@ -70,20 +72,20 @@ export function laptop(color = '#c7ccd6'): THREE.Group {
   box(g, 0.42, 0.02, 0.3, color, 0, 0, 0)
   const lid = box(g, 0.42, 0.28, 0.02, color, 0, 0.02, -0.15)
   lid.rotation.x = -0.25
-  return g
+  return px(g, 'laptop')
 }
 
 export function mug(color: string): THREE.Group {
   const g = new THREE.Group()
   cylinder(g, 0.045, 0.04, 0.1, color, 0, 0, 0, 8)
-  return g
+  return px(g, 'mug')
 }
 
 export function paperStack(): THREE.Group {
   const g = new THREE.Group()
   box(g, 0.22, 0.04, 0.3, '#fbfbf8', 0, 0, 0)
   box(g, 0.22, 0.01, 0.3, '#e4e4de', 0.02, 0.04, 0.01)
-  return g
+  return px(g, 'paperStack')
 }
 
 export function deskLamp(color = '#f6c445'): THREE.Group {
@@ -92,7 +94,8 @@ export function deskLamp(color = '#f6c445'): THREE.Group {
   const arm = box(g, 0.03, 0.32, 0.03, DARK, 0, 0.03, 0)
   arm.rotation.x = 0.3
   cylinder(g, 0.05, 0.1, 0.1, color, 0, 0.28, 0.1, 8)
-  return g
+  glow(g, '#ffc977', 2.2, 3.2, 0, 0.22, 0.14)
+  return px(g, 'deskLamp')
 }
 
 export function officeChair(color = '#3d4a6b'): THREE.Group {
@@ -103,7 +106,7 @@ export function officeChair(color = '#3d4a6b'): THREE.Group {
   box(g, 0.5, 0.08, 0.48, color, 0, 0.36, 0)
   box(g, 0.48, 0.5, 0.08, color, 0, 0.44, -0.22)
   box(g, 0.4, 0.06, 0.06, '#2f3550', 0, 0.94, -0.22)
-  return g
+  return px(g, 'officeChair', { color })
 }
 
 export function bossChair(): THREE.Group {
@@ -115,7 +118,7 @@ export function bossChair(): THREE.Group {
   box(g, 0.56, 0.78, 0.1, '#5b3426', 0, 0.44, -0.24)
   box(g, 0.06, 0.18, 0.4, '#4a2a1e', -0.3, 0.46, 0)
   box(g, 0.06, 0.18, 0.4, '#4a2a1e', 0.3, 0.46, 0)
-  return g
+  return px(g, 'bossChair')
 }
 
 export function simpleChair(color = WOOD): THREE.Group {
@@ -123,7 +126,7 @@ export function simpleChair(color = WOOD): THREE.Group {
   for (const [x, z] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]]) box(g, 0.05, 0.42, 0.05, WOOD_DARK, x, 0, z)
   box(g, 0.44, 0.06, 0.44, color, 0, 0.42, 0)
   box(g, 0.44, 0.42, 0.06, color, 0, 0.48, -0.19)
-  return g
+  return px(g, 'simpleChair', { color })
 }
 
 export function plant(kind: 'bush' | 'tall' | 'fern' | 'cactus' | 'flower', pot = '#c56a45'): THREE.Group {
@@ -161,7 +164,7 @@ export function plant(kind: 'bush' | 'tall' | 'fern' | 'cactus' | 'flower', pot 
     blob(g, 0.2, greens[3], 0.12, 0.72, 0.05)
     blob(g, 0.18, greens[1], -0.12, 0.68, -0.06)
   }
-  return g
+  return px(g, 'plant', { kind })
 }
 
 export function sofa(len: number, color: string): THREE.Group {
@@ -174,11 +177,11 @@ export function sofa(len: number, color: string): THREE.Group {
   box(g, 0.18, 0.3, d, dark, -len / 2 + 0.09, 0.27, 0)
   box(g, 0.18, 0.3, d, dark, len / 2 - 0.09, 0.27, 0)
   for (const x of [-len / 2 + 0.1, len / 2 - 0.1]) for (const z of [-d / 2 + 0.1, d / 2 - 0.1]) box(g, 0.06, 0.05, 0.06, '#3a2b20', x, 0, z)
-  return g
+  return px(g, 'sofa', { len, color })
 }
 
 export function armchair(color: string): THREE.Group {
-  return sofa(1, color)
+  return px(sofa(1, color), 'armchair', { color })
 }
 
 export function coffeeTable(w: number, d = 0.7): THREE.Group {
@@ -188,7 +191,7 @@ export function coffeeTable(w: number, d = 0.7): THREE.Group {
   box(g, 0.3, 0.03, 0.22, '#e17055', -0.3, 0.4, 0.05)
   box(g, 0.24, 0.025, 0.2, '#74b9ff', -0.28, 0.43, 0.04)
   cylinder(g, 0.05, 0.04, 0.09, '#ffffff', 0.35, 0.4, -0.05, 8)
-  return g
+  return px(g, 'coffeeTable', { w })
 }
 
 export function meetingTable(w: number, d: number): THREE.Group {
@@ -196,7 +199,7 @@ export function meetingTable(w: number, d: number): THREE.Group {
   box(g, w - 0.1, 0.08, d - 0.1, '#e9e3d6', 0, 0.68, 0)
   box(g, w - 0.4, 0.68, 0.3, '#6c6f80', 0, 0, 0)
   box(g, w - 0.6, 0.02, 0.2, '#2d3436', 0, 0.76, 0, false)
-  return g
+  return px(g, 'meetingTable')
 }
 
 export function bookshelf(w: number, h = 1.9, seed = 1): THREE.Group {
@@ -209,7 +212,7 @@ export function bookshelf(w: number, h = 1.9, seed = 1): THREE.Group {
   const side = mat('#6e4a33')
   box(g, w, h, d, [side, side, side, side, front, side], 0, 0, 0)
   box(g, w + 0.06, 0.06, d + 0.04, '#5a3b28', 0, h, 0)
-  return g
+  return px(g, 'bookshelf', { w })
 }
 
 export function cabinet(w = 1): THREE.Group {
@@ -219,7 +222,7 @@ export function cabinet(w = 1): THREE.Group {
     box(g, w - 0.16, 0.02, 0.01, '#8d93a3', 0, 0.22 + i * 0.24, 0.255, false)
     box(g, 0.14, 0.03, 0.02, '#6c7280', 0, 0.16 + i * 0.24, 0.255, false)
   }
-  return g
+  return px(g, 'cabinet', { w })
 }
 
 export function waterCooler(): THREE.Group {
@@ -229,7 +232,7 @@ export function waterCooler(): THREE.Group {
   box(g, 0.06, 0.05, 0.03, '#e84a5f', 0.08, 0.7, 0.2, false)
   const glass = new THREE.MeshLambertMaterial({ color: '#7cc6f2', transparent: true, opacity: 0.75 })
   cylinder(g, 0.17, 0.17, 0.45, glass, 0, 0.95, 0, 10)
-  return g
+  return px(g, 'waterCooler')
 }
 
 export function printer(): THREE.Group {
@@ -238,18 +241,18 @@ export function printer(): THREE.Group {
   box(g, 0.72, 0.3, 0.52, '#dfe3ea', 0, 0.6, 0)
   box(g, 0.4, 0.02, 0.3, '#fbfbf8', 0, 0.9, 0.05, false)
   box(g, 0.1, 0.04, 0.02, '#27ae60', 0.25, 0.75, 0.26, false)
-  return g
+  return px(g, 'printer')
 }
 
 export function wallFrame(w: number, h: number, art: THREE.Texture, frame = '#3d2b1f'): THREE.Group {
   const g = new THREE.Group()
   box(g, w, h, 0.05, frame, 0, -h / 2, 0, false)
   panel(g, w - 0.1, h - 0.1, art, 0, 0, 0.03, true)
-  return g
+  return px(g, 'wallFrame')
 }
 
 export function art(kind: 'mondrian' | 'mountains' | 'sunset' | 'plant', w = 0.9, h = 0.68): THREE.Group {
-  return wallFrame(w, h, artTexture(kind))
+  return px(wallFrame(w, h, artTexture(kind)), 'art', { kind })
 }
 
 export function whiteboard(w = 2.2, h = 1.2): THREE.Group {
@@ -257,7 +260,7 @@ export function whiteboard(w = 2.2, h = 1.2): THREE.Group {
   box(g, w * 0.8, 0.04, 0.1, '#c8ccd4', 0, -h / 2 - 0.04, 0.04, false)
   box(g, 0.12, 0.03, 0.03, '#e74c3c', -0.3, -h / 2, 0.06, false)
   box(g, 0.12, 0.03, 0.03, '#2e86de', -0.1, -h / 2, 0.06, false)
-  return g
+  return px(g, 'whiteboard')
 }
 
 export function wallWindow(w: number, h: number, sky: WindowSky): THREE.Group {
@@ -267,7 +270,9 @@ export function wallWindow(w: number, h: number, sky: WindowSky): THREE.Group {
   box(g, 0.05, h, 0.03, '#f5f3ee', 0, -h / 2, 0.04, false)
   box(g, w, 0.05, 0.03, '#f5f3ee', 0, -0.025, 0.04, false)
   box(g, w + 0.2, 0.06, 0.16, '#f5f3ee', 0, -h / 2 - 0.08, 0.06, false)
-  return g
+  // moonlight and the city coming in, spilling onto the floor in front
+  glow(g, '#8fa8ff', 3.2, 5.5, 0, -0.3, 0.9)
+  return px(g, 'wallWindow', { w, h })
 }
 
 export function clock(): THREE.Group {
@@ -284,7 +289,7 @@ export function clock(): THREE.Group {
   m.position.z = 0.03
   g.add(m)
   cylinder(g, 0.25, 0.25, 0.04, '#2d3436', 0, 0, 0, 12).rotation.x = Math.PI / 2
-  return g
+  return px(g, 'clock')
 }
 
 export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh]; light: THREE.Mesh; buttons: THREE.Mesh[] } {
@@ -300,14 +305,15 @@ export function elevator(): { group: THREE.Group; doors: [THREE.Mesh, THREE.Mesh
   box(g, 0.12, 0.22, 0.04, '#2d3142', 1.0, 1.0, 0.04, false)
   // call buttons: T on top, then one per floor above it
   const buttons = [box(g, 0.05, 0.05, 0.02, '#fdcb6e', 1.0, 1.12, 0.07, false), box(g, 0.05, 0.05, 0.02, '#55efc4', 1.0, 1.04, 0.07, false)].map(animated)
-  return { group: g, doors: [left, right], light, buttons }
+  return { group: px(g, 'elevator', { doors: [left, right] }), doors: [left, right], light, buttons }
 }
 
 export function tv(screen: THREE.Texture): THREE.Group {
   const g = new THREE.Group()
   box(g, 1.6, 0.92, 0.06, DARK, 0, -0.46, 0, false)
   panel(g, 1.5, 0.82, screen, 0, 0, 0.035)
-  return g
+  glow(g, '#7fc4ff', 1.8, 3.5, 0, -0.2, 0.6)
+  return px(g, 'tv')
 }
 
 export interface MonitorTv {
@@ -345,9 +351,12 @@ export function monitorTv(): MonitorTv {
   const off = tvScreenTexture(false)
   const on = tvScreenTexture(true)
   const screen = panel(g, w, h, off, 0, cy, 0.035)
+  // the 2D view redraws it: its picture swaps between off and on
+  screen.userData.live = true
   const material = screen.material as THREE.MeshBasicMaterial
+  glow(g, '#9ab8ff', 2.2, 4.5, 0, cy, 0.7)
   return {
-    group: g,
+    group: px(g, 'monitorTv'),
     screen,
     size: { w, h },
     setOn(isOn) {
@@ -379,7 +388,7 @@ export function pingPong(): THREE.Group {
   box(g, 1.2, 0.14, 0.02, '#ecf0f1', 0, 0.75, 0)
   for (const x of [-0.45, 0.45]) for (const z of [-0.8, 0.8]) box(g, 0.05, 0.7, 0.05, DARK, x, 0, z)
   box(g, 0.12, 0.02, 0.16, '#e74c3c', 0.3, 0.75, 0.6, false)
-  return g
+  return px(g, 'pingPong')
 }
 
 export function arcade(screen: THREE.Texture): THREE.Group {
@@ -392,7 +401,8 @@ export function arcade(screen: THREE.Texture): THREE.Group {
   box(g, 0.05, 0.03, 0.05, '#00cec9', 0.18, 1.01, 0.4)
   const s = panel(g, 0.5, 0.4, screen, 0, 1.3, 0.355)
   s.rotation.x = -0.2
-  return g
+  glow(g, '#c38bff', 1.6, 2.6, 0, 1.3, 0.7)
+  return px(g, 'arcade')
 }
 
 export function foosball(): THREE.Group {
@@ -414,7 +424,7 @@ export function foosball(): THREE.Group {
     for (let k = -1; k <= 1; k++) box(g, 0.05, 0.12, 0.04, i % 2 ? '#f1c40f' : '#2e86de', x, 0.84, k * 0.2, false)
   }
   box(g, 0.04, 0.04, 0.04, '#ffffff', 0.1, 0.86, 0.08, false)
-  return g
+  return px(g, 'foosball')
 }
 
 export function lowTable(r = 0.32): THREE.Group {
@@ -422,14 +432,14 @@ export function lowTable(r = 0.32): THREE.Group {
   cylinder(g, r, r * 0.9, 0.3, WOOD, 0, 0, 0, 12)
   cylinder(g, 0.05, 0.04, 0.09, '#ffffff', 0.08, 0.3, 0.04, 8)
   box(g, 0.16, 0.03, 0.12, '#74b9ff', -0.08, 0.3, -0.04, false)
-  return g
+  return px(g, 'lowTable')
 }
 
 export function beanBag(color: string): THREE.Group {
   const g = new THREE.Group()
   blob(g, 0.36, color, 0, 0.2, 0, 0.6, 1)
   blob(g, 0.24, shadeHex(color, -18), 0, 0.28, -0.18, 1.1, 1)
-  return g
+  return px(g, 'beanBag', { color })
 }
 
 export function floorLamp(): THREE.Group {
@@ -437,13 +447,14 @@ export function floorLamp(): THREE.Group {
   cylinder(g, 0.14, 0.16, 0.04, DARK, 0, 0, 0, 8)
   box(g, 0.04, 1.4, 0.04, DARK, 0, 0.04, 0)
   cylinder(g, 0.12, 0.22, 0.28, new THREE.MeshBasicMaterial({ color: '#ffeaa7' }), 0, 1.36, 0, 10)
-  return g
+  glow(g, '#ffc46b', 3.4, 5, 0, 1.25, 0)
+  return px(g, 'floorLamp')
 }
 
 export function trash(): THREE.Group {
   const g = new THREE.Group()
   cylinder(g, 0.13, 0.11, 0.32, '#636e72', 0, 0, 0, 8)
-  return g
+  return px(g, 'trash')
 }
 
 export function rug(w: number, d: number, texture: THREE.Texture): THREE.Mesh {
@@ -453,7 +464,7 @@ export function rug(w: number, d: number, texture: THREE.Texture): THREE.Mesh {
   )
   m.position.y = 0.01
   m.receiveShadow = true
-  return m
+  return px(m, 'rug')
 }
 
 export function shadeHex(hex: string, amt: number): string {
@@ -478,7 +489,7 @@ export function kitchenCounter(len: number): THREE.Group {
   box(g, 0.5, 0.02, 0.36, '#9aa3b5', len / 2 - 0.7, 0.9, 0, false)
   box(g, 0.03, 0.22, 0.03, '#c9ced8', len / 2 - 0.7, 0.9, -0.18, false)
   box(g, 0.03, 0.03, 0.14, '#c9ced8', len / 2 - 0.7, 1.1, -0.12, false)
-  return g
+  return px(g, 'kitchenCounter', { len })
 }
 
 /** Upper cabinets for a wall, `len` tiles long, hung at the given height. */
@@ -486,7 +497,7 @@ export function wallCabinets(len: number, y = 1.55): THREE.Group {
   const g = new THREE.Group()
   box(g, len - 0.04, 0.6, 0.34, '#f2efe8', 0, y, 0)
   for (let i = 0; i < len; i++) box(g, 0.16, 0.02, 0.02, '#8d93a3', -len / 2 + i + 0.5, y + 0.08, 0.18, false)
-  return g
+  return px(g, 'wallCabinets', { len })
 }
 
 export function coffeeMachine(): THREE.Group {
@@ -496,7 +507,7 @@ export function coffeeMachine(): THREE.Group {
   box(g, 0.06, 0.03, 0.03, '#55efc4', 0.09, 0.36, 0.16, false)
   box(g, 0.12, 0.02, 0.12, '#636e72', 0, 0.04, 0.1, false)
   cylinder(g, 0.04, 0.035, 0.08, '#ffffff', 0, 0.06, 0.1, 8)
-  return g
+  return px(g, 'coffeeMachine')
 }
 
 export function microwave(): THREE.Group {
@@ -504,7 +515,7 @@ export function microwave(): THREE.Group {
   box(g, 0.46, 0.28, 0.32, '#dfe6e9', 0, 0, 0)
   box(g, 0.3, 0.2, 0.01, '#2d3436', -0.06, 0.04, 0.16, false)
   box(g, 0.08, 0.2, 0.01, '#b2bec3', 0.17, 0.04, 0.16, false)
-  return g
+  return px(g, 'microwave')
 }
 
 export function fridge(): THREE.Group {
@@ -516,7 +527,7 @@ export function fridge(): THREE.Group {
   // a couple of magnets and a note
   box(g, 0.12, 0.14, 0.01, '#fdcb6e', 0.12, 1.5, 0.335, false)
   box(g, 0.05, 0.05, 0.012, '#e17055', 0.2, 0.9, 0.336, false)
-  return g
+  return px(g, 'fridge')
 }
 
 /** Tall round table for standing or the bar stools. */
@@ -526,7 +537,7 @@ export function barTable(): THREE.Group {
   cylinder(g, 0.04, 0.04, 1.0, '#55596b', 0, 0.04, 0, 8)
   cylinder(g, 0.42, 0.42, 0.05, WOOD, 0, 1.04, 0, 16)
   cylinder(g, 0.05, 0.04, 0.09, '#ffffff', 0.12, 1.09, 0.08, 8)
-  return g
+  return px(g, 'barTable')
 }
 
 export function stool(color: string): THREE.Group {
@@ -535,7 +546,7 @@ export function stool(color: string): THREE.Group {
   cylinder(g, 0.03, 0.03, 0.66, '#55596b', 0, 0.03, 0, 8)
   cylinder(g, 0.12, 0.12, 0.02, '#55596b', 0, 0.32, 0, 10)
   cylinder(g, 0.18, 0.17, 0.07, color, 0, 0.69, 0, 12)
-  return g
+  return px(g, 'stool', { color })
 }
 
 /** Low round table for the café, `r` its radius. */
@@ -544,5 +555,5 @@ export function roundTable(r = 0.5): THREE.Group {
   cylinder(g, 0.24, 0.28, 0.04, DARK, 0, 0, 0, 12)
   cylinder(g, 0.05, 0.05, 0.68, '#55596b', 0, 0.04, 0, 8)
   cylinder(g, r, r, 0.05, '#f2efe8', 0, 0.72, 0, 18)
-  return g
+  return px(g, 'roundTable')
 }

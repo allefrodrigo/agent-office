@@ -4,6 +4,7 @@ import { animated } from './merge'
 import { box, cylinder, panel } from './kit'
 import { shared } from './dispose'
 import { canvas, pixelTexture } from './textures'
+import { live, px } from './pixel-tag'
 
 // Live pieces of the office: the spending board, the routines board and the limit alarm.
 
@@ -41,7 +42,7 @@ export function costBoard(title: string, width = 2.4): CostBoard {
   c.width = BW
   c.height = BH
   const ctx = c.getContext('2d')!
-  const tex = new THREE.CanvasTexture(c)
+  const tex = live(new THREE.CanvasTexture(c))
   tex.colorSpace = THREE.SRGBColorSpace
   const h = (width * BH) / BW
   box(g, width + 0.12, h + 0.12, 0.06, '#1b1d27', 0, -0.06, 0, false)
@@ -93,7 +94,7 @@ export function costBoard(title: string, width = 2.4): CostBoard {
   draw()
 
   return {
-    group: g,
+    group: px(g, 'costBoard'),
     anchor,
     set(total, lines) {
       if (Math.abs(total - target) > 0.004) flash = 1
@@ -159,7 +160,7 @@ export function routinesBoard(width = 1.3): RoutinesBoard {
   // clicked (raycast on its group) and its LED changes color: kept out of the merge
   const g = animated(new THREE.Group())
   const [c, ctx] = canvas(RW, RH)
-  const tex = pixelTexture(c)
+  const tex = live(pixelTexture(c))
   const h = (width * RH) / RW
   box(g, width + 0.12, h + 0.12, 0.06, '#1b1d27', 0, -0.06, 0, false)
   panel(g, width, h, tex, 0, h / 2, 0.035)
@@ -174,7 +175,7 @@ export function routinesBoard(width = 1.3): RoutinesBoard {
 
   let key = ''
   return {
-    group: g,
+    group: px(g, 'routinesBoard'),
     anchor,
     show(view) {
       const k = `${JSON.stringify(view.screen)}\n${view.led}\n${view.dots.join()}`
@@ -264,7 +265,7 @@ export function beacon(): Beacon {
   let on = false
   let t = 0
   return {
-    group: g,
+    group: px(g, 'beacon', { isOn: () => on }),
     anchor,
     get on() {
       return on
@@ -347,7 +348,7 @@ export function coffeeCorner(): CoffeeCorner {
   let state: 'off' | 'armed' | 'awake' = 'off'
   let t = 0
   return {
-    group: g,
+    group: px(g, 'coffeeCorner'),
     anchor,
     set(next) {
       state = next

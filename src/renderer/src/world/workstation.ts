@@ -2,7 +2,9 @@ import * as THREE from 'three'
 import * as F from './furniture'
 import { box, cylinder, panel } from './kit'
 import { animated } from './merge'
+import { glow } from './night'
 import { LoopScreen } from './screens'
+import { px } from './pixel-tag'
 
 // A desk with someone's setup on it. Each desk number gets its own: one monitor,
 // two, an ultrawide, a laptop beside a monitor, or a monitor turned on its side,
@@ -47,7 +49,7 @@ function screenOn(g: THREE.Group, tex: THREE.Texture, w: number, h: number, x: n
   panel(m, w - 0.06, h - 0.06, tex, 0, 0.16 + h / 2, 0.025)
   m.position.set(x, TOP, z)
   m.rotation.y = yaw
-  g.add(m)
+  g.add(px(m, 'monitor', { w, h }))
 }
 
 export interface Workstation {
@@ -130,6 +132,9 @@ export function workstation(index: number, screen: THREE.Texture, led: THREE.Mat
       box(g, 0.2, 0.02, 0.04, '#2d3436', ex, TOP + 0.03, 0.1, false)
   }
   if (setup !== 'laptop') place(g, F.mug(['#ffffff', '#fdcb6e', '#81ecec'][index % 3]), 0.8, 0.3)
+
+  // the monitors light the desk and whoever sits at it
+  glow(g, '#8fb4ff', 1.9, 3, 0, TOP + 0.45, 0.35)
 
   // status totem on the back corner: a post with a light on top
   box(g, 0.05, 0.42, 0.05, DARK, 0.92, TOP, -0.4)

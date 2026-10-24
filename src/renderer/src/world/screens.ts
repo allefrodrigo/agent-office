@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { canvas, pixelTexture } from './textures'
+import { live } from './pixel-tag'
 
 export type ScreenMode = 'off' | 'boot' | 'working' | 'waiting' | 'done' | 'error' | 'idle'
 
@@ -33,7 +34,7 @@ export class Screen {
   constructor() {
     const [c, ctx] = canvas(SW, SH)
     this.ctx = ctx
-    this.texture = pixelTexture(c)
+    this.texture = live(pixelTexture(c))
     for (let i = 0; i < 8; i++) this.lines.push(randomLine())
     this.draw()
   }
@@ -171,7 +172,7 @@ export class LoopScreen {
   ) {
     const [cv, ctx] = canvas(w, h)
     this.ctx = ctx
-    this.texture = pixelTexture(cv)
+    this.texture = live(pixelTexture(cv))
     this.paint(ctx, 0, w, h)
   }
 

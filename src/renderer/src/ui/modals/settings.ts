@@ -306,6 +306,8 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
   const effects = h('select', { class: 'input' }, h('option', { value: 'full' }, 'Completos'), h('option', { value: 'reduced' }, 'Reduzidos'))
   const battery = h('input', { type: 'checkbox' }) as HTMLInputElement
   battery.checked = v.batterySaver
+  const view = h('select', { class: 'input' }, h('option', { value: 'iso' }, 'Isométrico 3D (padrão)'), h('option', { value: '2d' }, '2D pixel art (mais leve)'))
+  view.value = v.view ?? 'iso'
 
   const value = (): VideoSettings => ({
     shadows: shadows.value !== 'off',
@@ -313,6 +315,7 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
     fpsLimit: Number(fps.value) as FpsLimit,
     effects: effects.value === 'reduced' ? 'reduced' : 'full',
     batterySaver: battery.checked,
+    view: view.value === '2d' ? '2d' : 'iso',
   })
   const fill = (x: Omit<VideoSettings, 'batterySaver'>) => {
     fps.value = String(x.fpsLimit)
@@ -336,8 +339,10 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
     { class: 'bridge-box' },
     h('div', { class: 'bridge-title' }, icon('gauge', 16), 'Vídeo'),
     h('div', { class: 'field-hint' }, 'Economia desliga as sombras, limita a 30 fps e reduz fumaça, faíscas e giroflex. Com o escritório parado ou a janela minimizada, o app já desenha menos sozinho.'),
-    h('div', { class: 'field-row' }, field('Qualidade', quality), field('Limite de fps', fps)),
-    h('div', { class: 'field-row' }, field('Sombras', shadows), field('Efeitos', effects)),
+    h('div', { class: 'field-row' }, field('Visual', view), field('Qualidade', quality)),
+    h('div', { class: 'field-hint' }, '2D pixel art desenha o escritório em sprites planos, sem 3D: gasta menos placa de vídeo e memória, bom para computador mais fraco. Trocar o visual recarrega o escritório.'),
+    h('div', { class: 'field-row' }, field('Limite de fps', fps), field('Sombras', shadows)),
+    h('div', { class: 'field-row' }, field('Efeitos', effects)),
     h('label', { class: 'check' }, battery, 'Economia automática na bateria'),
     ...(now.length ? [h('div', { class: 'field-hint' }, now.join(' '))] : []),
   )

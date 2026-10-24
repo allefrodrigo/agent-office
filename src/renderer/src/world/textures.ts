@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { H, W, ZONES, type FloorStyle, type Zone } from './layout'
+import { live } from './pixel-tag'
 
 export const TILE_PX = 16
 
@@ -220,18 +221,21 @@ export class WindowSky {
   constructor(private seed: number) {
     const [c, ctx] = canvas(48, 32)
     this.ctx = ctx
-    this.texture = pixelTexture(c)
-    this.phase = skyPhase()
+    this.texture = live(pixelTexture(c))
+    this.phase = WindowSky.forceNight ? 'night' : skyPhase()
     this.checkedAt = Date.now()
     this.draw()
   }
 
+  /** Modo noturno: every window shows the night sky, whatever the clock says. */
+  static forceNight = false
+
   /** Cheap per-frame call: looks at the clock once a minute (wall time, so background tabs still catch up). */
-  update(): void {
+  update(force = false): void {
     const now = Date.now()
-    if (now - this.checkedAt < SKY_CHECK_MS) return
+    if (!force && now - this.checkedAt < SKY_CHECK_MS) return
     this.checkedAt = now
-    const phase = skyPhase(new Date(now))
+    const phase = WindowSky.forceNight ? 'night' : skyPhase(new Date(now))
     if (phase === this.phase) return
     this.phase = phase
     this.draw()
