@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.3.6",
+  "version": "0.3.7-beta.2",
   "private": true,
   "description": "Escritório isométrico onde agentes do Claude Code trabalham, pedem permissão e entregam resultados.",
   "main": "./out/main/index.js",
@@ -31,6 +31,8 @@
     "coverage": "vitest run --coverage",
     "lint": "eslint .",
     "contrast": "node scripts/contrast.mjs",
+    "pixel": "node scripts/pixel-assets.mjs",
+    "pixel:gerar": "node scripts/pixel-gen.mjs",
     "format": "prettier --write"
   },
   "dependencies": {
