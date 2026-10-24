@@ -1,6 +1,8 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CreativeJob, PortValue } from '@shared/creative'
+import { brandIsSet, type BrandKit } from '@shared/social'
+import { loadBrand } from './brand'
 import { pathsIn, runClaude } from './claude'
 import { parseJsonAnswer, runCodex } from './codex'
 
@@ -62,3 +64,10 @@ export function runDir(root: string, job: CreativeJob): string {
   return dir
 }
 
+
+/** The floor's brand kit, when the node uses it ("Kit de marca") and it has something in it. */
+export function brandFor(job: CreativeJob, root: string): BrandKit | null {
+  if (job.params.marca === 'nao') return null
+  const kit = loadBrand(root)
+  return brandIsSet(kit) ? kit : null
+}

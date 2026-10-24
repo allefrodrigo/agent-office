@@ -31,8 +31,9 @@ const meter = (label: string, percent: number, resetsAt?: number) =>
     h('b', {}, `${percent}%`),
   )
 
-/** Two chips (ChatGPT, Claude) for the studio header. Unsubscribes when it leaves the page. */
-export function usageStrip(state: State, floor: ProjectFloor): HTMLElement {
+/** One row per plan (ChatGPT, ElevenLabs, Claude) for the Uso widget. Unsubscribes when it leaves the page.
+ * `onSummary` gets the fullest window of each plan, for the minimized pill. */
+export function usageStrip(state: State, floor: ProjectFloor, onSummary?: (text: string, hot: boolean) => void): HTMLElement {
   const el = h('div', { class: 'st-usage' })
   const render = () => {
     if (!el.isConnected && el.childElementCount) return void listeners.delete(render)
@@ -40,6 +41,10 @@ export function usageStrip(state: State, floor: ProjectFloor): HTMLElement {
     const claude = state.usage.find((u) => u.accountId === accountId) ?? state.usage[0]
     const cx = codex
     const eleven = lastStatus()?.elevenlabs
+    const peak = (ps: number[]) => (ps.length ? Math.round(Math.max(...ps)) : null)
+    const gpt = peak(cx?.windows.map((w) => w.percent) ?? [])
+    const cl = peak(claude?.windows.slice(0, 2).map((w) => w.percent) ?? [])
+    onSummary?.([gpt === null ? '' : `ChatGPT ${gpt}%`, cl === null ? '' : `Claude ${cl}%`].filter(Boolean).join(' · ') || 'sem leitura', (gpt ?? 0) >= 90 || (cl ?? 0) >= 90 || !!cx?.limited)
     el.replaceChildren(
       h(
         'div',

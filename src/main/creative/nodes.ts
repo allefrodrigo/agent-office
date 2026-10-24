@@ -1,10 +1,12 @@
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, extname, join, relative } from 'node:path'
 import type { CreativeJob, CreativeJobResult, PostDraft } from '@shared/creative'
 import { runCodex } from './codex'
-import { imagesOf, int, runDir, slug, stamp, str, texts, think, type NodeRunCtx } from './helpers'
+import { brandPrompt, drawSize, formatById, safePrompt } from '@shared/social'
+import { brandFor, imagesOf, int, runDir, slug, stamp, str, texts, think, type NodeRunCtx } from './helpers'
 import { carousel, editImage, narrate, overlay } from './nodes-art'
-import { cropTo, frames, probe, transcribe } from './media'
+import { exportPieces, formats } from './nodes-social'
+import { fitTo, frames, probe, transcribe } from './media'
 
 // What each studio node does. Outputs go to the floor folder:
 //   criativos/analises/*.md   criativos/imagens/*.png
@@ -28,6 +30,10 @@ export async function runNode(job: CreativeJob, ctx: NodeRunCtx): Promise<Creati
       return carousel(job, ctx)
     case 'narrate':
       return narrate(job, ctx)
+    case 'formats':
+      return formats(job, ctx)
+    case 'export':
+      return exportPieces(job, ctx)
     default:
       throw new Error('Esse nó não roda: é uma entrada.')
   }
@@ -89,15 +95,17 @@ async function generateImage(job: CreativeJob, ctx: NodeRunCtx): Promise<Creativ
   const prompt = texts(job.inputs.prompt).join('\n\n')
   if (!prompt.trim()) throw new Error('Ligue um texto no "prompt": um nó de Texto ou uma análise.')
   const refs = imagesOf(job.inputs.refs)
-  const aspect = ['1:1', '4:5', '9:16', '16:9'].includes(String(job.params.aspect)) ? String(job.params.aspect) : '4:5'
+  const fmt = formatById(job.params.aspect) ?? formatById('4:5')!
   const count = int(job.params.count, 1, 4, 1)
   const style = str(job.params.style, 1000)
+  const brand = brandFor(job, ctx.root)
   const dir = runDir(ctx.root, job)
-  const size = aspect === '1:1' ? 'quadrada (1024x1024)' : aspect === '16:9' ? 'paisagem (1536x1024)' : 'retrato (1024x1536)'
   const brief = [
-    `Use a ferramenta de geração de imagem para criar ${count === 1 ? 'UMA imagem' : `${count} imagens diferentes (variações)`} ${size}, que depois será recortada para ${aspect}: mantenha o assunto principal no centro.`,
+    `Use a ferramenta de geração de imagem para criar ${count === 1 ? 'UMA imagem' : `${count} imagens diferentes (variações)`} ${drawSize(fmt).label}, que depois será ajustada para ${fmt.platform} ${fmt.label} (${fmt.w}x${fmt.h}).`,
+    safePrompt(fmt),
     refs.length ? `As ${refs.length} imagens anexadas são referências: siga o produto, marca, pessoas e estilo delas quando fizer sentido.` : '',
     style ? `Direção de arte: ${style}` : '',
+    brandPrompt(brand),
     'Briefing (pode ser uma análise longa: use o que estiver em "Prompt de imagem" se existir; senão, extraia a melhor cena estática):',
     prompt.slice(0, 16000),
     'Se o briefing citar pastas ou arquivos desta máquina, leia o que precisar deles para entender o produto (só leitura: não edite, não crie e não apague nada).',
@@ -113,12 +121,11 @@ async function generateImage(job: CreativeJob, ctx: NodeRunCtx): Promise<Creativ
   const name = `${stamp()}-${slug(style || prompt.split('\n').find((l) => l.trim() && !l.startsWith('#')) || 'imagem')}`
   const paths: string[] = []
   for (const [i, src] of r.images.entries()) {
-    const dest = join(outDir, `${name}-${i + 1}.png`)
-    const cropped = await cropTo(src, aspect, dest)
-    if (cropped !== dest) copyFileSync(src, dest)
+    const dest = join(outDir, `${name}-${i + 1}-${fmt.w}x${fmt.h}.png`)
+    await fitTo(src, fmt, dest, 'recorte', ctx.signal)
     paths.push(dest)
   }
-  return { outputs: { image: { type: 'image', paths } }, note: `${paths.length === 1 ? '1 imagem' : `${paths.length} imagens`} ${aspect} · ${relative(ctx.root, outDir)}` }
+  return { outputs: { image: { type: 'image', paths } }, note: `${paths.length === 1 ? '1 imagem' : `${paths.length} imagens`} ${fmt.w}×${fmt.h}${brand ? ' · com a marca' : ''} · ${relative(ctx.root, outDir)}` }
 }
 
 const POST_SCHEMA = {
@@ -138,11 +145,13 @@ async function writePost(job: CreativeJob, ctx: NodeRunCtx): Promise<CreativeJob
   if (!brief.trim()) throw new Error('Ligue um briefing: um nó de Texto ou uma análise.')
   const images = imagesOf(job.inputs.images)
   const format = (['feed', 'carrossel', 'story'] as const).find((f) => f === job.params.format) ?? 'feed'
-  const tone = str(job.params.tone, 1000)
+  const brand = brandFor(job, ctx.root)
+  const tone = str(job.params.tone, 1000) || brand?.tom || ''
   const dir = runDir(ctx.root, job)
   const prompt = [
     `Escreva um post de Instagram (${format}) em português do Brasil a partir do briefing abaixo${images.length ? ' e das imagens anexadas (são as artes do post)' : ''}.`,
     'Legenda: primeira linha é o gancho; parágrafos curtos; um CTA claro no fim; até 1800 caracteres; sem hashtags no texto.',
+    brand?.nome ? `A marca é ${brand.nome}.` : '',
     tone ? `Tom de voz: ${tone}` : '',
     `Briefing:\n${brief.slice(0, 16000)}`,
     'Se o briefing citar pastas ou arquivos desta máquina, leia o que precisar deles para entender o produto (só leitura: não edite, não crie e não apague nada).',

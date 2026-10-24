@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { cropBox, type SocialFormat } from '@shared/social'
 import { findBin, findWhisperModel } from './tools'
 
 // ffmpeg/ffprobe/whisper-cli for the studio: what is in a video, its frames, its speech; crops and JPEGs.
@@ -86,6 +87,29 @@ export async function cropTo(src: string, aspect: string, dest: string): Promise
   const [cw, ch] = w / h > want ? [Math.round(h * want), h] : [w, Math.round(w / want)]
   await run(need('ffmpeg'), ['-y', '-v', 'error', '-i', src, '-vf', `crop=${cw - (cw % 2)}:${ch - (ch % 2)}`, dest], undefined, 60_000)
   return dest
+}
+
+/**
+ * The image at the exact size of a social format, written to `dest` (PNG or JPEG by extension).
+ * recorte: center crop to the ratio, then scale. fundo: the whole image fits, over a blurred copy of itself.
+ */
+export async function fitTo(src: string, f: SocialFormat, dest: string, mode: 'recorte' | 'fundo' = 'recorte', signal?: AbortSignal): Promise<string> {
+  const { w, h } = await imageSize(src)
+  if (!w || !h) throw new Error('Não consegui ler o tamanho da imagem.')
+  const jpeg = /\.jpe?g$/i.test(dest) ? ['-q:v', '2', '-pix_fmt', 'yuvj420p'] : []
+  if (mode === 'fundo') {
+    const graph = `[0:v]scale=${f.w}:${f.h}:force_original_aspect_ratio=increase,crop=${f.w}:${f.h},boxblur=40:2,eq=brightness=-0.06[bg];[0:v]scale=${f.w}:${f.h}:force_original_aspect_ratio=decrease:flags=lanczos[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1`
+    await run(need('ffmpeg'), ['-y', '-v', 'error', '-i', src, '-filter_complex', graph, '-frames:v', '1', ...jpeg, dest], signal, 60_000)
+    return dest
+  }
+  const c = cropBox(w, h, f)
+  await run(need('ffmpeg'), ['-y', '-v', 'error', '-i', src, '-vf', `crop=${c.w}:${c.h}:${c.x}:${c.y},scale=${f.w}:${f.h}:flags=lanczos,setsar=1`, '-frames:v', '1', ...jpeg, dest], signal, 60_000)
+  return dest
+}
+
+/** A JPEG copy (exports): same size, best quality. */
+export async function toJpeg(src: string, dest: string, signal?: AbortSignal): Promise<void> {
+  await run(need('ffmpeg'), ['-y', '-v', 'error', '-i', src, '-frames:v', '1', '-q:v', '2', '-pix_fmt', 'yuvj420p', dest], signal, 60_000)
 }
 
 /** A JPEG of at most 1024 px on the long side (what a model needs to see an image). */

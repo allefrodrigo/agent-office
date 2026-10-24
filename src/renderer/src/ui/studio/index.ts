@@ -12,7 +12,11 @@ import { integrationsView, readStatus } from './integrations'
 import { galleryPanel } from './gallery'
 import { dropSession, floorTabs, isBusy, newId, onBusyChange, sessionFor, type StudioSession } from './session'
 import { tabBar } from './tabs'
+import { SOCIAL_FORMATS, formatOfSize } from '@shared/social'
+import { brandEditor } from './brand'
+import { REF_DRAG, refsPanel } from './refs'
 import { usageStrip } from './usage'
+import { widget } from './widget'
 
 // Estúdio criativo: a node canvas (like ComfyUI) over the creative floor. Inputs (video, images,
 // text) feed agents (video analysis, post writing) and ChatGPT image generation; the results land
@@ -20,7 +24,7 @@ import { usageStrip } from './usage'
 
 type Toast = (t: string, k?: 'info' | 'ok' | 'err') => void
 
-const GROUPS: NodeDef['group'][] = ['Entradas', 'Agentes', 'Gerar']
+const GROUPS: NodeDef['group'][] = ['Entradas', 'Agentes', 'Gerar', 'Publicar']
 const KIND_ICON: Partial<Record<NodeKind, string>> = {
   video: 'eye',
   image: 'image',
@@ -32,6 +36,8 @@ const KIND_ICON: Partial<Record<NodeKind, string>> = {
   carousel: 'copy',
   narrate: 'volume',
   'write-post': 'message',
+  formats: 'expand',
+  export: 'download',
 }
 const kindIcon = (k: NodeKind) => KIND_ICON[k] ?? 'spark'
 /** Nodes that spend Codex (images), whatever else the plan does. */
@@ -75,34 +81,19 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
   const nodeEls = new Map<string, HTMLElement>()
 
   // ---------- frame ----------
-  const title = h('div', { class: 'st-title' }, icon('spark', 18), h('span', {}, 'Estúdio criativo'), h('span', { class: 'st-floor' }, floor.name))
-  const runAllBtn = h('button', { class: 'btn btn-primary', title: 'Roda o que mudou, na ordem das ligações' }, icon('send', 15), 'Executar fluxo')
-  const stopBtn = h('button', { class: 'btn btn-danger-soft', title: 'Para o nó que está rodando' }, icon('stop', 15), 'Parar')
-  const codexChip = h('button', { class: 'st-chip', title: 'Integrações' })
-  const galleryBtn = h('button', { class: 'btn', title: 'Tudo o que este andar já gerou' }, icon('image', 15), 'Galeria')
-  const head = h(
-    'div',
-    { class: 'st-head' },
-    title,
-    h('div', { class: 'st-head-actions' }, usageStrip(state, floor), codexChip, galleryBtn, h('button', { class: 'btn', title: floor.cwd, onclick: () => void window.office.revealPath(floor.cwd) }, icon('folder', 15), 'Pasta'), stopBtn, runAllBtn, h('button', { class: 'icon-btn', title: 'Fechar (Esc)', 'aria-label': 'Fechar', onclick: () => close() }, icon('x', 18))),
-  )
-  const palette = h('aside', { class: 'st-palette', 'aria-label': 'Nós' })
-  const canvas = h('div', { class: 'st-canvas', tabindex: 0 })
+  // The canvas fills the box; every tool floats over it as a widget that minimizes to a pill.
+  const runAllBtn = h('button', { class: 'btn btn-primary', title: 'Roda o que mudou, na ordem das ligações (⌘/Ctrl+Enter)' }, icon('send', 15), 'Executar fluxo')
+  const stopBtn = h('button', { class: 'btn btn-danger-soft', title: 'Para o nó que está rodando', disabled: true }, icon('stop', 15), 'Parar')
+  const runStatus = h('span', { class: 'st-run-status' })
+  const galleryBtn = h('button', { class: 'icon-btn', title: 'Galeria: tudo o que este andar já gerou', 'aria-label': 'Galeria', 'aria-pressed': 'false' }, icon('image', 16))
+  const canvas = h('div', { class: 'st-canvas', tabindex: 0, 'aria-label': 'Canvas do fluxo' })
   const world = h('div', { class: 'st-world' })
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
   svg.classList.add('st-wires')
   world.append(svg)
   canvas.append(world)
-  const zoomLabel = h('span', { class: 'st-zoom-label' })
-  const zoomBar = h(
-    'div',
-    { class: 'st-zoombar' },
-    h('button', { class: 'icon-btn', title: 'Afastar', onclick: () => zoomAt(view.zoom / 1.2) }, icon('zoomOut', 16)),
-    zoomLabel,
-    h('button', { class: 'icon-btn', title: 'Aproximar', onclick: () => zoomAt(view.zoom * 1.2) }, icon('zoomIn', 16)),
-    h('button', { class: 'icon-btn', title: 'Enquadrar tudo', onclick: () => fit() }, icon('expand', 16)),
-  )
-  canvas.append(zoomBar)
+
+  // Fluxos: who and where (floor), plus one tab per flow.
   const tabsUi = tabBar({
     switch: (id) => void switchTo(id),
     create: (tpl) => void createTab(tpl),
@@ -111,18 +102,86 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     remove: (id) => void removeTab(id),
     busy: (id) => isBusy(floor.id, id),
   })
-  const renderTabs = () => tabsUi.render(tabs, s.flowId)
+  const flowsW = widget({ id: 'fluxos', title: floor.name, icon: 'spark' })
+  const title = flowsW.el.querySelector<HTMLElement>('.st-w-title')!
+  title.title = 'Estúdio criativo'
+  flowsW.body.append(tabsUi.el)
+  const renderTabs = () => {
+    tabsUi.render(tabs, s.flowId)
+    flowsW.setSummary(tabs.find((t) => t.id === s.flowId)?.name ?? '')
+  }
+
+  // Nós: the node library. Minimized it becomes a rail of icons that still adds nodes.
+  const rail = h('div', { class: 'st-rail', role: 'toolbar', 'aria-label': 'Nós' })
+  const nodesW = widget({ id: 'nos', title: 'Nós', icon: 'plus', mini: rail })
+  const palette = h('div', { class: 'st-palette' })
+  nodesW.body.append(palette)
+
+  // Marca: the floor's brand kit, applied by the image, art and caption nodes.
+  const brandW = widget({ id: 'marca', title: 'Marca', icon: 'edit', startMini: true })
+  brandEditor(floor, brandW, opts.toast)
+
+  // Referências: ads captured from the Meta Ads Library and files added by hand.
+  const refsW = widget({ id: 'referencias', title: 'Referências', icon: 'archive', startMini: true })
+  refsPanel(floor, refsW, { toast: opts.toast, preview: (p) => preview(p), use: (it) => addRef(it.path, it.kind) })
+
+  // Execução: run, stop and what is running now.
+  const runW = widget({ id: 'execucao', title: 'Execução', icon: 'send', variant: 'bar' })
+  runW.body.append(runStatus, stopBtn, runAllBtn)
+
+  // Janela: folder, gallery and close. Always visible, so it does not minimize.
+  const windowBar = h(
+    'div',
+    { class: 'st-w st-w-bar st-w-janela', role: 'toolbar', 'aria-label': 'Janela do estúdio' },
+    galleryBtn,
+    h('button', { class: 'icon-btn', title: `Abrir a pasta do andar (${floor.cwd})`, 'aria-label': 'Pasta do andar', onclick: () => void window.office.revealPath(floor.cwd) }, icon('folder', 16)),
+    h('button', { class: 'icon-btn', title: 'Fechar (Esc)', 'aria-label': 'Fechar o estúdio', onclick: () => close() }, icon('x', 17)),
+  )
+
+  // Uso: plan meters (ChatGPT, ElevenLabs, Claude).
+  const usageW = widget({ id: 'uso', title: 'Uso dos planos', icon: 'gauge', startMini: true })
+  usageW.body.append(usageStrip(state, floor, (text, hot) => usageW.setSummary(text, hot ? 'bad' : '')))
+
+  // Integrações: ChatGPT (Codex), ElevenLabs, ffmpeg, whisper.
+  const intW = widget({ id: 'integracoes', title: 'Integrações', icon: 'plug', startMini: true })
+  const integrations = intW.body
+  const showIntegrations = () => {
+    intW.setMini(false)
+    intW.el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
+
+  // Navegação: zoom and framing.
+  const zoomLabel = h('button', { class: 'st-zoom-label', title: 'Voltar a 100%' })
+  zoomLabel.addEventListener('click', () => zoomAt(1))
+  const navW = widget({ id: 'navegacao', title: 'Zoom', icon: 'search', variant: 'bar' })
+  navW.body.append(
+    h('button', { class: 'icon-btn', title: 'Afastar', 'aria-label': 'Afastar', onclick: () => zoomAt(view.zoom / 1.2) }, icon('zoomOut', 16)),
+    zoomLabel,
+    h('button', { class: 'icon-btn', title: 'Aproximar', 'aria-label': 'Aproximar', onclick: () => zoomAt(view.zoom * 1.2) }, icon('zoomIn', 16)),
+    h('button', { class: 'icon-btn', title: 'Enquadrar tudo', 'aria-label': 'Enquadrar tudo', onclick: () => fit() }, icon('expand', 16)),
+  )
+
   const gallery = galleryPanel(floor, {
     toast: opts.toast,
     preview: (p) => preview(p),
     showText: (t, text) => showText(t, text),
     useAsRef: (p) => useAsRef(p),
+    onToggle: (on) => {
+      galleryBtn.classList.toggle('on', on)
+      galleryBtn.setAttribute('aria-pressed', String(on))
+    },
   })
-  galleryBtn.addEventListener('click', () => {
-    gallery.toggle()
-    galleryBtn.classList.toggle('on', gallery.open)
-  })
-  const box = h('div', { class: 'st-box' }, head, tabsUi.el, h('div', { class: 'st-main' }, palette, canvas, gallery.el))
+  gallery.el.classList.add('st-w', 'st-w-panel')
+  galleryBtn.addEventListener('click', () => gallery.toggle())
+
+  const box = h(
+    'div',
+    { class: 'st-box' },
+    canvas,
+    h('div', { class: 'st-dock left' }, flowsW.el, nodesW.el, brandW.el),
+    h('div', { class: 'st-dock right' }, h('div', { class: 'st-dock-row' }, runW.el, windowBar), usageW.el, intW.el, refsW.el, gallery.el),
+    h('div', { class: 'st-dock bottom-right' }, navW.el),
+  )
   const el = h('div', { class: 'backdrop backdrop-studio' }, box)
   modalA11y(el, box, title)
   root.append(el)
@@ -149,19 +208,25 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
   })
 
   // ---------- integrations / gate ----------
-  const integrations = h('div', { class: 'st-palette-int' })
   const setChip = () => {
     void readStatus().then((st) => {
       const ok = creativeReady(st)
-      codexChip.className = `st-chip${ok ? ' ok' : ' bad'}`
-      codexChip.replaceChildren(h('span', { class: 'st-int-dot' }), ok ? 'ChatGPT conectado' : 'Configurar ChatGPT')
-      runAllBtn.toggleAttribute('disabled', !ok || s.busy)
+      intW.setSummary(ok ? 'ChatGPT conectado' : 'Configurar ChatGPT', ok ? 'ok' : 'warn')
     })
   }
-  codexChip.addEventListener('click', () => integrations.scrollIntoView({ behavior: 'smooth' }))
-  integrations.append(h('div', { class: 'st-group' }, 'Integrações'), integrationsView({ toast: opts.toast, onChange: () => setChip() }))
+  const setRunState = () => {
+    runAllBtn.toggleAttribute('disabled', s.busy)
+    stopBtn.toggleAttribute('disabled', !s.busy)
+    const running = [...s.running.keys()].map((id) => s.node(id)).find(Boolean)
+    const label = running ? `Rodando: ${NODE_DEFS[running.kind].title}` : s.busy ? 'Rodando…' : ''
+    runStatus.textContent = label
+    runStatus.hidden = !label
+    runW.setSummary(label || 'Parado', label ? 'busy' : '')
+  }
+  integrations.append(integrationsView({ toast: opts.toast, onChange: () => setChip() }))
 
   // ---------- palette ----------
+  const engineText = (d: NodeDef) => (d.engine === 'codex' ? 'ChatGPT via Codex' : d.engine === 'claude' ? 'Claude (ou ChatGPT)' : d.engine === 'elevenlabs' ? 'ElevenLabs' : d.engine === 'local' ? 'nesta máquina' : 'entrada')
   for (const g of GROUPS) {
     const defs = Object.values(NODE_DEFS).filter((d) => d.group === g)
     palette.append(
@@ -171,17 +236,18 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
           'button',
           { class: `st-pal-item k-${d.group}`, title: d.hint, onclick: () => addNode(d.kind) },
           h('span', { class: 'st-pal-icon' }, icon(kindIcon(d.kind), 15)),
-          h('span', { class: 'st-pal-text' }, h('b', {}, d.title), h('small', {}, d.engine === 'codex' ? 'ChatGPT via Codex' : d.engine === 'claude' ? 'Claude (ou ChatGPT)' : d.engine === 'elevenlabs' ? 'ElevenLabs' : d.engine === 'local' ? 'nesta máquina' : 'entrada')),
+          h('span', { class: 'st-pal-text' }, h('b', {}, d.title), h('small', {}, engineText(d))),
         ),
       ),
     )
+    rail.append(
+      ...(rail.childElementCount ? [h('span', { class: 'st-rail-sep', 'aria-hidden': 'true' })] : []),
+      ...defs.map((d) => h('button', { class: `st-rail-item k-${d.group}`, title: `${d.title} · ${engineText(d)}`, 'aria-label': `Adicionar ${d.title}`, onclick: () => addNode(d.kind) }, icon(kindIcon(d.kind), 15))),
+    )
   }
-  palette.append(
-    h('div', { class: 'st-group' }, 'Modelos de fluxo'),
-    ...FLOW_TEMPLATES.map((t) =>
-      h('button', { class: 'st-pal-item', title: `Abre este modelo numa aba nova (${t.hint})`, onclick: () => void createTab(t.id) }, h('span', { class: 'st-pal-icon' }, icon(t.id === 'blank' ? 'reset' : 'list', 15)), h('span', { class: 'st-pal-text' }, h('b', {}, t.title), h('small', {}, t.hint))),
-    ),
-    integrations,
+  rail.append(
+    h('span', { class: 'st-rail-sep', 'aria-hidden': 'true' }),
+    h('button', { class: 'st-rail-item', title: 'Mostrar a lista de nós', 'aria-label': 'Abrir Nós', onclick: () => nodesW.setMini(false) }, icon('list', 15)),
   )
 
   // ---------- view ----------
@@ -378,6 +444,38 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     opts.toast('Nó de Imagem criado com a referência. Ligue-o onde quiser.', 'ok')
   }
 
+  /** A reference (Referências) on the canvas: a Video or Image node with the file, at `at` or the middle. */
+  function addRef(path: string, kind: 'video' | 'image', at?: { x: number; y: number }): void {
+    addNode(kind, at)
+    const n = flow().nodes.at(-1)
+    if (!n) return
+    if (kind === 'video') n.params.path = path
+    else n.params.paths = [path]
+    s.save()
+    renderAll()
+    select({ kind: 'node', id: n.id })
+  }
+  const refOf = (e: DragEvent): { path: string; kind: 'video' | 'image' } | null => {
+    try {
+      const r = JSON.parse(e.dataTransfer?.getData(REF_DRAG) || 'null') as { path?: unknown; kind?: unknown } | null
+      return r && typeof r.path === 'string' && (r.kind === 'video' || r.kind === 'image') ? { path: r.path, kind: r.kind } : null
+    } catch {
+      return null
+    }
+  }
+  canvas.addEventListener('dragover', (e) => {
+    if (!e.dataTransfer?.types.includes(REF_DRAG)) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  })
+  canvas.addEventListener('drop', (e) => {
+    const ref = refOf(e)
+    if (!ref) return
+    e.preventDefault()
+    const at = toWorld(e.clientX, e.clientY)
+    addRef(ref.path, ref.kind, { x: at.x - 140, y: at.y - 30 })
+  })
+
   /** "Editar" on an image result: an Editar imagem node to the right, already wired. */
   function editFrom(node: FlowNode, port: string): void {
     const el2 = nodeEls.get(node.id)
@@ -468,6 +566,38 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
           sel.disabled = true
         })
       return h('label', { class: 'st-field' }, h('span', {}, d.label), sel)
+    }
+    if (d.type === 'formats') {
+      const on = new Set((p[d.key] as string[] | undefined) ?? [])
+      const platforms = [...new Set(SOCIAL_FORMATS.map((f) => f.platform))]
+      return h(
+        'div',
+        { class: 'st-field' },
+        h('span', {}, d.label),
+        h(
+          'div',
+          { class: 'st-formats', role: 'group', 'aria-label': d.label },
+          ...platforms.map((pl) =>
+            h(
+              'div',
+              { class: 'st-formats-row' },
+              h('small', {}, pl),
+              ...SOCIAL_FORMATS.filter((f) => f.platform === pl).map((f) => {
+                const btn = h('button', { class: `st-fmt${on.has(f.id) ? ' on' : ''}`, 'aria-pressed': String(on.has(f.id)), title: `${f.w}×${f.h}${f.safe ? ' · com área segura' : ''}` }, f.label)
+                btn.addEventListener('click', () => {
+                  if (on.has(f.id)) on.delete(f.id)
+                  else on.add(f.id)
+                  p[d.key] = SOCIAL_FORMATS.map((x) => x.id).filter((id) => on.has(id))
+                  btn.classList.toggle('on', on.has(f.id))
+                  btn.setAttribute('aria-pressed', String(on.has(f.id)))
+                  commit()
+                })
+                return btn
+              }),
+            ),
+          ),
+        ),
+      )
     }
     // file
     const pick = async () => {
@@ -668,9 +798,11 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
       nel.addEventListener('dragleave', () => nel.classList.remove('drop'))
       nel.addEventListener('drop', (e) => {
         e.preventDefault()
+        e.stopPropagation()
         nel.classList.remove('drop')
         const ok = fileParam.accept === 'video' ? /\.(mp4|mov|m4v|webm)$/i : /\.(png|jpe?g|webp|gif)$/i
-        const paths = [...(e.dataTransfer?.files ?? [])].map((f) => window.office.pathForFile(f)).filter((p) => p && ok.test(p))
+        const ref = refOf(e)
+        const paths = ref ? [ref.path].filter((p) => ok.test(p)) : [...(e.dataTransfer?.files ?? [])].map((f) => window.office.pathForFile(f)).filter((p) => p && ok.test(p))
         if (!paths.length) return opts.toast(fileParam.accept === 'video' ? 'Solte um vídeo (mp4, mov, m4v ou webm).' : 'Solte imagens (png, jpg, webp ou gif).', 'err')
         if (fileParam.multi) node.params[fileParam.key] = [...new Set([...((node.params[fileParam.key] as string[]) ?? []), ...paths])].slice(0, 20)
         else node.params[fileParam.key] = paths[0]
@@ -691,7 +823,7 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     }
     if (!flow().nodes.length) world.append(h('div', { class: 'st-empty' }, 'Escolha um nó à esquerda para começar.'))
     else world.querySelector('.st-empty')?.remove()
-    stopBtn.hidden = !s.busy
+    setRunState()
     setChip()
     requestAnimationFrame(drawWires)
   }
@@ -703,6 +835,7 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     if (!n || !nel) return renderAll()
     const fresh = isFresh(flow(), n)
     const def = NODE_DEFS[n.kind]
+    setRunState()
     nel.classList.toggle('running', s.running.has(id))
     nel.classList.toggle('failed', !!n.error)
     nel.classList.toggle('done', !!def.engine && !!n.result && fresh)
@@ -832,8 +965,8 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     if (!needs) return true
     const st = await readStatus()
     if (creativeReady(st)) return true
-    opts.toast('Conecte o ChatGPT (Codex) em Integrações, na coluna da esquerda.', 'err')
-    integrations.scrollIntoView({ behavior: 'smooth' })
+    opts.toast('Conecte o ChatGPT (Codex) no widget Integrações, à direita.', 'err')
+    showIntegrations()
     return false
   }
   async function runNode(id: string): Promise<void> {
@@ -856,9 +989,29 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
   stopBtn.addEventListener('click', () => s.stop())
 
   // ---------- dialogs ----------
+  /** An image in full; on social sizes, a toggle shows what the app covers (9:16) or the grid crops (feed). */
   function preview(path: string): void {
     const img = h('img', { class: 'st-preview-img', src: mediaUrl(path), alt: fileName(path) })
-    const m = modal(fileName(path), [img], [h('button', { class: 'btn', onclick: () => void window.office.revealPath(path) }, icon('folder', 15), 'Mostrar no Finder'), h('button', { class: 'btn btn-primary', onclick: () => m.remove() }, 'Fechar')], () => m.remove())
+    const guides = h('div', { class: 'st-safe', hidden: true, 'aria-hidden': 'true' })
+    const size = h('span', { class: 'st-preview-size' })
+    const safeBtn = h('button', { class: 'btn', hidden: true, 'aria-pressed': 'false' }, icon('expand', 15), 'Áreas seguras')
+    safeBtn.addEventListener('click', () => {
+      guides.hidden = !guides.hidden
+      safeBtn.classList.toggle('on', !guides.hidden)
+      safeBtn.setAttribute('aria-pressed', String(!guides.hidden))
+    })
+    img.addEventListener('load', () => {
+      const f = formatOfSize(img.naturalWidth, img.naturalHeight)
+      size.textContent = `${img.naturalWidth}×${img.naturalHeight}${f ? ` · ${f.platform} ${f.label}` : ''}`
+      const z = f?.safe ?? f?.grid
+      if (!f || !z) return
+      const pct = (n: number, of: number) => `${((n / of) * 100).toFixed(2)}%`
+      guides.style.cssText = `--t:${pct(z.top, f.h)};--b:${pct(z.bottom, f.h)};--l:${pct(z.left, f.w)};--r:${pct(z.right, f.w)}`
+      guides.replaceChildren(h('span', { class: 'st-safe-label' }, f.safe ? 'Fora do tracejado, a interface do app cobre' : 'Na grade do perfil (3:4), as laterais são cortadas'))
+      safeBtn.hidden = false
+      safeBtn.title = f.safe ? `Mostra as faixas que o ${f.platform} cobre com botões e legenda` : 'Mostra o corte da grade 3:4 do perfil'
+    })
+    const m = modal(fileName(path), [h('div', { class: 'st-preview-frame' }, img, guides), size], [safeBtn, h('button', { class: 'btn', onclick: () => void window.office.revealPath(path) }, icon('folder', 15), 'Mostrar no Finder'), h('button', { class: 'btn btn-primary', onclick: () => m.remove() }, 'Fechar')], () => m.remove())
     m.classList.add('backdrop-st-preview')
     el.append(m)
   }
@@ -875,7 +1028,10 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     for (const id of s.running.keys()) refreshNode(id)
   }, 1000)
   listen()
-  const offBusy = onBusyChange(() => renderTabs())
+  const offBusy = onBusyChange(() => {
+    renderTabs()
+    setRunState()
+  })
   const off = () => {
     clearInterval(ticker)
     unsub()

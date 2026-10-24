@@ -17,9 +17,20 @@ export interface Running {
 const sessions = new Map<string, StudioSession>()
 const byJob = new Map<string, StudioSession>()
 
+const extraProgress = new Map<string, (text: string) => void>()
+
 /** creative:progress from the main process. */
 export function studioProgress(jobId: string, text: string): void {
   byJob.get(jobId)?.progress(jobId, text)
+  extraProgress.get(jobId)?.(text)
+}
+
+/** Progress of work that is not a node (e.g. "ads:<floorId>", the ads capture). Returns the unsubscribe. */
+export function onStudioProgress(jobId: string, fn: (text: string) => void): () => void {
+  extraProgress.set(jobId, fn)
+  return () => {
+    if (extraProgress.get(jobId) === fn) extraProgress.delete(jobId)
+  }
 }
 
 const key = (floorId: string, flowId: string) => `${floorId}/${flowId}`

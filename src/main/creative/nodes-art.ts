@@ -4,20 +4,22 @@ import type { CreativeJob, CreativeJobResult } from '@shared/creative'
 import { renderArt, type ArtStyle, type ArtText } from './art'
 import { runCodex } from './codex'
 import { speak } from './elevenlabs'
-import { imagesOf, int, runDir, slug, stamp, str, texts, think, type NodeRunCtx } from './helpers'
-import { cropTo } from './media'
+import { brandPrompt, formatById, safePrompt, type BrandKit } from '@shared/social'
+import { brandFor, imagesOf, int, runDir, slug, stamp, str, texts, think, type NodeRunCtx } from './helpers'
+import { fitTo } from './media'
 
 // Nodes that make finished pieces: edit an image, text over art, carousels, narration.
 //   criativos/imagens (edits)  criativos/artes  criativos/carrosseis/<name>/  criativos/audios
 
 const READ = 'Se o briefing citar pastas ou arquivos desta máquina, leia o que precisar deles (só leitura).'
 
-function styleOf(p: Record<string, unknown>): ArtStyle {
+/** Empty color and "Fonte do kit de marca" come from the brand kit. */
+export function styleOf(p: Record<string, unknown>, brand?: BrandKit | null): ArtStyle {
   return {
     layout: p.layout === 'topo' || p.layout === 'centro' ? p.layout : 'base',
     tema: p.tema === 'claro' || p.tema === 'marca' ? p.tema : 'escuro',
-    fonte: p.fonte === 'serif' || p.fonte === 'condensada' ? p.fonte : 'sans',
-    cor: /^#[0-9a-f]{6}$/i.test(str(p.cor)) ? str(p.cor) : '#9b7bf0',
+    fonte: p.fonte === 'serif' || p.fonte === 'condensada' ? p.fonte : p.fonte === 'marca' ? (brand?.fonte ?? 'sans') : 'sans',
+    cor: /^#[0-9a-f]{6}$/i.test(str(p.cor)) ? str(p.cor) : (brand?.cores[0] ?? '#9b7bf0'),
   }
 }
 
@@ -34,21 +36,23 @@ export async function editImage(job: CreativeJob, ctx: NodeRunCtx): Promise<Crea
   if (!src) throw new Error('Ligue a imagem que você quer editar.')
   const request = [str(job.params.request, 2000), ...texts(job.inputs.instruction)].filter(Boolean).join('\n\n')
   if (!request) throw new Error('Diga o que mudar (campo "O que mudar" ou um texto ligado).')
-  const aspect = ['1:1', '4:5', '9:16', '16:9'].includes(String(job.params.aspect)) ? String(job.params.aspect) : 'igual'
+  const fmt = formatById(job.params.aspect)
+  const brand = brandFor(job, ctx.root)
   const dir = runDir(ctx.root, job)
   const prompt = [
     'Use a ferramenta de geração de imagem para EDITAR a imagem anexada (gere uma nova versão dela).',
     `Mudança pedida: ${request}`,
     'Mantenha tudo o que o pedido não mencionar: pessoas, rostos, produto, marca, composição, luz e estilo.',
-    aspect === 'igual' ? 'Mantenha a proporção da imagem original.' : `A saída deve servir para ${aspect}: assunto principal no centro.`,
+    fmt ? `A saída deve servir para ${fmt.platform} ${fmt.label} (${fmt.w}x${fmt.h}). ${safePrompt(fmt)}` : 'Mantenha a proporção da imagem original.',
+    brand ? `Se a mudança envolver cores ou estilo, siga a marca. ${brandPrompt(brand)}` : '',
     'Não escreva código nem salve arquivos; responda numa linha o que mudou.',
   ].join('\n\n')
   ctx.progress('ChatGPT está editando…')
   const r = await runCodex({ prompt, cwd: dir, images: [src], signal: ctx.signal, onProgress: ctx.progress })
   if (!r.images.length) throw new Error(r.message ? `O Codex não editou: ${r.message.slice(0, 240)}` : 'O Codex não devolveu a imagem editada. Rode de novo.')
-  const dest = join(outDir(ctx.root, 'imagens'), `${stamp()}-editada-${slug(request)}.png`)
-  const out = aspect === 'igual' ? r.images[0] : await cropTo(r.images[0], aspect, dest)
-  if (out !== dest) copyFileSync(out, dest)
+  const dest = join(outDir(ctx.root, 'imagens'), `${stamp()}-editada-${slug(request)}${fmt ? `-${fmt.w}x${fmt.h}` : ''}.png`)
+  if (fmt) await fitTo(r.images[0], fmt, dest, 'recorte', ctx.signal)
+  else copyFileSync(r.images[0], dest)
   return { outputs: { image: { type: 'image', paths: [dest] } }, note: `editada · ${relative(ctx.root, dest)}` }
 }
 
@@ -88,10 +92,11 @@ async function copyFor(job: CreativeJob, ctx: NodeRunCtx, dir: string): Promise<
 export async function overlay(job: CreativeJob, ctx: NodeRunCtx): Promise<CreativeJobResult> {
   const images = imagesOf(job.inputs.images)
   if (!images.length) throw new Error('Ligue a imagem (ou as imagens) que vão receber o texto.')
-  const [logo] = imagesOf(job.inputs.logo)
+  const brand = brandFor(job, ctx.root)
+  const [logo = brand?.logo || undefined] = imagesOf(job.inputs.logo)
   const dir = runDir(ctx.root, job)
   const { text, by } = await copyFor(job, ctx, dir)
-  const style = styleOf(job.params)
+  const style = styleOf(job.params, brand)
   const folder = outDir(ctx.root, 'artes')
   const name = `${stamp()}-${slug(text.titulo)}`
   const paths: string[] = []
@@ -116,10 +121,11 @@ export async function carousel(job: CreativeJob, ctx: NodeRunCtx): Promise<Creat
   const brief = texts(job.inputs.brief).join('\n\n')
   if (!brief) throw new Error('Ligue um briefing: um nó de Texto ou uma análise.')
   const refs = imagesOf(job.inputs.refs)
-  const [logo] = imagesOf(job.inputs.logo)
+  const brand = brandFor(job, ctx.root)
+  const [logo = brand?.logo || undefined] = imagesOf(job.inputs.logo)
   const n = int(job.params.slides, 3, 10, 5)
-  const aspect = job.params.aspect === '1:1' ? '1:1' : '4:5'
-  const artDir = str(job.params.style, 1000)
+  const fmt = formatById(job.params.aspect === '1:1' || job.params.aspect === '3:4' ? job.params.aspect : '4:5')!
+  const artDir = [str(job.params.style, 1000), brandPrompt(brand)].filter(Boolean).join(' ')
   const dir = runDir(ctx.root, job)
 
   // 1. the script: one slide each, cover first, CTA last
@@ -169,7 +175,7 @@ export async function carousel(job: CreativeJob, ctx: NodeRunCtx): Promise<Creat
   if (slides.length < 2) throw new Error('O roteiro do carrossel voltou vazio. Rode de novo.')
 
   // 2. the backgrounds, one Codex turn so they share a style; missing ones get a second turn
-  const size = aspect === '1:1' ? 'quadradas (1024x1024)' : 'retrato (1024x1536)'
+  const size = fmt.id === '1:1' ? 'quadradas (1024x1024)' : 'retrato (1024x1536)'
   const draw = async (list: { i: number; s: Slide }[]) => {
     const prompt = [
       `Use a ferramenta de geração de imagem para criar ${list.length} imagens ${size}, uma por slide, NA ORDEM abaixo, todas com o mesmo estilo visual, paleta e luz (é um carrossel).`,
@@ -192,13 +198,13 @@ export async function carousel(job: CreativeJob, ctx: NodeRunCtx): Promise<Creat
   if (!backs.length) throw new Error('O Codex não gerou as imagens do carrossel. Rode de novo.')
 
   // 3. text over each slide
-  const style = styleOf(job.params)
+  const style = styleOf(job.params, brand)
   const folder = outDir(ctx.root, 'carrosseis', `${stamp()}-${slug(slides[0].titulo)}`)
   const paths: string[] = []
   for (const [i, s] of slides.entries()) {
     const back = backs[i] ?? backs[backs.length - 1]
     ctx.progress(`Montando o slide ${i + 1} de ${slides.length}…`)
-    const fitted = await cropTo(back, aspect, join(dir, `fundo-${i + 1}.png`))
+    const fitted = await fitTo(back, fmt, join(dir, `fundo-${i + 1}.png`), 'recorte', ctx.signal)
     const dest = join(folder, `slide-${String(i + 1).padStart(2, '0')}.png`)
     await renderArt(fitted, dest, { titulo: s.titulo, subtitulo: s.texto, selo: `${i + 1}/${slides.length}` }, style, i === 0 || i === slides.length - 1 ? logo : undefined)
     paths.push(dest)

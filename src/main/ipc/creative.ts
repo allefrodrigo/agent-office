@@ -74,10 +74,13 @@ export function registerCreativeIpc(ctx: IpcContext): void {
 
   ipcMain.handle('office:pickMedia', async (_e, kind: unknown, multi: unknown) => {
     const video = kind === 'video'
+    const both = kind === 'media'
+    const videos = { name: 'Vídeos', extensions: ['mp4', 'mov', 'm4v', 'webm'] }
+    const images = { name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }
     const r = await dialog.showOpenDialog(win()!, {
-      title: video ? 'Escolha o vídeo' : 'Escolha as imagens',
-      properties: video || multi !== true ? ['openFile'] : ['openFile', 'multiSelections'],
-      filters: [video ? { name: 'Vídeos', extensions: ['mp4', 'mov', 'm4v', 'webm'] } : { name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif'] }],
+      title: both ? 'Escolha imagens ou vídeos' : video ? 'Escolha o vídeo' : 'Escolha as imagens',
+      properties: both || (!video && multi === true) ? ['openFile', 'multiSelections'] : ['openFile'],
+      filters: both ? [{ name: 'Imagens e vídeos', extensions: [...images.extensions, ...videos.extensions] }] : [video ? videos : images],
     })
     return r.canceled ? [] : r.filePaths
   })
@@ -93,7 +96,7 @@ export function registerCreativeIpc(ctx: IpcContext): void {
     try {
       const claudeEnv = accountEnv(accounts.pick({ cwd: floor.cwd, accounts: floor.accounts }))
       const r = await runNode(job, { root: floor.cwd, signal: ctrl.signal, progress, claudeEnv })
-      if (job.kind === 'generate-image' || job.params.engine === 'codex') void refreshUsage()
+      if (job.kind === 'generate-image' || job.kind === 'edit-image' || job.kind === 'carousel' || job.params.engine === 'codex') void refreshUsage()
       log.info(`Estúdio: ${job.kind} em ${Math.round((Date.now() - started) / 1000)} s (${floor.name})`)
       return r
     } catch (err) {

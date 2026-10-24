@@ -88,7 +88,7 @@ describe('flow file', () => {
   it('a job names a creative floor and a node that runs', () => {
     const job = { jobId: 'j1', floorId: 'p-1', nodeId: 'n', kind: 'generate-image', params: { aspect: '9:16', count: 9 }, inputs: { prompt: [{ type: 'text', text: 'x' }], refs: [{ type: 'image', paths: ['/a.txt', '/b.png'] }] } }
     const clean = cleanJob(job, ['p-1'])
-    expect(clean.params).toEqual({ aspect: '9:16', count: 4, style: '' })
+    expect(clean.params).toEqual({ aspect: '9:16', count: 4, style: '', marca: 'sim' })
     expect(clean.inputs.refs).toEqual([{ type: 'image', paths: ['/b.png'] }])
     expect(() => cleanJob(job, ['p-2'])).toThrow(/não existe/)
     expect(() => cleanJob({ ...job, kind: 'text' }, ['p-1'])).toThrow(/entrada/)

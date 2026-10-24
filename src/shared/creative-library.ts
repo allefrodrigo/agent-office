@@ -11,7 +11,7 @@ export const FLOW_NAME_MAX = 40
 export const FLOW_ID = /^f-[\w-]{1,40}$/
 
 /** What a gallery item is, by the folder it came from. */
-export type LibraryKind = 'imagem' | 'analise' | 'audio' | 'arte' | 'carrossel'
+export type LibraryKind = 'imagem' | 'analise' | 'audio' | 'arte' | 'carrossel' | 'formato' | 'exportado'
 
 export interface LibraryItem {
   kind: LibraryKind
@@ -29,6 +29,8 @@ export const LIBRARY_DIRS: [LibraryKind, string][] = [
   ['carrossel', 'criativos/carrosseis'],
   ['audio', 'criativos/audios'],
   ['analise', 'criativos/analises'],
+  ['formato', 'criativos/formatos'],
+  ['exportado', 'exportar'],
 ]
 
 export const LIBRARY_LABEL: Record<LibraryKind, string> = {
@@ -37,6 +39,8 @@ export const LIBRARY_LABEL: Record<LibraryKind, string> = {
   carrossel: 'Carrosséis',
   audio: 'Áudios',
   analise: 'Análises',
+  formato: 'Formatos',
+  exportado: 'Exportados',
 }
 
 export const LIBRARY_MAX = 500
