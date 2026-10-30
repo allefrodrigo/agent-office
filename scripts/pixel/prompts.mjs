@@ -227,33 +227,37 @@ Object.assign(JOBS, {
 })
 
 // ---------- recolorable people: one template sheet per hair style of the 3D avatar ----------
-// Every part is painted in a key hue (3 tones each); the app swaps the hues for the agent's look.
+// Every part is painted in a key hue (5 tones each); the app swaps the hues for the agent's look.
+// Each rides with the detailed agent sheet closest to its hair, so it keeps that level of detail.
 
-export const TEMPLATE_KEYS = `PALETTE-SWAP TEMPLATE: paint every body part ONLY in its key color family, flat, with exactly 3 tones of the same hue (light, base, dark), so a program can recolor it later:
-- skin (face, ears, neck, hands): pure yellow — light #FFFF80, base #FFFF00, dark #B4B400
-- hair (and eyebrows): pure green — light #80FF80, base #00FF00, dark #00A000
-- shirt / top / sleeves: pure red — light #FF8080, base #FF0000, dark #A00000
-- pants: pure blue — light #8080FF, base #0000FF, dark #0000A0
-- shoes: pure cyan — light #80FFFF, base #00FFFF, dark #00A0A0
-- outline, eyes and mouth: black #000000 (eye shine may be white #FFFFFF)
-No other colors at all: no real skin tones, no browns, no grays, no gradients, no anti-aliasing between colors.`
+export const TEMPLATE_KEYS = `PALETTE-SWAP TEMPLATE: paint every body part ONLY in its key color family, with exactly these 5 tones of the same hue (highlight, light, base, shade, deep shade), so a program can recolor it later. Use all 5 tones for rich shading and detail (hair strands and curls, cloth folds, collar, cuffs, seams, buttons, shoe soles), exactly as detailed as the reference:
+- skin (face, ears, neck, hands): pure yellow — #FFFF80, #FFFF40, #FFFF00, #C0C000, #808000
+- hair (and eyebrows): pure green — #80FF80, #40FF40, #00FF00, #00C000, #008000
+- shirt / top / sleeves: pure red — #FF8080, #FF4040, #FF0000, #C00000, #800000
+- pants: pure blue — #8080FF, #4040FF, #0000FF, #0000C0, #000080
+- shoes: pure cyan — #80FFFF, #40FFFF, #00FFFF, #00C0C0, #008080
+- outline: near-black #141414; eyes: black #000000 with white #FFFFFF shine and white eye whites; mouth: black
+No other colors at all: no real skin tones, no browns, no grays besides the outline, no beard, no mustache, no accessories (no glasses, headphones, badges, ties, jewelry), no gradients, no anti-aliasing between colors.`
 
 const HAIR = [
-  'short hair with a side part',
-  'short spiky hair',
-  'long straight hair falling past the shoulders',
-  'hair tied in a round bun on top of the head',
-  'two pigtails, one on each side',
-  'a big round curly afro',
+  ['short hair with a side part', 'personagens/chefe'],
+  ['short spiky hair', 'personagens/agente-07'],
+  ['long straight hair falling past the shoulders', 'personagens/agente-01'],
+  ['hair tied in a round bun on top of the head', 'personagens/agente-03'],
+  ['two pigtails, one on each side', 'personagens/agente-08'],
+  ['a big round curly afro', 'personagens/agente-02'],
 ]
 
-for (const [i, hair] of HAIR.entries()) {
+for (const [i, [hair, ruler]] of HAIR.entries()) {
   JOBS[`personagens/molde-${i}`] = {
-    prompt: `${CHARACTER_STYLE.replace('Never use magenta.', '')}
+    ruler,
+    prompt: `${CHARACTER_STYLE.replace('Never use magenta.', '').replace('simple 2-3 tone shading', '5-tone shading')}
 ${TEMPLATE_KEYS}
 Background: perfectly flat solid pure magenta #FF00FF over the whole canvas (chroma key).
 
-The character: a friendly office worker with ${hair}, long-sleeve shirt, plain pants, simple shoes. Same chibi proportions as a 16-bit RPG hero.`,
+STYLE REFERENCE: the attached sheet. Match its art quality exactly: same proportions, same pixel size, same expressive face (eyebrows, eye whites, small nose, mouth), same amount of detail in hair and clothes, same poses in the same grid. Only the colors change, to the key palette above, and the character is a different person.
+
+The character: a friendly office worker with ${hair}, long-sleeve collared shirt, plain pants, sneakers.`,
   }
 }
 

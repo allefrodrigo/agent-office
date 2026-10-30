@@ -5,12 +5,15 @@ import { asDialog, FocusReturn, isTyping, labelDialog } from './a11y'
 import { formatCost, formatDuration, h, icon } from './dom'
 import { renderMarkdown } from './markdown'
 import { cleanError } from './modals/common'
+import { sendChecked } from './panel/economy'
 import { portrait } from './portrait'
 
 export interface DialogActions {
   reply(agentId: string): void
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
   exportConversation(agentId: string): void
+  /** 2D: the agent's sprite, standing, for the reading screen. Null when there is none. */
+  figure(agentId: string): HTMLCanvasElement | null
 }
 
 /** itemId prefix of the plan limit card, which has no item behind it. */
@@ -45,15 +48,21 @@ export class Dialog {
   private reread = false
   /** Who had the focus before the card took it (AO-38). */
   private focusBack = new FocusReturn()
+  /** 2D view: a result comes as an RPG text box, and "Ler" opens it full screen (showReader). */
+  private readonly flat = document.body.classList.contains('view-2d')
 
   constructor(
-    root: HTMLElement,
+    private root: HTMLElement,
     private state: State,
     private actions: DialogActions,
   ) {
     this.el = h('div', { class: 'dialog card hidden' })
     asDialog(this.el)
     root.append(this.el)
+    // The reading screen covers the office: keys stay in it (B, T, arrows…), except Enter and Esc for the card.
+    this.el.addEventListener('keydown', (e) => {
+      if (this.el.classList.contains('reader') && e.key !== 'Enter' && e.key !== 'Escape') e.stopPropagation()
+    })
     window.addEventListener('keydown', (e) => {
       if (!this.itemId) return
       if (e.key === 'Escape') return this.close()
@@ -75,8 +84,8 @@ export class Dialog {
     return this.itemId !== null
   }
 
-  /** Opens the first pending item of an agent, or a specific one. */
-  open(agentId: string, itemId?: string): boolean {
+  /** Opens the first pending item of an agent, or a specific one. `read` opens a result straight on the reading screen (2D). */
+  open(agentId: string, itemId?: string, read = false): boolean {
     const agent = this.state.agents.get(agentId)
     if (!agent) return false
     const items = this.state.itemsFor(agentId)
@@ -87,7 +96,7 @@ export class Dialog {
     this.context = perm?.context
     this.subagent = perm?.subagent
     if (perm) this.showPermission(agent, perm)
-    else if (result && (!itemId || result.id === itemId)) this.showResult(agent, result)
+    else if (result && (!itemId || result.id === itemId)) this.showResult(agent, result, read)
     else return false
     return true
   }
@@ -108,6 +117,7 @@ export class Dialog {
     this.itemId = e.id
     this.agentId = agentId
     this.changesEl = null
+    if (this.flat) return this.showReader(agent, e.text, !!e.isError, new Date(e.t).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }))
     this.frame(
       agent,
       e.isError ? 'teve um problema' : 'entregou este resultado',
@@ -398,7 +408,7 @@ export class Dialog {
     }
   }
 
-  private showResult(agent: AgentSummary, r: AgentResult): void {
+  private showResult(agent: AgentSummary, r: AgentResult, read = false): void {
     this.itemId = r.id
     this.agentId = agent.id
     const meta = [formatDuration(r.durationMs), r.turns ? `${r.turns} turnos` : '', formatCost(r.costUsd)].filter(Boolean).join(' · ')
@@ -415,6 +425,7 @@ export class Dialog {
     }
     this.changesEl = h('div', { class: 'chg' })
     this.renderChanges(agent, r)
+    if (this.flat) return read ? this.showReader(agent, r.text, !!r.isError, meta, r) : this.showSpeech(agent, r, meta, ack)
     this.frame(
       agent,
       r.isError ? 'teve um problema' : 'veio entregar o resultado',
@@ -440,6 +451,168 @@ export class Dialog {
       ].filter(Boolean) as HTMLElement[],
       r.isError ? 'err' : 'done',
     )
+  }
+
+  /**
+   * 2D: the result as an RPG text box. The first lines type out under the agent's name and
+   * "Ler" (Enter) opens the whole thing on the reading screen.
+   */
+  private showSpeech(agent: AgentSummary, r: AgentResult, meta: string, ack: () => Promise<void>): void {
+    const read = () => this.showResult(agent, r, true)
+    this.keys = { allow: read }
+    this.frame(
+      agent,
+      r.isError ? 'teve um problema' : 'veio entregar o resultado',
+      [
+        this.typed(r.text || '(sem texto)', read),
+        r.limit && agent.source === 'office' ? this.accountChoice(agent, r.limit) : h('span'),
+        meta ? h('div', { class: 'dialog-meta' }, meta) : h('span'),
+      ],
+      [
+        agent.source === 'office'
+          ? h('button', {
+              class: 'btn',
+              onclick: () => {
+                this.close()
+                this.actions.reply(agent.id)
+              },
+            }, 'Responder')
+          : null,
+        h('div', { class: 'grow' }),
+        h('button', { class: 'btn', title: 'Recebido, sem abrir', onclick: ack }, icon('check', 16), 'Recebido'),
+        h('button', { class: 'btn btn-primary', title: 'Ler em tela cheia (Enter)', onclick: read }, icon('expand', 15), 'Ler'),
+      ].filter(Boolean) as HTMLElement[],
+      r.isError ? 'err' : 'done',
+    )
+  }
+
+  /**
+   * The start of the text, typed out a few letters per frame like an RPG text box (all at once
+   * with reduced motion). A click finishes it; a click on the finished text reads it all.
+   */
+  private typed(text: string, read: () => void): HTMLElement {
+    const full = excerpt(text)
+    const shown = h('span', { 'aria-hidden': 'true' })
+    const box = h('div', { class: 'speech-text', title: 'Clique para ler tudo' }, h('span', { class: 'sr-only' }, full), shown, h('span', { class: 'speech-more', 'aria-hidden': 'true' }, '▼'))
+    const reduced = this.state.settings.video?.effects === 'reduced' || matchMedia('(prefers-reduced-motion: reduce)').matches
+    let n = reduced ? full.length : 0
+    const step = () => {
+      n = Math.min(full.length, n + 3)
+      shown.textContent = full.slice(0, n)
+      box.classList.toggle('typing', n < full.length)
+      if (n < full.length && (box.isConnected || n <= 3)) requestAnimationFrame(step)
+    }
+    step()
+    box.addEventListener('click', () => {
+      if (n >= full.length) return read()
+      n = full.length
+      step()
+    })
+    return box
+  }
+
+  /**
+   * 2D: the reading screen, full screen like an RPG dialog. The agent stands on the left; the
+   * text, the changed files and a box to answer fill the rest. `r` is the result still waiting
+   * for the "Recebido"; without it, a result from the log read again.
+   */
+  private showReader(agent: AgentSummary, text: string, isError: boolean, meta: string, r?: AgentResult): void {
+    const hadFocus = !this.el.classList.contains('hidden') && this.el.contains(document.activeElement)
+    this.el.className = `dialog reader tone-${isError ? 'err' : 'done'}`
+    this.shownAt = performance.now()
+    const done = r
+      ? () => {
+          this.close()
+          void window.office.ackResult(r.id)
+        }
+      : () => this.close()
+    // Enter, out of the answer box: "Recebido", like pressing A at the end of an RPG dialog.
+    this.keys = { allow: done }
+    const office = agent.source === 'office'
+
+    const input = h('textarea', { class: 'input reader-input', rows: 2, placeholder: `Responder para ${agent.name}…`, 'aria-label': `Responder para ${agent.name} (Enter envia, Shift+Enter quebra a linha, Esc volta ao texto)` })
+    const sendBtn = h('button', { class: 'btn btn-primary btn-icon', title: 'Enviar (Enter)', 'aria-label': 'Enviar' }, icon('send', 16))
+    let sending = false
+    const send = async () => {
+      const t = input.value.trim()
+      if (!t || sending) return
+      sending = true
+      sendBtn.disabled = true
+      try {
+        if (!(await sendChecked(this.root, this.state, agent.id, t))) return
+        // The answer replaces the result (main drops it); the panel shows the agent at work.
+        this.close()
+        this.actions.reply(agent.id)
+      } catch (err) {
+        this.actions.toast(cleanError(err), 'err')
+      } finally {
+        sending = false
+        sendBtn.disabled = false
+      }
+    }
+    sendBtn.addEventListener('click', () => void send())
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation()
+      if (e.isComposing) return
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault()
+        void send()
+      } else if (e.key === 'Escape') {
+        e.preventDefault()
+        textEl.focus({ preventScroll: true })
+      }
+    })
+
+    const textEl = h(
+      'div',
+      { class: 'reader-text', tabindex: 0, 'aria-label': office ? 'Texto (setas rolam; comece a digitar para responder)' : 'Texto (setas rolam)' },
+      renderMarkdown(text || '(sem texto)'),
+      r?.limit && office ? this.accountChoice(agent, r.limit) : null,
+      this.changesEl,
+    )
+    // Typing on the text goes to the answer box: no need to click it first.
+    textEl.addEventListener('keydown', (e) => {
+      if (!office || e.key.length !== 1 || e.key === ' ' || e.metaKey || e.ctrlKey || e.altKey) return
+      input.focus()
+    })
+
+    const name = h('div', { class: 'reader-name' }, agent.name)
+    const sub = h('div', { class: 'reader-sub' }, isError ? 'teve um problema' : r ? 'veio entregar o resultado' : 'entregou este resultado')
+    this.el.replaceChildren(
+      h(
+        'div',
+        { class: 'reader-side' },
+        h('div', { class: 'reader-figure' }, this.actions.figure(agent.id) ?? portrait(agent.look, 160)),
+        h('div', { class: 'reader-plate' }, name, sub, meta ? h('div', { class: 'reader-meta' }, meta) : null),
+      ),
+      h(
+        'div',
+        { class: 'reader-window' },
+        h(
+          'div',
+          { class: 'reader-head' },
+          h('span', { class: 'reader-title' }, isError ? 'Problema' : 'Resultado'),
+          h('div', { class: 'grow' }),
+          h('button', { class: 'btn btn-small', title: 'Copiar o resultado em Markdown', onclick: () => void navigator.clipboard.writeText(text).then(() => this.actions.toast('Resultado copiado.', 'ok')) }, icon('copy', 13), 'Copiar'),
+          h('button', { class: 'btn btn-small', title: 'Exportar a conversa em Markdown (.md)', onclick: () => this.actions.exportConversation(agent.id) }, icon('file', 13), 'Exportar'),
+          h('button', { class: 'icon-btn', title: 'Depois (Esc)', 'aria-label': 'Depois', onclick: () => this.close() }, icon('x', 18)),
+        ),
+        textEl,
+        office
+          ? h('div', { class: 'reader-compose' }, input, sendBtn)
+          : h('div', { class: 'reader-compose reader-compose-off' }, 'Sessão do terminal: responda por lá.'),
+        h(
+          'div',
+          { class: 'reader-actions' },
+          h('span', { class: 'reader-hint' }, `${office ? 'Digite para responder · ' : ''}Enter: ${r ? 'recebido' : 'fechar'} · Esc: depois`),
+          h('div', { class: 'grow' }),
+          h('button', { class: 'btn btn-primary', title: `${r ? 'Recebido' : 'Fechar'} (Enter)`, onclick: done }, r ? icon('check', 16) : null, r ? 'Recebido' : 'Fechar'),
+        ),
+      ),
+    )
+    labelDialog(this.el, { title: [name, sub] })
+    this.takeFocus(hadFocus)
+    if (this.el.contains(document.activeElement)) textEl.focus({ preventScroll: true })
   }
 
   /** The files of the open result card arrived or changed (committed, discarded). */
@@ -595,6 +768,19 @@ function diffLines(text: string): HTMLElement[] {
             : 'diff-ctx'
     return h('div', { class: cls }, l || ' ')
   })
+}
+
+/** The text without Markdown marks, cut at a word near `max` characters. */
+function excerpt(md: string, max = 240): string {
+  const s = md
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`([^`]*)`/g, '$1')
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, '')
+    .replace(/(\*\*|__|\*|_|~~)(\S(?:.*?\S)?)\1/g, '$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+  return s.length > max ? `${s.slice(0, max).replace(/\s+\S*$/, '')}…` : s
 }
 
 /** First line of the report, without markdown, as a commit subject. */

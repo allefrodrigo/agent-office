@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { extname, isAbsolute, join, sep } from 'node:path'
 import { FLOW_ID, FLOW_NAME_MAX, LIBRARY_DIRS, LIBRARY_EXT, LIBRARY_MAX, MAX_FLOWS, type FlowTab, type LibraryItem } from '@shared/creative-library'
+import { FORMAT_IDS } from '@shared/social'
 import { MEDIA_EXT, NODE_DEFS, type CreativeJob, type Flow, type FlowEdge, type FlowNode, type NodeKind, type PortValue } from '@shared/creative'
 
 // The studio's graphs live in the floor folder (.criativo/fluxos/<id>.json, one per tab), so they travel with the project.
@@ -45,6 +46,7 @@ function cleanParams(kind: NodeKind, raw: unknown): Record<string, unknown> {
     if (d.type === 'text') out[d.key] = typeof v === 'string' ? v.slice(0, 20000) : ''
     else if (d.type === 'number') out[d.key] = typeof v === 'number' && Number.isFinite(v) ? Math.min(d.max, Math.max(d.min, Math.round(v))) : d.min
     else if (d.type === 'select') out[d.key] = d.options.some(([k]) => k === v) ? v : d.options[0][0]
+    else if (d.type === 'formats') out[d.key] = Array.isArray(v) ? [...new Set(v.filter((x): x is string => FORMAT_IDS.includes(x as string)))] : []
     else if (d.type === 'voice') out[d.key] = typeof v === 'string' && /^[A-Za-z0-9]{0,40}$/.test(v) ? v : ''
     else if (d.type === 'file') out[d.key] = d.multi ? (Array.isArray(v) ? v.filter(mediaPath).slice(0, 20) : []) : mediaPath(v) ? v : ''
   }
@@ -291,7 +293,8 @@ export function listLibrary(root: string): LibraryItem[] {
       out.push({ kind, path, name, size: st.size, mtime: st.mtimeMs })
     }
   }
-  for (const [kind, rel] of LIBRARY_DIRS) add(kind, join(root, rel), kind === 'carrossel' ? 1 : 0)
+  // carousels sit one folder deeper; exports two (exportar/<peça>/post-NN/)
+  for (const [kind, rel] of LIBRARY_DIRS) add(kind, join(root, rel), kind === 'carrossel' ? 1 : kind === 'exportado' ? 2 : 0)
   return out.sort((a, b) => b.mtime - a.mtime).slice(0, LIBRARY_MAX)
 }
 

@@ -11,7 +11,16 @@
       ["sentado-frente", "sentado-costas", "sentado-lado", "caido"]
     ],
     "names": ["molde-0", "molde-1", "molde-2", "molde-3", "molde-4", "molde-5", "chefe", "agente-01", "agente-02", "agente-03", "agente-04", "agente-05", "agente-06", "agente-07", "agente-08"],
-    "$molde": "molde-N = folha recolorível do estilo de cabelo N do avatar 3D: cabelo verde, pele amarela, camisa vermelha, calça azul, sapato ciano; o app troca pelas cores de cada agente"
+    "$molde": "molde-N = folha recolorível do estilo de cabelo N do avatar 3D: cabelo verde, pele amarela, camisa vermelha, calça azul, sapato ciano; o app troca pelas cores de cada agente",
+    "$eyes": "caixas [x, y, l, a] dos olhos de cada molde, em pixels da célula 48x64, na pose de frente (0) e de lado (2); as outras poses (3 aceno, 4 andar, 8 sentado; 6 e 7 andar de lado, 10 sentado de lado) acham a cabeça sozinhas, a não ser que tenham caixas próprias. O npm run pixel apaga os olhos desenhados ali (vira pele) e o app desenha os seus, abertos ou piscando. erase = partes que contam como olho (K escuro, W branco, g cinza, H cabelo). Se regerar um molde, confira as caixas",
+    "eyes": {
+      "molde-0": { "0": [[19,31,3,4],[26,31,3,4]], "2": [[28,30,2,4]] },
+      "molde-1": { "0": [[19,30,3,5],[27,30,3,5]], "2": [[29,30,2,4]] },
+      "molde-2": { "0": [[18,28,4,4],[26,28,4,4]], "2": [[27,28,4,4]] },
+      "molde-3": { "0": [[19,33,3,4],[26,33,3,4]], "2": [[29,33,2,4]], "3": [[21,33,3,4],[28,33,3,4]], "4": [[19,32,3,4],[26,32,3,4]], "8": [[19,34,3,4],[26,34,3,4]] },
+      "molde-4": { "0": [[18,29,4,4],[26,29,4,4]], "2": [[30,28,2,4]], "erase": "KWgH" },
+      "molde-5": { "0": [[19,30,3,5],[26,30,3,5]], "2": [[29,32,3,3]], "3": [[16,30,3,5],[22,30,5,5]], "4": [[19,29,3,5],[25,29,5,5]], "8": [[19,30,3,4],[25,30,5,4]], "6": [[29,30,3,3]], "7": [[29,30,3,3]], "10": [[27,30,3,3]] }
+    }
   },
   "sprites": {
     "personagens/caveira": { "w": 48, "h": 52, "fit": "h", "tiles": [1, 1], "prio": 1, "label": "esqueleto de pé, de frente, segurando uma foice pequena; fica ao lado da sua sala e dispensa agentes" },

@@ -119,6 +119,14 @@ const api: OfficeAPI = {
   reorderFlows: (floorId, order) => ipcRenderer.invoke('office:reorderFlows', floorId, order),
   listLibrary: (floorId) => ipcRenderer.invoke('office:listLibrary', floorId),
   readLibraryText: (floorId, path) => ipcRenderer.invoke('office:readLibraryText', floorId, path),
+  loadBrand: (floorId) => ipcRenderer.invoke('office:loadBrand', floorId),
+  saveBrand: (floorId, kit) => ipcRenderer.invoke('office:saveBrand', floorId, kit),
+  listRefs: (floorId) => ipcRenderer.invoke('office:listRefs', floorId),
+  captureAds: (floorId, target, max) => ipcRenderer.invoke('office:captureAds', floorId, target, max),
+  cancelCapture: (floorId) => ipcRenderer.invoke('office:cancelCapture', floorId),
+  addRefs: (floorId, paths) => ipcRenderer.invoke('office:addRefs', floorId, paths),
+  setRefTags: (floorId, id, tags) => ipcRenderer.invoke('office:setRefTags', floorId, id, tags),
+  removeRef: (floorId, id) => ipcRenderer.invoke('office:removeRef', floorId, id),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

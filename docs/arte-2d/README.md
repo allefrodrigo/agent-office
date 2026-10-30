@@ -50,7 +50,7 @@ Os prompts estão em `scripts/pixel/prompts.mjs` (os que o Codex usa) e, para ge
 - Um objeto por imagem (ou por célula da folha), inteiro, sem sombra, sem texto, fundo liso.
 - Tela ou vidro em magenta `#FF00FF`: é onde o app desenha o conteúdo ao vivo. Magenta em qualquer outro lugar some.
 - Folha de personagem: 4 colunas x 3 linhas (de pé, andando, sentado/caído), na ordem do catálogo.
-- Moldes recoloríveis (catálogo: `molde-N` e os sprites com `"tint": true`): cada parte só na sua cor-chave, em 3 tons (claro, base, escuro), fundo magenta.
+- Moldes recoloríveis (catálogo: `molde-N` e os sprites com `"tint": true`): cada parte só na sua cor-chave, fundo magenta. Móveis usam 3 tons (claro, base, escuro); os moldes de personagem usam 5 e vão ao Codex com a folha `agente-NN` de cabelo parecido como referência de estilo, para sair no mesmo nível de detalhe. Os olhos dos moldes não ficam no desenho: o `npm run pixel` apaga os olhos nas caixas de `characters.eyes` do catálogo e grava onde ficam em cada pose (`molde-N.json`); o app desenha olhos próprios, abertos ou piscando. Ao regerar um molde, confira essas caixas.
 
 | Cor-chave | Personagem | Móvel |
 |---|---|---|

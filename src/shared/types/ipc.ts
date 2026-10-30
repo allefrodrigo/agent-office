@@ -11,6 +11,7 @@ import type { MacJob, Routine, RoutineDraft } from './routines'
 import type { ClaudeStats } from './stats'
 import type { CodexUsage, CreativeJob, CreativeJobResult, CreativeStatus, ElevenVoice, Flow } from '../creative'
 import type { FlowTab, LibraryItem } from '../creative-library'
+import type { BrandKit, RefItem } from '../social'
 import type { ViewMode } from '../video'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
@@ -350,8 +351,8 @@ export interface OfficeAPI {
   codexLogout(): Promise<CreativeStatus>
   /** The default folder of a creative floor (made if missing). */
   creativeFolder(): Promise<string>
-  /** File dialog for a video or images; [] when cancelled. */
-  pickMedia(kind: 'video' | 'image', multi?: boolean): Promise<string[]>
+  /** File dialog for a video, images, or both ('media', always multi); [] when cancelled. */
+  pickMedia(kind: 'video' | 'image' | 'media', multi?: boolean): Promise<string[]>
   /** Runs one node; progress comes as creative:progress events. */
   runCreative(job: CreativeJob): Promise<CreativeJobResult>
   cancelCreative(jobId: string): Promise<void>
@@ -369,5 +370,22 @@ export interface OfficeAPI {
   listLibrary(floorId: string): Promise<LibraryItem[]>
   /** An analysis (.md) of the floor. */
   readLibraryText(floorId: string, path: string): Promise<string>
+  /** The floor's brand kit (.criativo/marca.json). */
+  loadBrand(floorId: string): Promise<BrandKit>
+  /** Saves the kit; a logo from outside the floor is copied in. Returns the clean kit. */
+  saveBrand(floorId: string, kit: BrandKit): Promise<BrandKit>
+  /** Referências: creatives captured or added to the floor, newest first. */
+  listRefs(floorId: string): Promise<RefItem[]>
+  /**
+   * Captures the ads of a page of the Meta Ads Library (@perfil, library link or ad ID) into
+   * referencias/. Progress comes as creative:progress with jobId "ads:<floorId>".
+   */
+  captureAds(floorId: string, target: string, max: number): Promise<{ refs: RefItem[]; added: number; anunciante: string; notFound?: string }>
+  cancelCapture(floorId: string): Promise<void>
+  /** Files picked by hand become references (copied into referencias/manual). */
+  addRefs(floorId: string, paths: string[]): Promise<RefItem[]>
+  setRefTags(floorId: string, id: string, tags: string[]): Promise<RefItem[]>
+  /** Out of the list; the file goes to referencias/.lixeira. */
+  removeRef(floorId: string, id: string): Promise<RefItem[]>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

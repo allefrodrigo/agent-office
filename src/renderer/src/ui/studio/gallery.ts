@@ -5,7 +5,7 @@ import { h, icon } from '../dom'
 import { cleanError } from '../modals'
 
 // Galeria: everything the floor generated (images, artes, carrosséis, áudios, análises, posts),
-// newest first and grouped by day, in a drawer on the right of the studio.
+// newest first and grouped by day, in a floating panel on the right of the studio.
 
 export interface GalleryActions {
   toast(t: string, k?: 'info' | 'ok' | 'err'): void
@@ -13,6 +13,8 @@ export interface GalleryActions {
   showText(title: string, text: string): void
   /** Adds the image to the flow (selected Image node, or a new one). */
   useAsRef(path: string): void
+  /** The drawer opened or closed (keeps the toggle button in sync). */
+  onToggle?(open: boolean): void
 }
 
 const VIDEO_EXT = /\.(mp4|mov|m4v|webm)$/i
@@ -119,6 +121,7 @@ export function galleryPanel(floor: ProjectFloor, actions: GalleryActions): { el
 
   const toggle = (on = el.hidden) => {
     el.hidden = !on
+    actions.onToggle?.(on)
     if (on) refresh()
   }
 

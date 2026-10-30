@@ -28,9 +28,11 @@ export abstract class PanelHead extends PanelSearch {
     const result = items.results[0]
     if (result) {
       this.banner.className = 'panel-banner banner-done'
+      // 2D: "Ler" goes straight to the reading screen.
+      const flat = document.body.classList.contains('view-2d')
       this.banner.replaceChildren(
         h('span', {}, `${a.name} trouxe o resultado`),
-        h('button', { class: 'btn btn-small', onclick: () => this.actions.openItem(a.id, result.id) }, 'Ver resultado'),
+        h('button', { class: 'btn btn-small', onclick: () => this.actions.openItem(a.id, result.id, flat) }, flat ? [icon('expand', 13), 'Ler'] : 'Ver resultado'),
       )
     } else this.banner.className = 'panel-banner hidden'
     this.renderAdvice(a)

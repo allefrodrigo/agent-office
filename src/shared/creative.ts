@@ -1,10 +1,12 @@
 // Estúdio criativo: the node graph of a creative floor, shared by the main process and the page.
 // The page draws and orders the graph; the main process runs one node at a time (Codex, ffmpeg, whisper).
 
+import { EXPORT_PLATFORMS, FORMAT_OPTIONS } from './social'
+
 /** What travels on a wire. A post (caption + hashtags) also feeds text inputs. */
 export type PortType = 'video' | 'image' | 'text' | 'post' | 'audio'
 
-export type NodeKind = 'video' | 'image' | 'text' | 'analyze-video' | 'generate-image' | 'edit-image' | 'overlay' | 'carousel' | 'narrate' | 'write-post'
+export type NodeKind = 'video' | 'image' | 'text' | 'analyze-video' | 'generate-image' | 'edit-image' | 'overlay' | 'carousel' | 'narrate' | 'write-post' | 'formats' | 'export'
 
 export type ParamDef =
   | { key: string; label: string; type: 'text'; placeholder?: string; rows?: number }
@@ -13,6 +15,8 @@ export type ParamDef =
   | { key: string; label: string; type: 'file'; accept: 'video' | 'image'; multi?: boolean }
   /** An ElevenLabs voice, picked from the account's list. */
   | { key: string; label: string; type: 'voice' }
+  /** Several social formats (ids of SOCIAL_FORMATS), ticked in a list. */
+  | { key: string; label: string; type: 'formats' }
 
 export interface PortDef {
   key: string
@@ -27,7 +31,7 @@ export interface NodeDef {
   kind: NodeKind
   title: string
   /** Palette group. */
-  group: 'Entradas' | 'Agentes' | 'Gerar'
+  group: 'Entradas' | 'Agentes' | 'Gerar' | 'Publicar'
   /** Integration that runs it by default; input nodes run nothing. 'claude' nodes may switch to Codex (param `engine`). */
   engine?: 'codex' | 'claude' | 'local' | 'elevenlabs'
   hint: string
@@ -47,6 +51,7 @@ export const TEXT_ENGINES: [string, string][] = [
 /** Label of the engine a node runs on now. */
 export function engineLabel(def: NodeDef, params: Record<string, unknown>): string {
   if (def.engine === 'elevenlabs') return 'ElevenLabs'
+  if (def.kind === 'formats') return params.engine === 'codex' ? 'ChatGPT' : ''
   const e = String(params.engine ?? 'claude-sonnet')
   const writer = e === 'codex' ? 'ChatGPT' : e === 'claude-opus' ? 'Opus' : e === 'claude-haiku' ? 'Haiku' : 'Sonnet'
   if (def.kind === 'carousel') return writer === 'ChatGPT' ? 'ChatGPT' : `${writer} + ChatGPT`
@@ -84,17 +89,25 @@ const ART_PARAMS: ParamDef[] = [
       ['sans', 'Moderna'],
       ['condensada', 'Condensada (impacto)'],
       ['serif', 'Serifada (editorial)'],
+      ['marca', 'Fonte do kit de marca'],
     ],
   },
-  { key: 'cor', label: 'Cor da marca (#hex)', type: 'text', rows: 1, placeholder: '#9b7bf0' },
+  { key: 'cor', label: 'Cor da marca (#hex)', type: 'text', rows: 1, placeholder: 'Vazio = cor principal do kit de marca' },
 ]
 
-export const ASPECTS: [string, string][] = [
-  ['4:5', 'Feed 4:5'],
-  ['1:1', 'Quadrado 1:1'],
-  ['9:16', 'Story/Reels 9:16'],
-  ['16:9', 'Paisagem 16:9'],
-]
+/** Whether the floor's brand kit (widget Marca) goes into the node. The first option is the default. */
+const BRAND_PARAM: ParamDef = {
+  key: 'marca',
+  label: 'Kit de marca',
+  type: 'select',
+  options: [
+    ['sim', 'Aplicar o kit de marca'],
+    ['nao', 'Ignorar o kit'],
+  ],
+}
+
+/** Output formats: exact pixels per platform (see shared/social.ts). */
+export const ASPECTS: [string, string][] = FORMAT_OPTIONS
 
 export const NODE_DEFS: Record<NodeKind, NodeDef> = {
   video: {
@@ -156,6 +169,7 @@ export const NODE_DEFS: Record<NodeKind, NodeDef> = {
       { key: 'aspect', label: 'Formato', type: 'select', options: ASPECTS },
       { key: 'count', label: 'Variações', type: 'number', min: 1, max: 4 },
       { key: 'style', label: 'Direção de arte', type: 'text', rows: 2, placeholder: 'Opcional. Ex.: foto realista, luz natural, sem texto na imagem.' },
+      BRAND_PARAM,
     ],
   },
   'edit-image': {
@@ -172,6 +186,7 @@ export const NODE_DEFS: Record<NodeKind, NodeDef> = {
     params: [
       { key: 'request', label: 'O que mudar', type: 'text', rows: 3, placeholder: 'Ex.: troque o fundo por uma cozinha industrial, mantenha a pessoa e o produto.' },
       { key: 'aspect', label: 'Formato', type: 'select', options: [['igual', 'Igual ao original'], ...ASPECTS] },
+      BRAND_PARAM,
     ],
   },
   overlay: {
@@ -191,6 +206,7 @@ export const NODE_DEFS: Record<NodeKind, NodeDef> = {
       { key: 'subtitulo', label: 'Subtítulo', type: 'text', rows: 2, placeholder: 'Opcional' },
       { key: 'cta', label: 'Chamada / preço', type: 'text', rows: 1, placeholder: 'Ex.: Teste grátis por 7 dias' },
       ...ART_PARAMS,
+      BRAND_PARAM,
     ],
   },
   carousel: {
@@ -210,10 +226,11 @@ export const NODE_DEFS: Record<NodeKind, NodeDef> = {
     ],
     params: [
       { key: 'slides', label: 'Slides', type: 'number', min: 3, max: 10 },
-      { key: 'aspect', label: 'Formato', type: 'select', options: ASPECTS.filter(([k]) => k === '4:5' || k === '1:1') },
+      { key: 'aspect', label: 'Formato', type: 'select', options: ASPECTS.filter(([k]) => k === '4:5' || k === '1:1' || k === '3:4') },
       { key: 'engine', label: 'Quem roteiriza', type: 'select', options: TEXT_ENGINES },
       { key: 'style', label: 'Direção de arte', type: 'text', rows: 2, placeholder: 'Opcional. Ex.: ilustração flat, fundo creme, mesma paleta em todos.' },
       ...ART_PARAMS,
+      BRAND_PARAM,
     ],
   },
   narrate: {
@@ -269,7 +286,65 @@ export const NODE_DEFS: Record<NodeKind, NodeDef> = {
           ['story', 'Story'],
         ],
       },
-      { key: 'tone', label: 'Tom de voz', type: 'text', rows: 2, placeholder: 'Opcional. Ex.: direto, bem-humorado, sem emoji em excesso.' },
+      { key: 'tone', label: 'Tom de voz', type: 'text', rows: 2, placeholder: 'Vazio = o tom do kit de marca. Ex.: direto, bem-humorado.' },
+      BRAND_PARAM,
+    ],
+  },
+  formats: {
+    kind: 'formats',
+    title: 'Formatos',
+    group: 'Gerar',
+    engine: 'local',
+    hint: 'Uma imagem vira uma versão no tamanho exato de cada rede (feed, stories, TikTok, YouTube…). Recortar e encaixar rodam nesta máquina.',
+    inputs: [{ key: 'images', label: 'imagens', type: 'image', multi: true }],
+    outputs: [{ key: 'image', label: 'versões', type: 'image' }],
+    params: [
+      { key: 'formats', label: 'Formatos', type: 'formats' },
+      {
+        key: 'engine',
+        label: 'Como adaptar',
+        type: 'select',
+        options: [
+          ['recorte', 'Recortar no centro'],
+          ['fundo', 'Encaixar com fundo desfocado'],
+          ['codex', 'Redesenhar com ChatGPT (gasta Codex)'],
+        ],
+      },
+    ],
+  },
+  export: {
+    kind: 'export',
+    title: 'Exportar',
+    group: 'Publicar',
+    engine: 'local',
+    hint: 'Copia as peças para exportar/<data>-<peça>/ com nomes padronizados, na ordem do carrossel, em JPEG no tamanho da rede, com a legenda num .txt.',
+    inputs: [
+      { key: 'images', label: 'peças', type: 'image', multi: true },
+      { key: 'caption', label: 'legenda', type: 'text', optional: true, multi: true },
+    ],
+    outputs: [{ key: 'image', label: 'exportadas', type: 'image' }],
+    params: [
+      { key: 'platform', label: 'Rede', type: 'select', options: EXPORT_PLATFORMS },
+      { key: 'aspect', label: 'Tamanho', type: 'select', options: [['auto', 'Manter (se já for de uma rede)'], ...ASPECTS] },
+      {
+        key: 'group',
+        label: 'Como publicar',
+        type: 'select',
+        options: [
+          ['carrossel', 'Um post (carrossel na ordem)'],
+          ['separados', 'Um post por imagem'],
+        ],
+      },
+      { key: 'piece', label: 'Nome da peça', type: 'text', rows: 1, placeholder: 'Vazio = o título da legenda. Ex.: promo-anual' },
+      {
+        key: 'file',
+        label: 'Arquivo',
+        type: 'select',
+        options: [
+          ['jpg', 'JPEG (recomendado para redes)'],
+          ['png', 'PNG'],
+        ],
+      },
     ],
   },
 }
@@ -286,15 +361,19 @@ export function defaultParams(kind: NodeKind): Record<string, unknown> {
     case 'analyze-video':
       return { engine: 'claude-sonnet', focus: '', frames: 16 }
     case 'generate-image':
-      return { aspect: '4:5', count: 1, style: '' }
+      return { aspect: '4:5', count: 1, style: '', marca: 'sim' }
     case 'write-post':
-      return { engine: 'claude-sonnet', format: 'feed', tone: '' }
+      return { engine: 'claude-sonnet', format: 'feed', tone: '', marca: 'sim' }
     case 'edit-image':
-      return { request: '', aspect: 'igual' }
+      return { request: '', aspect: 'igual', marca: 'sim' }
     case 'overlay':
-      return { titulo: '', subtitulo: '', cta: '', layout: 'base', tema: 'escuro', fonte: 'sans', cor: '' }
+      return { titulo: '', subtitulo: '', cta: '', layout: 'base', tema: 'escuro', fonte: 'sans', cor: '', marca: 'sim' }
     case 'carousel':
-      return { slides: 5, aspect: '4:5', engine: 'claude-sonnet', style: '', layout: 'base', tema: 'escuro', fonte: 'sans', cor: '' }
+      return { slides: 5, aspect: '4:5', engine: 'claude-sonnet', style: '', layout: 'base', tema: 'escuro', fonte: 'sans', cor: '', marca: 'sim' }
+    case 'formats':
+      return { formats: ['4:5', '9:16'], engine: 'recorte' }
+    case 'export':
+      return { platform: 'instagram', aspect: 'auto', group: 'carrossel', piece: '', file: 'jpg' }
     case 'narrate':
       return { voice: '', model: 'eleven_multilingual_v2', script: 'claude' }
   }
@@ -439,7 +518,7 @@ export function starterFlow(): Flow {
 const node = (id: string, kind: NodeKind, x: number, y: number, params?: Record<string, unknown>): FlowNode => ({ id, kind, x, y, params: { ...defaultParams(kind), ...params } })
 const edge = (id: string, from: string, fromPort: string, to: string, toPort: string): FlowEdge => ({ id, from, fromPort, to, toPort })
 
-/** Ready-made flows of the palette ("Modelos"). Picking one replaces the canvas. */
+/** Ready-made flows of the tab menu (+). Picking one opens it in a new tab. */
 export const FLOW_TEMPLATES: { id: string; title: string; hint: string; build(): Flow }[] = [
   {
     id: 'image',
@@ -487,19 +566,50 @@ export const FLOW_TEMPLATES: { id: string; title: string; hint: string; build():
     }),
   },
   {
-    id: 'carousel',
-    title: 'Carrossel',
-    hint: 'Briefing → slides com texto → legenda',
+    id: 'social',
+    title: 'Um post, todas as redes',
+    hint: 'Briefing → imagem → feed, stories e TikTok com texto → exportar',
     build: () => ({
       version: 1,
-      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-car', 'carousel', 420, 40), node('n-post', 'write-post', 840, 40)],
+      nodes: [
+        node('n-text', 'text', 40, 40),
+        node('n-refs', 'image', 40, 340),
+        node('n-image', 'generate-image', 420, 40),
+        node('n-fmt', 'formats', 820, 40, { formats: ['4:5', '9:16', 'tiktok'], engine: 'fundo' }),
+        node('n-art', 'overlay', 1220, 40),
+        node('n-post', 'write-post', 1220, 760),
+        node('n-export', 'export', 1620, 40, { group: 'separados' }),
+      ],
+      edges: [
+        edge('e1', 'n-text', 'text', 'n-image', 'prompt'),
+        edge('e2', 'n-refs', 'image', 'n-image', 'refs'),
+        edge('e3', 'n-image', 'image', 'n-fmt', 'images'),
+        edge('e4', 'n-fmt', 'image', 'n-art', 'images'),
+        edge('e5', 'n-text', 'text', 'n-art', 'copy'),
+        edge('e6', 'n-text', 'text', 'n-post', 'brief'),
+        edge('e7', 'n-image', 'image', 'n-post', 'images'),
+        edge('e8', 'n-art', 'image', 'n-export', 'images'),
+        edge('e9', 'n-post', 'post', 'n-export', 'caption'),
+      ],
+      view: { x: 20, y: 20, zoom: 0.55 },
+    }),
+  },
+  {
+    id: 'carousel',
+    title: 'Carrossel',
+    hint: 'Briefing → slides com texto → legenda → exportar em ordem',
+    build: () => ({
+      version: 1,
+      nodes: [node('n-text', 'text', 40, 40), node('n-refs', 'image', 40, 340), node('n-car', 'carousel', 420, 40), node('n-post', 'write-post', 840, 40), node('n-export', 'export', 1240, 40)],
       edges: [
         edge('e1', 'n-text', 'text', 'n-car', 'brief'),
         edge('e2', 'n-refs', 'image', 'n-car', 'refs'),
         edge('e3', 'n-car', 'text', 'n-post', 'brief'),
         edge('e4', 'n-car', 'image', 'n-post', 'images'),
+        edge('e5', 'n-car', 'image', 'n-export', 'images'),
+        edge('e6', 'n-post', 'post', 'n-export', 'caption'),
       ],
-      view: { x: 20, y: 20, zoom: 0.75 },
+      view: { x: 20, y: 20, zoom: 0.65 },
     }),
   },
   {

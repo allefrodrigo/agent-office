@@ -92,12 +92,12 @@ export function integrationsView(opts: { toast(t: string, k?: 'info' | 'ok' | 'e
             h('button', { class: 'btn btn-small', onclick: () => void window.office.codexCancelLogin() }, 'Cancelar'),
           )
         : c.loggedIn
-          ? row(true, 'ChatGPT (Codex)', `Conectado via ${c.account ?? 'ChatGPT'} · codex ${c.version ?? ''}. Gera imagens e roda os agentes do estúdio.`, h('button', { class: 'btn btn-smallall', onclick: () => void logout() }, 'Sair'))
+          ? row(true, 'ChatGPT (Codex)', `Conectado via ${c.account ?? 'ChatGPT'} · codex ${c.version ?? ''}. Gera imagens e roda os agentes do estúdio.`, h('button', { class: 'btn btn-small', onclick: () => void logout() }, 'Sair'))
           : row(
               false,
               'ChatGPT (Codex)',
               c.error ? `O Codex respondeu: ${c.error}` : `Instalado (codex ${c.version ?? ''}), mas sem login.`,
-              h('button', { class: 'btn btn-smallall btn-primary', onclick: () => void login() }, 'Entrar com ChatGPT'),
+              h('button', { class: 'btn btn-small btn-primary', onclick: () => void login() }, 'Entrar com ChatGPT'),
             )
     const local = opts.compact
       ? []

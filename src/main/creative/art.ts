@@ -2,10 +2,12 @@ import { BrowserWindow } from 'electron'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { extname, join } from 'node:path'
+import { formatOfSize, scaledZone, type SafeZone } from '@shared/social'
 import { imageSize } from './media'
 
 // Text over an image, the way a designer would set it: HTML and CSS in a hidden, offscreen,
 // script-less window, captured at the image's own size. Image models misspell; this never does.
+// On Stories/Reels/TikTok sizes the text and logo stay out of the zones the app covers.
 
 export interface ArtText {
   titulo: string
@@ -38,7 +40,8 @@ const FONTS: Record<ArtStyle['fonte'], string> = {
   condensada: "'Avenir Next Condensed', 'DIN Condensed', 'Arial Narrow', sans-serif",
 }
 
-export function artHtml(bg: string, w: number, h: number, text: ArtText, style: ArtStyle, logo?: string): string {
+/** `safe`: margins (px of this image) the platform covers; the text box and the logo keep out of them. */
+export function artHtml(bg: string, w: number, h: number, text: ArtText, style: ArtStyle, logo?: string, safe?: SafeZone): string {
   const cor = HEX.test(style.cor) ? style.cor : '#9b7bf0'
   const u = Math.min(w, h) / 100
   const dark = style.tema !== 'claro'
@@ -49,12 +52,14 @@ export function artHtml(bg: string, w: number, h: number, text: ArtText, style: 
       : dark
         ? 'rgba(10,10,20,0.78)'
         : 'rgba(255,255,255,0.88)'
+  const z = { top: safe?.top ?? 0, bottom: safe?.bottom ?? 0, left: safe?.left ?? 0, right: safe?.right ?? 0 }
+  const side = (n: number, edge: number) => Math.round(Math.max(n * u, edge + 2 * u))
   const pos =
     style.layout === 'topo'
-      ? `top:0;left:0;right:0;padding:${6 * u}px ${6 * u}px ${10 * u}px;background:linear-gradient(180deg, ${scrim} 55%, transparent);`
+      ? `top:0;left:0;right:0;padding:${side(6, z.top)}px ${side(6, z.right)}px ${10 * u}px ${side(6, z.left)}px;background:linear-gradient(180deg, ${scrim} 55%, transparent);`
       : style.layout === 'centro'
-        ? `top:50%;left:${7 * u}px;right:${7 * u}px;transform:translateY(-50%);padding:${6 * u}px;border-radius:${3 * u}px;background:${scrim};text-align:center;`
-        : `bottom:0;left:0;right:0;padding:${12 * u}px ${6 * u}px ${6 * u}px;background:linear-gradient(0deg, ${scrim} 60%, transparent);`
+        ? `top:${50 + ((z.top - z.bottom) / 2 / h) * 100}%;left:${side(7, z.left)}px;right:${side(7, z.right)}px;transform:translateY(-50%);padding:${6 * u}px;border-radius:${3 * u}px;background:${scrim};text-align:center;`
+        : `bottom:0;left:0;right:0;padding:${12 * u}px ${side(6, z.right)}px ${side(6, z.bottom)}px ${side(6, z.left)}px;background:linear-gradient(0deg, ${scrim} 60%, transparent);`
   const ctaBg = style.tema === 'marca' ? ink : cor
   const ctaInk = style.tema === 'marca' ? cor : '#ffffff'
   const titleSize = text.titulo.length > 60 ? 6.2 : text.titulo.length > 34 ? 7.6 : 9.4
@@ -68,7 +73,7 @@ html,body{width:${w}px;height:${h}px;overflow:hidden;background:#000}
 h1{font-size:${titleSize * u}px;line-height:1.02;font-weight:${style.fonte === 'serif' ? 700 : 850};letter-spacing:${style.fonte === 'condensada' ? '0' : '-0.02em'};${style.fonte === 'condensada' ? 'text-transform:uppercase;' : ''}text-wrap:balance}
 p{margin-top:${2.2 * u}px;font-size:${4.1 * u}px;line-height:1.3;opacity:.92;text-wrap:pretty}
 .cta{display:inline-block;margin-top:${3.4 * u}px;padding:${1.8 * u}px ${4 * u}px;border-radius:${8 * u}px;background:${ctaBg};color:${ctaInk};font-weight:800;font-size:${3.8 * u}px}
-.logo{position:absolute;${style.layout === 'topo' ? 'bottom' : 'top'}:${5 * u}px;right:${5 * u}px;max-width:${22 * u}px;max-height:${12 * u}px;object-fit:contain}
+.logo{position:absolute;${style.layout === 'topo' ? `bottom:${side(5, z.bottom)}px` : `top:${side(5, z.top)}px`};right:${side(5, z.right)}px;max-width:${22 * u}px;max-height:${12 * u}px;object-fit:contain}
 </style></head><body>
 <img class="bg" src="${bg}">
 ${logo ? `<img class="logo" src="${logo}">` : ''}
@@ -84,7 +89,8 @@ ${text.cta ? `<span class="cta">${esc(text.cta)}</span>` : ''}
 export async function renderArt(src: string, dest: string, text: ArtText, style: ArtStyle, logo?: string): Promise<void> {
   const { w, h } = await imageSize(src)
   if (!w || !h) throw new Error('Não consegui ler o tamanho da imagem.')
-  const html = artHtml(dataUri(src), w, h, text, style, logo ? dataUri(logo) : undefined)
+  const fmt = formatOfSize(w, h)
+  const html = artHtml(dataUri(src), w, h, text, style, logo ? dataUri(logo) : undefined, fmt?.safe ? scaledZone(fmt.safe, fmt, w, h) : undefined)
   const win = new BrowserWindow({
     show: false,
     width: w,

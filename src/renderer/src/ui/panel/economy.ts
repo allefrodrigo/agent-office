@@ -1,5 +1,6 @@
-import { DEFAULT_CONTEXT_WARN_TOKENS, type Advice } from '@shared/economy'
-import type { AgentSummary, Settings } from '@shared/types'
+import { adviseAgent, DEFAULT_CONTEXT_WARN_TOKENS, type Advice } from '@shared/economy'
+import type { AgentSummary, AttachmentInput, Settings } from '@shared/types'
+import type { State } from '../../state'
 import { formatCost, h, icon } from '../dom'
 import { modal } from '../modals'
 
@@ -84,4 +85,21 @@ export function askCold(root: HTMLElement, a: AgentSummary, advice: Extract<Advi
     root.append(el)
     clear.focus()
   })
+}
+
+/**
+ * Sends a message to an office agent. A cold one asks first: clear and send, send anyway or
+ * cancel. False when cancelled. `attachments` is read only once the message goes.
+ */
+export async function sendChecked(root: HTMLElement, state: State, agentId: string, text: string, attachments?: () => Promise<AttachmentInput[]>): Promise<boolean> {
+  // A cold agent with a big conversation: the cheap way is to clear before sending.
+  const a = state.agents.get(agentId)
+  const advice = a && state.settings.coldConfirm !== false ? adviseAgent(a, warnTokens(state.settings)) : null
+  if (a && advice?.kind === 'cold') {
+    const choice = await askCold(root, a, advice)
+    if (choice === 'cancel') return false
+    if (choice === 'clear') await window.office.clearContext(agentId)
+  }
+  await window.office.send(agentId, text, attachments ? await attachments() : [])
+  return true
 }

@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.3.7-beta.2",
+  "version": "0.3.7",
   "private": true,
   "description": "Escritório isométrico onde agentes do Claude Code trabalham, pedem permissão e entregam resultados.",
   "main": "./out/main/index.js",
