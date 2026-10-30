@@ -835,25 +835,81 @@ textarea.st-input {
 
 /* ---------- tabs (several flows per floor) ---------- */
 
-.st-tab {
+/* One row: a segmented strip that scrolls sideways, then the + button. */
+.st-tabs {
   display: flex;
   align-items: center;
   gap: 6px;
-  max-width: 220px;
-  height: 32px;
-  padding: 0 6px 0 12px;
-  border: 1px solid transparent;
-  border-bottom: none;
-  border-radius: 9px 9px 0 0;
+}
+
+.st-tabs-strip {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  padding: 3px;
+  overflow-x: auto;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.22);
+  box-shadow: inset 0 0 0 1px var(--line);
+  scrollbar-width: none;
+}
+
+.st-tabs-strip::-webkit-scrollbar {
+  display: none;
+}
+
+/* the edge that hides more tabs fades out */
+.st-tabs-strip.fade-l {
+  mask-image: linear-gradient(to right, transparent, #000 28px);
+}
+
+.st-tabs-strip.fade-r {
+  mask-image: linear-gradient(to left, transparent, #000 28px);
+}
+
+.st-tabs-strip.fade-l.fade-r {
+  mask-image: linear-gradient(to right, transparent, #000 28px, #000 calc(100% - 28px), transparent);
+}
+
+.st-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 200px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
   color: var(--muted);
   font-size: 12px;
   font-weight: 600;
-  cursor: pointer;
   white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .st-tab:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.st-tab.on {
+  padding-right: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.35),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  cursor: default;
+}
+
+.st-tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .st-tab-name {
@@ -877,31 +933,34 @@ textarea.st-input {
 }
 
 .st-tab-more {
-  width: 22px;
-  height: 22px;
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
   border: 0;
-  border-radius: 6px;
+  border-radius: 5px;
   background: transparent;
   color: var(--dim);
   cursor: pointer;
-  opacity: 0;
 }
 
-.st-tab:hover .st-tab-more,
-.st-tab.on .st-tab-more {
-  opacity: 1;
+.st-tab-more svg {
+  transform: rotate(90deg);
 }
 
 .st-tab-more:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: var(--text);
 }
 
 .st-tab-input {
   width: 140px;
-  padding: 2px 6px;
+  height: 22px;
+  padding: 0 6px;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgba(0, 0, 0, 0.3);
   color: var(--text);
   font: inherit;
@@ -910,20 +969,29 @@ textarea.st-input {
 
 .st-tab-add {
   display: grid;
+  flex: none;
   place-items: center;
-  width: 28px;
-  height: 28px;
-  margin: 0 0 3px 4px;
-  border: 1px dashed var(--line-strong);
-  border-radius: 8px;
-  background: transparent;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--muted);
   cursor: pointer;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 
 .st-tab-add:hover {
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text);
-  border-color: var(--accent);
+}
+
+.st-tab-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .st-tab-add[disabled] {
@@ -1276,6 +1344,11 @@ textarea.st-input {
   padding: 0;
 }
 
+/* a pill never gets squeezed by the open widgets; the Nós rail scrolls instead */
+.st-w.mini:not(.st-w-nos) {
+  flex: none;
+}
+
 .st-w.mini > :not(.st-w-pill, .st-w-pill-custom) {
   display: none;
 }
@@ -1359,32 +1432,19 @@ textarea.st-input {
   color: var(--amber-text);
 }
 
-/* Fluxos: the tabs become pills inside the widget */
+/* Fluxos: never shrinks, so the tabs stay visible however tall the other widgets get */
+.st-w-fluxos {
+  flex: none;
+  min-width: 236px;
+}
+
+.st-w-fluxos.mini {
+  min-width: 0;
+}
+
 .st-w-fluxos .st-w-body {
-  padding: 6px;
-}
-
-.st-w-fluxos .st-tabs {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.st-w-fluxos .st-tab {
-  height: 28px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-}
-
-.st-w-fluxos .st-tab.on {
-  border-color: var(--line-strong);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--text);
-}
-
-.st-w-fluxos .st-tab-add {
-  margin: 0;
+  padding: 8px;
+  overflow: visible;
 }
 
 /* Nós: a list when open, a rail of icons when minimized */
@@ -1565,13 +1625,14 @@ textarea.st-input {
 
 /* ---------- Marca widget ---------- */
 
+/* right dock, under Integrações; open, it keeps room for the first fields */
 .st-w-marca {
-  width: 280px;
+  width: 100%;
   flex: 0 1 auto;
 }
 
-.st-w-marca.mini {
-  width: auto;
+.st-w-marca:not(.mini) {
+  min-height: 180px;
 }
 
 .st-w-marca .st-w-body {

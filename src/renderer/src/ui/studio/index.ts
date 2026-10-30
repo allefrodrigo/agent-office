@@ -178,8 +178,8 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     'div',
     { class: 'st-box' },
     canvas,
-    h('div', { class: 'st-dock left' }, flowsW.el, nodesW.el, brandW.el),
-    h('div', { class: 'st-dock right' }, h('div', { class: 'st-dock-row' }, runW.el, windowBar), usageW.el, intW.el, refsW.el, gallery.el),
+    h('div', { class: 'st-dock left' }, flowsW.el, nodesW.el),
+    h('div', { class: 'st-dock right' }, h('div', { class: 'st-dock-row' }, runW.el, windowBar), usageW.el, intW.el, brandW.el, refsW.el, gallery.el),
     h('div', { class: 'st-dock bottom-right' }, navW.el),
   )
   const el = h('div', { class: 'backdrop backdrop-studio' }, box)
