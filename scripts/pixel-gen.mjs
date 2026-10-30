@@ -32,7 +32,9 @@ function draw(bin, key) {
   const job = JOBS[key]
   const cwd = mkdtempSync(join(tmpdir(), 'pixel-gen-'))
   const args = ['exec', '--json', '--skip-git-repo-check', '--ephemeral', '-s', 'read-only', '--disable', 'hooks', '-C', cwd]
-  if (job.ruler && existsSync(RULER) && key !== 'personagens/chefe') args.push('-i', RULER)
+  // ruler: true rides with the boss sheet; a key rides with that raw sheet instead
+  const ruler = typeof job.ruler === 'string' ? join(raw, `${job.ruler}.png`) : RULER
+  if (job.ruler && existsSync(ruler) && key !== 'personagens/chefe') args.push('-i', ruler)
   args.push('-')
   const ask = `Use your image generation tool to create exactly ONE image. Do not run shell commands and do not write files; just generate the image and reply "ok".\n\n${job.prompt}`
   return new Promise((done, fail) => {

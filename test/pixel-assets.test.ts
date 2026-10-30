@@ -10,6 +10,8 @@ import {
   processFloor,
   processSceneSheet,
   processSheet,
+  extractEyes,
+  snapKeyHues,
   processSprite,
   removeBackground,
   removeSpecks,
@@ -390,6 +392,20 @@ describe('folha de personagem', () => {
     })
   })
 
+  it('pinta de contorno a sobra escura do fundo magenta, sem tocar no roxo da roupa', () => {
+    const img = canvas(560, 330, MAGENTA)
+    heights.forEach((h, i) => {
+      const [c, r] = [i % 4, Math.floor(i / 4)]
+      fill(img, { x: c * 140 + 50, y: r * 110 + 105 - h, w: 40, h }, [90, 43, 116])
+    })
+    // a 4 px band of outline blended with magenta along the top of the first pose
+    fill(img, { x: 50, y: 105 - heights[0], w: 40, h: 4 }, [123, 1, 125])
+    const { image } = processSheet(img, characters)
+    const box = opaqueBounds(image, { x: 0, y: 0, w: 48, h: 64 })!
+    expect(px(image, box.x + 5, box.y)).toEqual([20, 20, 20, 255])
+    expect(px(image, box.x + 5, box.y + 10)).toEqual([90, 43, 116, 255])
+  })
+
   it('avisa quantas poses achou quando falta pose', () => {
     const img = canvas(560, 330)
     heights.forEach((h, i) => {
@@ -398,6 +414,47 @@ describe('folha de personagem', () => {
       fill(img, { x: c * 140 + 50, y: r * 110 + 105 - h, w: 40, h }, colorOf(i))
     })
     expect(() => processSheet(img, characters)).toThrow(/achei 10 poses, esperava 12/)
+  })
+})
+
+describe('olhos dos moldes', () => {
+  const characters: CharacterSpec = { cell: [48, 64], grid: [4, 3], standHeight: 46, poses: [] }
+  const SKIN: Rgb = [255, 255, 0]
+  const HAIR: Rgb = [0, 200, 0]
+  const DARK: Rgb = [10, 10, 10]
+  /** A head at cell (col, row): hair cap, skin face, two 2x3 eyes at x 19 and 26, y 31. */
+  function head(img: RgbaImage, col: number, row: number, dx: number, dy: number) {
+    const [x0, y0] = [col * 48 + dx, row * 64 + dy]
+    fill(img, { x: x0 + 14, y: y0 + 18, w: 20, h: 8 }, HAIR)
+    fill(img, { x: x0 + 16, y: y0 + 26, w: 16, h: 12 }, SKIN)
+    fill(img, { x: x0 + 19, y: y0 + 31, w: 2, h: 3 }, DARK)
+    fill(img, { x: x0 + 26, y: y0 + 31, w: 2, h: 3 }, DARK)
+  }
+
+  it('leva pele laranja, sombra oliva e brilho menta para as cores-chave, sem tocar no contorno', () => {
+    const img = createImage(4, 1)
+    fill(img, { x: 0, y: 0, w: 1, h: 1 }, [195, 101, 20])
+    fill(img, { x: 1, y: 0, w: 1, h: 1 }, [100, 100, 54])
+    fill(img, { x: 2, y: 0, w: 1, h: 1 }, [211, 252, 189])
+    fill(img, { x: 3, y: 0, w: 1, h: 1 }, [20, 20, 20])
+    snapKeyHues(img)
+    expect(px(img, 0, 0)).toEqual([215, 215, 0, 255])
+    expect(px(img, 1, 0)).toEqual([154, 154, 0, 255])
+    expect(px(img, 2, 0)).toEqual([186, 255, 186, 255])
+    expect(px(img, 3, 0)).toEqual([20, 20, 20, 255])
+  })
+
+  it('apaga os olhos desenhados e acha a cabeça repetida nas outras poses', () => {
+    const img = createImage(192, 192)
+    head(img, 0, 0, 0, 0)
+    head(img, 3, 0, 1, 2)
+    const eyes = extractEyes(img, characters, { 0: [[18, 30, 4, 5], [25, 30, 4, 5]] })
+    expect(eyes[0]).toEqual([[19, 31], [26, 31]])
+    expect(eyes[3]).toEqual([[20, 33], [27, 33]])
+    expect(px(img, 19, 31)).toEqual([...SKIN, 255])
+    expect(px(img, 3 * 48 + 20, 33)).toEqual([...SKIN, 255])
+    // the hair outside the boxes stays
+    expect(px(img, 20, 20)).toEqual([...HAIR, 255])
   })
 })
 

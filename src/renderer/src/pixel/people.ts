@@ -1,7 +1,8 @@
 import { Aura, AURA_COLORS } from '../world/aura'
 import type { Avatar } from '../world/avatar'
 import { agentSheets, sprite } from './assets'
-import { tinted } from './tint'
+import { blinking, drawEyes, type Eyes } from './eyes'
+import { lookSheet } from './look'
 import type { Rect } from './engine'
 import { artX, artY, bounds, ellipse, gather, paint } from './voxel'
 
@@ -30,31 +31,18 @@ function hash(s: string): number {
   return h >>> 0
 }
 
-/** Recolorable sheets, one per hair style of the 3D avatar (Look.hairStyle 0-5). */
-const HAIR_STYLES = 6
-
 /**
- * The picture of this person's sheet. A recolorable template (molde-N) in the hair style of its
- * look, dressed in its colors: skin, hair, shirt (or the squad uniform), pants, shoes, like the 3D
- * avatar and the look picked in Configurações. Without templates: fixed sheets, the boss for the
- * player and an agent sheet picked by id (helpers share their parent's).
+ * The picture of this person's sheet. The recolorable template of its look (pixel/look.ts), like
+ * the 3D avatar and the look picked in Configurações. Without templates: fixed sheets, the boss for
+ * the player and an agent sheet picked by id (helpers share their parent's).
  */
-function sheetOf(av: Avatar): CanvasImageSource | null {
-  const style = ((av.look.hairStyle % HAIR_STYLES) + HAIR_STYLES) % HAIR_STYLES
-  let key = `personagens/molde-${style}`
-  let tpl = sprite(key)
-  if (!tpl?.tint) {
-    // a missing style borrows another template before giving up the look
-    key = Array.from({ length: HAIR_STYLES }, (_, i) => `personagens/molde-${i}`).find((k) => sprite(k)?.tint) ?? ''
-    tpl = key ? sprite(key) : null
-  }
-  if (tpl) {
-    const l = av.look
-    return tinted(key, tpl, { skin: l.skin, hair: l.hair, shirt: av.uniformColor ?? l.shirt, pants: l.pants, shoes: l.shoes })
-  }
-  if (av.id === 'player') return sprite('personagens/chefe')?.img ?? null
+function sheetOf(av: Avatar): { image: CanvasImageSource; eyes?: Eyes } | null {
+  const own = lookSheet(av.look, av.uniformColor ?? av.look.shirt)
+  if (own) return own
   const pool = agentSheets()
-  return pool.length ? (sprite(pool[hash(av.id) % pool.length])?.img ?? null) : null
+  const fixed = av.id === 'player' ? 'personagens/chefe' : pool.length ? pool[hash(av.id) % pool.length] : null
+  const img = fixed ? sprite(fixed)?.img : null
+  return img ? { image: img } : null
 }
 
 const seated = (av: Avatar) => av.pose === 'sit' || av.pose === 'type' || av.pose === 'relax'
@@ -129,9 +117,10 @@ export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number)
       ctx.save()
       ctx.translate(x + w, y)
       ctx.scale(-1, 1)
-      ctx.drawImage(sheet, c.col * CELL_W, c.row * CELL_H, CELL_W, CELL_H, 0, 0, w, h)
+      ctx.drawImage(sheet.image, c.col * CELL_W, c.row * CELL_H, CELL_W, CELL_H, 0, 0, w, h)
       ctx.restore()
-    } else ctx.drawImage(sheet, c.col * CELL_W, c.row * CELL_H, CELL_W, CELL_H, x, y, w, h)
+    } else ctx.drawImage(sheet.image, c.col * CELL_W, c.row * CELL_H, CELL_W, CELL_H, x, y, w, h)
+    drawEyes(ctx, sheet.eyes, c.row * 4 + c.col, x, y, w / CELL_W, { mirror: c.mirror, closed: blinking(t, hash(av.id)) })
     rect = { x0: x + 8 * s, y0: y + 10 * s, x1: x + w - 8 * s, y1: fy }
     drawCarry(ctx, av, fx, fy, s)
   } else {
@@ -161,7 +150,9 @@ export function figureOf(av: Avatar, wave = false): HTMLCanvasElement | null {
   c.width = CELL_W
   c.height = CELL_H
   c.className = 'figure'
-  c.getContext('2d')!.drawImage(sheet, (wave ? 3 : 0) * CELL_W, 0, CELL_W, CELL_H, 0, 0, CELL_W, CELL_H)
+  const ctx = c.getContext('2d')!
+  ctx.drawImage(sheet.image, (wave ? 3 : 0) * CELL_W, 0, CELL_W, CELL_H, 0, 0, CELL_W, CELL_H)
+  drawEyes(ctx, sheet.eyes, wave ? 3 : 0, 0, 0, 1)
   return c
 }
 

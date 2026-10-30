@@ -32,6 +32,17 @@ export interface CharacterSpec {
   standHeight: number
   poses: string[][]
   names?: string[]
+  /** Eye boxes of each template (molde-N), see EyeSpec. */
+  eyes?: Record<string, EyeSpec>
+}
+
+/**
+ * Eye boxes [x, y, w, h] in cell pixels for the front (0) and side (2) poses, and for any other
+ * face pose (3, 4, 8, 6, 7, 10) that should not be found by matching; `erase` = parts taken as eye.
+ */
+export interface EyeSpec {
+  [cell: number]: number[][]
+  erase?: string
 }
 
 export interface SheetLayout {
@@ -97,6 +108,11 @@ export function processSheet(
   characters: CharacterSpec,
   options?: Options,
 ): { image: RgbaImage; scale: number; warnings: string[] }
+export const EYE_POSES: Record<number, number>
+/** Turns off-key parts (orange skin, olive shades, mint shines, dull buttons) into their keys at the same lightness, in place. */
+export function snapKeyHues(img: RgbaImage): void
+/** Takes the drawn eyes out of a template sheet (in place); returns the top-left of each eye per cell. */
+export function extractEyes(img: RgbaImage, characters: CharacterSpec, spec: EyeSpec): Record<number, [number, number][]>
 export function parseSheetLayout(layout: unknown): SheetLayout
 export function processSceneSheet(
   img: RgbaImage,

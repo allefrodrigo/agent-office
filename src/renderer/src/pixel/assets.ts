@@ -2,10 +2,12 @@
 // Vite lists whatever is in the folder at build time; a sprite that is not there yet is simply
 // missing, and the painter draws that object from its 3D pieces instead.
 
+import type { Eyes } from './eyes'
+
 const urls = import.meta.glob('../assets/pixel/**/*.png', { eager: true, query: '?url', import: 'default' }) as Record<string, string>
 const metas = import.meta.glob('../assets/pixel/**/*.json', { eager: true, import: 'default' }) as Record<
   string,
-  { screen?: [number, number, number, number]; tint?: boolean }
+  { screen?: [number, number, number, number]; tint?: boolean; eyes?: Eyes }
 >
 
 export interface Sprite {
@@ -16,6 +18,8 @@ export interface Sprite {
   screen?: [number, number, number, number]
   /** Painted in key hues that take each agent's or piece's colors (pixel/tint.ts). */
   tint?: boolean
+  /** Where the app draws the eyes of a template, per cell (pixel/eyes.ts). */
+  eyes?: Eyes
 }
 
 const keyOf = (path: string) => path.replace(/^.*\/assets\/pixel\//, '').replace(/\.(png|json)$/, '')
@@ -30,7 +34,7 @@ for (const [path, url] of Object.entries(urls)) {
   pending++
   img.onload = () => {
     const meta = metas[path.replace(/\.png$/, '.json')]
-    sprites.set(key, { img, w: img.naturalWidth, h: img.naturalHeight, screen: meta?.screen, tint: meta?.tint })
+    sprites.set(key, { img, w: img.naturalWidth, h: img.naturalHeight, screen: meta?.screen, tint: meta?.tint, eyes: meta?.eyes })
     if (--pending === 0) for (const f of listeners) f()
   }
   img.onerror = () => {

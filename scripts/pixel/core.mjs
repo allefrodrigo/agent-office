@@ -685,7 +685,32 @@ export function processSheet(img, characters, { tolerance } = {}) {
     const y = Math.floor(i / cols) * cellH + footY - oh
     paste(sheet, downscaleMode(art, ow, oh), x, y)
   })
+  outlineMagentaFringe(sheet)
   return { image: sheet, scale: s, warnings }
+}
+
+/** Outline color for leftovers of the magenta background (the prompts keep magenta out of people). */
+const FRINGE_OUTLINE = [20, 20, 20]
+/** Brightest channel of a blend of outline and magenta; brighter pinks are left alone. */
+const FRINGE_MAX = 170
+
+/**
+ * A dark outline blended with the magenta background ((123, 1, 125)) is too far from magenta for
+ * peelFringe and survives the cut as a pink dot on the edge. Character sheets never use magenta, so
+ * any dark pixel left in its hue becomes outline (bright pinks are art, or peelFringe's job).
+ */
+function outlineMagentaFringe(img) {
+  const d = img.data
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue
+    const [r, g, b] = [d[i], d[i + 1], d[i + 2]]
+    const max = Math.max(r, g, b)
+    const chroma = max - Math.min(r, g, b)
+    // magenta has no green at all; a purple blazer has plenty
+    if (chroma < 40 || max > FRINGE_MAX || g > max * 0.12) continue
+    const hue = (max === r ? ((g - b) / chroma + 6) % 6 : (r - g) / chroma + 4) * 60
+    if (hue >= 275 && hue <= 335) d.set(FRINGE_OUTLINE, i)
+  }
 }
 
 /** Validates a scene sheet's JSON ({ grid: [cols, rows], keys }); throws a message saying what to fix. */
@@ -741,4 +766,170 @@ export function processSceneSheet(img, layout, sprites, { tolerance, only } = {}
     }
   })
   return { results, warnings }
+}
+
+// ---------- eyes of the recolorable people: taken out of the art, drawn live by the app ----------
+
+/** Cells with a face, and the annotated cell whose head each one repeats (front 0, side 2). */
+export const EYE_POSES = { 0: 0, 3: 0, 4: 0, 8: 0, 2: 2, 6: 2, 7: 2, 10: 2 }
+/** Least chroma for a pixel to count as a tinted part rather than outline, gray or white. */
+const SNAP_MIN_CHROMA = 12
+/** Hue ranges [from, to) snapped to each key, and the key's lit channels: shirt, skin, hair, shoes, pants. */
+const SNAP_KEYS = [
+  [345, 15, [1, 0, 0]],
+  [15, 80, [1, 1, 0]],
+  [95, 145, [0, 1, 0]],
+  [165, 195, [0, 1, 1]],
+  [225, 255, [0, 0, 1]],
+]
+
+/**
+ * Templates come back from the generator a little off their keys: orange skin (hue 15-45) between
+ * the skin and shirt keys, olive shades, mint shines and dull buttons too gray for the recoloring.
+ * Each becomes its key at full saturation and the same lightness.
+ */
+export function snapKeyHues(img) {
+  const d = img.data
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) continue
+    const [r, g, b] = [d[i], d[i + 1], d[i + 2]]
+    const max = Math.max(r, g, b)
+    const min = Math.min(r, g, b)
+    const chroma = max - min
+    if (chroma < SNAP_MIN_CHROMA) continue
+    const hue = (max === r ? ((g - b) / chroma + 6) % 6 : max === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4) * 60
+    const key = SNAP_KEYS.find(([from, to]) => (from < to ? hue >= from && hue < to : hue >= from || hue < to))
+    if (!key) continue
+    // same lightness (max + min) / 2, all of it in the key's channels
+    const light = max + min
+    const hi = Math.min(255, light)
+    const lo = light - hi
+    d.set(key[2].map((on) => (on ? hi : lo)), i)
+  }
+}
+
+/** Skin key in a shade: blush and lips painted in the shirt key take it, so they follow the skin. */
+const SKIN_SHADE = [192, 192, 0, 255]
+/** An eye as the app draws it: 2 wide, 3 tall (pixel/eyes.ts). */
+const EYE_W = 2
+const EYE_H = 3
+
+/** A pixel's part, roughly: transparent, dark, white, gray, or the key hue it carries. */
+function partOf(d, i) {
+  if (d[i + 3] < 128) return '.'
+  const [r, g, b] = [d[i], d[i + 1], d[i + 2]]
+  const max = Math.max(r, g, b)
+  const chroma = max - Math.min(r, g, b)
+  if (max < 90) return 'K'
+  if (chroma < 50) return max > 170 ? 'W' : 'g'
+  const hue = (max === r ? ((g - b) / chroma + 6) % 6 : max === g ? (b - r) / chroma + 2 : (r - g) / chroma + 4) * 60
+  const near = (k) => Math.min(Math.abs(hue - k), 360 - Math.abs(hue - k)) <= 30
+  return near(60) ? 'S' : near(120) ? 'H' : near(0) || near(360) ? 'R' : '?'
+}
+
+/**
+ * Takes the drawn eyes out of a template sheet and says where the app should draw its own. `spec`
+ * holds, for the front (cell 0) and side (cell 2) poses, the eye boxes [x, y, w, h] in cell pixels,
+ * and optionally `erase`, the parts that count as eye (default dark, white and gray). The other
+ * faces find their head by matching it against the annotated one, unless they have boxes of their
+ * own (a pose whose head is redrawn too differently to match). Inside each box those parts
+ * become the nearest skin. Blush, lips and face shading in the shirt's red key (a red pixel on the
+ * skin, not part of a red patch like the collar) become a skin shade, or they would take the shirt
+ * color. Returns { cell: [[x, y], ...] }, the
+ * top-left of each 2 x 3 eye.
+ */
+export function extractEyes(img, characters, spec) {
+  const [cellW, cellH] = characters.cell
+  const cols = characters.grid[0]
+  const d = img.data
+  const at = (cell, x, y) => {
+    if (x < 0 || y < 0 || x >= cellW || y >= cellH) return -1
+    return (((Math.floor(cell / cols) * cellH + y) * img.width) + (cell % cols) * cellW + x) * 4
+  }
+  const part = (cell, x, y) => {
+    const i = at(cell, x, y)
+    return i < 0 ? '.' : partOf(d, i)
+  }
+  const kinds = spec.erase ?? 'KWg'
+  const eyes = {}
+  for (const [key, ref] of Object.entries(EYE_POSES)) {
+    const cell = Number(key)
+    if (!spec[ref]?.length) continue
+    // a pose annotated on its own takes its boxes as they are
+    const own = cell !== ref && spec[cell]
+    const boxes = own || spec[ref]
+    let dx = 0
+    let dy = 0
+    if (cell !== ref && !own) {
+      // the head: from 14 px over the eyes to their bottom, matched against the annotated pose
+      const top = Math.max(16, Math.min(...boxes.map((b) => b[1])) - 14)
+      const bottom = Math.max(...boxes.map((b) => b[1] + b[3]))
+      let best = Infinity
+      for (let sy = -3; sy < 10; sy++)
+        for (let sx = -4; sx <= 4; sx++) {
+          let miss = 0
+          for (let y = top; y < bottom; y++)
+            for (let x = 4; x < cellW - 4; x++) {
+              const a = part(ref, x, y)
+              if (a !== '.' && a !== part(cell, x + sx, y + sy)) miss++
+            }
+          if (miss < best) [best, dx, dy] = [miss, sx, sy]
+        }
+      // the head may be redrawn a pixel off: keep the nudge whose boxes hold the most eye pixels
+      const held = (ex, ey) =>
+        boxes.reduce((n, [x, y, w, h]) => {
+          for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) n += 'KW'.includes(part(cell, i + ex, j + ey)) ? 1 : 0
+          return n
+        }, 0)
+      let nudge = [0, 0]
+      let most = held(dx, dy)
+      for (const ny of [-1, 0, 1])
+        for (const nx of [-1, 0, 1]) {
+          const n = held(dx + nx, dy + ny)
+          if (n > most) [most, nudge] = [n, [nx, ny]]
+        }
+      dx += nudge[0]
+      dy += nudge[1]
+    }
+    const faceTop = Math.min(...boxes.map((b) => b[1])) + dy - 7
+    const faceBottom = Math.max(...boxes.map((b) => b[1] + b[3])) + dy + 5
+    for (let y = faceTop; y < faceBottom; y++)
+      for (let x = 1; x < cellW - 1; x++) {
+        const here = part(cell, x, y)
+        if (here !== 'R' && here !== 'W') continue
+        const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([sx, sy]) => part(cell, x + sx, y + sy))
+        const skin = around.filter((p) => p === 'S').length
+        // a shine of an old eye left on the cheek
+        if (here === 'W' && skin >= 2) {
+          const fill = skinNear(cell, x, y)
+          if (fill) d.set(fill, at(cell, x, y))
+        } else if (here === 'R' && skin && around.filter((p) => p === 'R').length <= 2) d.set(SKIN_SHADE, at(cell, x, y))
+      }
+    eyes[cell] = boxes.map(([bx, by, w, h]) => {
+      const [x, y] = [bx + dx, by + dy]
+      const spots = []
+      for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) if (kinds.includes(part(cell, i, j))) spots.push([i, j])
+      // the tail of an eye drawn a pixel taller than its box: dark, on the skin, right under it
+      for (let i = x; i < x + w; i++) {
+        const around = [[1, 0], [-1, 0], [0, 1]].map(([sx, sy]) => part(cell, i + sx, y + h + sy))
+        if (part(cell, i, y + h) === 'K' && around.filter((p) => p === 'S').length >= 3) spots.push([i, y + h])
+      }
+      const fills = spots.map(([i, j]) => skinNear(cell, i, j))
+      spots.forEach(([i, j], n) => fills[n] && d.set(fills[n], at(cell, i, j)))
+      return [x + Math.floor((w - EYE_W) / 2), y + Math.floor((h - EYE_H) / 2)]
+    })
+  }
+  return eyes
+
+  /** The color of the closest skin on the row or column, up to 5 px away. */
+  function skinNear(cell, x, y) {
+    for (let r = 1; r <= 5; r++)
+      for (const [sx, sy] of [[-r, 0], [r, 0], [0, r], [0, -r]]) {
+        if (part(cell, x + sx, y + sy) === 'S') {
+          const i = at(cell, x + sx, y + sy)
+          return d.slice(i, i + 4)
+        }
+      }
+    return null
+  }
 }

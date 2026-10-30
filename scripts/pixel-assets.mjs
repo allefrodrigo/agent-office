@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseSheetLayout, processFloor, processSceneSheet, processSheet, processSprite } from './pixel/core.mjs'
+import { extractEyes, parseSheetLayout, snapKeyHues, processFloor, processSceneSheet, processSheet, processSprite } from './pixel/core.mjs'
 import { decodePng, encodePng, isPng } from './pixel/png.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -176,6 +176,7 @@ function writeSprite(id, result) {
   const meta = {
     ...(result.screen ? { screen: result.screen } : {}),
     ...(result.tint || TEMPLATE.test(id.split('/')[1]) ? { tint: true } : {}),
+    ...(result.eyes ? { eyes: result.eyes } : {}),
   }
   if (json && Object.keys(meta).length) writeFileSync(json, `${JSON.stringify(meta)}\n`)
   return png
@@ -207,6 +208,10 @@ function runSingle(raw) {
     const kind = kindOf(raw.id)
     if (kind === 'sheet') {
       const result = processSheet(img, catalog.characters)
+      // templates lose their drawn eyes: the app draws its own, open or blinking (pixel/eyes.ts)
+      if (TEMPLATE.test(raw.id.split('/')[1])) snapKeyHues(result.image)
+      const eyeSpec = catalog.characters.eyes?.[raw.id.split('/')[1]]
+      if (eyeSpec) result.eyes = extractEyes(result.image, catalog.characters, eyeSpec)
       const poses = catalog.characters.poses.flat().length
       const details = `${result.image.width}x${result.image.height}, ${poses} poses, escala ${result.scale.toFixed(3).replace('.', ',')}`
       ok(source, writeSprite(raw.id, result), details, result.warnings)

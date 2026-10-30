@@ -18,6 +18,15 @@ const KEYS: [number, Slot][] = [
 ]
 /** Below this chroma (max - min) a pixel is outline, white or gray: it keeps its color. */
 const MIN_CHROMA = 90
+/** ...unless it is a deep shade of a pure key hue (dark, yet this saturated); muted browns stay out. */
+const DEEP_SATURATION = 0.9
+const DEEP_MIN_MAX = 24
+/** ...or a pale shine of a key hue (light, faintly tinted, right on the key's hue); beige stays out. */
+const PALE_MIN_CHROMA = 30
+const PALE_MIN_MIN = 150
+const PALE_HUE_SLACK = 12
+/** Hair shine drifts further from green; only the people templates use the green key. */
+const PALE_HAIR_SLACK = 30
 /** How far from a key hue a pixel may be and still count as that key, in degrees. */
 const HUE_SLACK = 30
 
@@ -67,12 +76,16 @@ function analyse(img: HTMLImageElement): Analysis {
     const max = Math.max(r, g, b)
     const min = Math.min(r, g, b)
     const chroma = max - min
-    if (chroma < MIN_CHROMA) continue
+    const deep = max >= DEEP_MIN_MAX && chroma / max >= DEEP_SATURATION
+    const pale = chroma >= PALE_MIN_CHROMA && min >= PALE_MIN_MIN
+    if (chroma < MIN_CHROMA && !deep && !pale) continue
     const hue = hueOf(r, g, b, max, chroma)
     let best = -1
+    const paleOnly = chroma < MIN_CHROMA && !deep
     let gap = HUE_SLACK
-    KEYS.forEach(([k], n) => {
+    KEYS.forEach(([k, slot], n) => {
       const d = Math.min(Math.abs(hue - k), 360 - Math.abs(hue - k))
+      if (paleOnly && d > (slot === 'hair' ? PALE_HAIR_SLACK : PALE_HUE_SLACK)) return
       if (d <= gap) {
         gap = d
         best = n
@@ -83,8 +96,14 @@ function analyse(img: HTMLImageElement): Analysis {
     lum[p] = (max + min) / 510
     buckets[best][Math.min(31, Math.floor(lum[p] * 32))]++
   }
-  // the base tone of each key is its most common lightness
-  const base = buckets.map((b) => (b.indexOf(Math.max(...b)) + 0.5) / 32)
+  // the base tone of each key is its median lightness: in detailed art the most common tone can be
+  // a deep shade (an afro's curls), which would blow every lighter tone out to white
+  const base = buckets.map((b) => {
+    const total = b.reduce((s, n) => s + n, 0)
+    let seen = 0
+    const i = b.findIndex((n) => (seen += n) * 2 >= total)
+    return (Math.max(0, i) + 0.5) / 32
+  })
   const light = new Float32Array(w * h)
   for (let p = 0; p < w * h; p++) if (slot[p]) light[p] = lum[p] / base[slot[p] - 1]
   a = { data, w, h, slot, light }
