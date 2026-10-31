@@ -30,6 +30,16 @@ describe('modo de permissão de uma sessão salva', () => {
     expect(await lastPermissionMode(ID)).toBe('auto')
   })
 
+  it('ignora a mesma chave dentro de ferramentas e de outros registros', async () => {
+    saved([
+      { type: 'user', permissionMode: 'default' },
+      { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'mcp__x__y', input: { permissionMode: 'auto' } }] } },
+      { type: 'user', message: { content: [{ type: 'tool_result', content: { permissionMode: 'acceptEdits' } }] } },
+      { type: 'system', permissionMode: 'auto' },
+    ])
+    expect(await lastPermissionMode(ID)).toBe('default')
+  })
+
   it('sem modo gravado ou sem arquivo, não inventa', async () => {
     saved([{ type: 'user' }])
     expect(await lastPermissionMode(ID)).toBeNull()
