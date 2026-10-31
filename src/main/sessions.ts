@@ -193,6 +193,41 @@ function findTranscript(sessionId: string): string | null {
   return null
 }
 
+/**
+ * The permission mode the session was last in: every user line of the transcript records it
+ * ("auto", "acceptEdits"...). The last one wins, since the mode can change mid-session.
+ * Only the top-level field of user records counts: a tool input or result can carry the same
+ * key (a prompt injection could plant "auto" there), and that must not loosen the agent.
+ */
+export function lastPermissionMode(sessionId: string): Promise<string | null> {
+  const file = findTranscript(sessionId)
+  if (!file) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    let rest = ''
+    let last: string | null = null
+    const read = (line: string) => {
+      if (!line.includes('"permissionMode"')) return
+      try {
+        const rec = JSON.parse(line) as { type?: unknown; permissionMode?: unknown }
+        if (rec.type === 'user' && typeof rec.permissionMode === 'string') last = rec.permissionMode
+      } catch {
+        // a torn last line while the session writes: skip it
+      }
+    }
+    const stream = createReadStream(file, { encoding: 'utf8', highWaterMark: 256 * 1024 })
+    stream.on('data', (chunk: string | Buffer) => {
+      const lines = (rest + String(chunk)).split('\n')
+      rest = lines.pop() ?? ''
+      lines.forEach(read)
+    })
+    stream.on('end', () => {
+      read(rest)
+      resolve(last)
+    })
+    stream.on('error', () => resolve(null))
+  })
+}
+
 function scanForCwd(file: string, maxBytes = 16 * 1024 * 1024): Promise<string | null> {
   return new Promise((resolve) => {
     let buf = ''
