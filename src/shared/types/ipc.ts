@@ -13,6 +13,7 @@ import type { CodexUsage, CreativeJob, CreativeJobResult, CreativeStatus, Eleven
 import type { FlowTab, LibraryItem } from '../creative-library'
 import type { BrandKit, RefItem } from '../social'
 import type { ViewMode } from '../video'
+import type { Dictation } from '../voice'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
@@ -387,5 +388,10 @@ export interface OfficeAPI {
   setRefTags(floorId: string, id: string, tags: string[]): Promise<RefItem[]>
   /** Out of the list; the file goes to referencias/.lixeira. */
   removeRef(floorId: string, id: string): Promise<RefItem[]>
+  // ---------- Modo voz ----------
+  /** macOS asks for the microphone once; false when it was refused in System Settings. True elsewhere. */
+  micAccess(): Promise<boolean>
+  /** A recording of the voice button (webm/opus) as text, by whisper-cli on this machine. */
+  transcribe(audio: Uint8Array): Promise<Dictation>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }

@@ -22,6 +22,9 @@ publish:
 artifactName: Agent-Office-${version}-${arch}.${ext}
 mac:
   category: public.app-category.developer-tools
+  # Modo voz: what macOS shows when the voice button asks for the microphone.
+  extendInfo:
+    NSMicrophoneUsageDescription: O Agent Office usa o microfone só quando você aperta o botão de voz, para transcrever o que você fala.
   # One build per CPU, not universal: nothing native ships in the package (the SDK's
   # per-CPU Claude binary is left out above), so x64 builds fine on an arm64 Mac, and
   # each download stays half the size of a universal one. The zip feeds the auto-update.

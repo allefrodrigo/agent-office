@@ -2,12 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Hardened runtime entitlements (electron-builder.yml), for the app and its helpers.
-  Only the V8 JIT. Add com.apple.security.cs.allow-unsigned-executable-memory only
-  if a signed build crashes at launch with a code-signing fault.
+  The V8 JIT, and the microphone for the voice button (the hardened runtime blocks it
+  otherwise). Add com.apple.security.cs.allow-unsigned-executable-memory only if a
+  signed build crashes at launch with a code-signing fault.
 -->
 <plist version="1.0">
   <dict>
     <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.device.audio-input</key>
     <true/>
   </dict>
 </plist>

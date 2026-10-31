@@ -42,6 +42,7 @@ import { registerRoutinesIpc } from './ipc/routines'
 import { registerTicketsIpc } from './ipc/tickets'
 import { registerWorktreesIpc } from './ipc/worktrees'
 import { registerCreativeIpc } from './ipc/creative'
+import { registerVoiceIpc } from './ipc/voice'
 import { registerCreativeLibraryIpc } from './ipc/creative-library'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 
@@ -478,6 +479,7 @@ app.whenReady().then(async () => {
   registerBackstageIpc(ipc)
   registerCreativeIpc(ipc)
   registerCreativeLibraryIpc(ipc)
+  registerVoiceIpc()
   handleMediaScheme()
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
