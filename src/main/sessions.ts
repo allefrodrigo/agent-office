@@ -193,6 +193,26 @@ function findTranscript(sessionId: string): string | null {
   return null
 }
 
+/**
+ * The permission mode the session was last in: every user line of the transcript records it
+ * ("auto", "acceptEdits"...). The last one wins, since the mode can change mid-session.
+ */
+export function lastPermissionMode(sessionId: string): Promise<string | null> {
+  const file = findTranscript(sessionId)
+  if (!file) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    let buf = ''
+    let last: string | null = null
+    const stream = createReadStream(file, { encoding: 'utf8', highWaterMark: 256 * 1024 })
+    stream.on('data', (chunk: string | Buffer) => {
+      buf = buf.slice(-64) + String(chunk) // a little overlap so a match is never split
+      for (const m of buf.matchAll(/"permissionMode":"([a-zA-Z]+)"/g)) last = m[1]
+    })
+    stream.on('end', () => resolve(last))
+    stream.on('error', () => resolve(null))
+  })
+}
+
 function scanForCwd(file: string, maxBytes = 16 * 1024 * 1024): Promise<string | null> {
   return new Promise((resolve) => {
     let buf = ''
