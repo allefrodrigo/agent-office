@@ -127,6 +127,8 @@ const api: OfficeAPI = {
   addRefs: (floorId, paths) => ipcRenderer.invoke('office:addRefs', floorId, paths),
   setRefTags: (floorId, id, tags) => ipcRenderer.invoke('office:setRefTags', floorId, id, tags),
   removeRef: (floorId, id) => ipcRenderer.invoke('office:removeRef', floorId, id),
+  micAccess: () => ipcRenderer.invoke('office:micAccess'),
+  transcribe: (audio) => ipcRenderer.invoke('office:transcribe', audio),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)
