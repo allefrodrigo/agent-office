@@ -12,6 +12,7 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
       'No escritório',
       [
         ['N', 'Novo agente: conversar, dar uma tarefa ou subir um squad'],
+        ['M', 'Modo mini: os agentes vão para a base da tela'],
         ['T', 'Quadro de tickets'],
         ['R', 'Relatórios'],
         ['B', 'Bastidores: o que roda em segundo plano, MCP e skills'],

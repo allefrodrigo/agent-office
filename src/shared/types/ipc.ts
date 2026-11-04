@@ -129,6 +129,8 @@ export type OfficeEvent =
   | { type: 'stats'; stats: ClaudeStats }
   /** The player clicked a system notification: open the card of that request or result now. */
   | { type: 'notice:open'; agentId: string; itemId: string }
+  /** Modo mini: where the floor and the Dock are, in the pet window's own coordinates. */
+  | { type: 'pet:geometry'; geometry: PetGeometry }
   /** A data file was found corrupt after startup (the closed tickets load on first use). */
   | { type: 'data:notice'; notice: DataNotice }
   | { type: 'update'; update: UpdateStatus }
@@ -393,5 +395,28 @@ export interface OfficeAPI {
   micAccess(): Promise<boolean>
   /** A recording of the voice button (webm/opus) as text, by whisper-cli on this machine. */
   transcribe(audio: Uint8Array): Promise<Dictation>
+  // ---------- Modo mini ----------
+  /** Hides the office window and shows the agents on the bottom of the screen. */
+  petEnter(): Promise<void>
+  /** Closes the bottom strip and shows the office window again. */
+  petLeave(): Promise<void>
+  /** Pet window: catch the mouse (over an agent or a card) or let it through to what is behind. */
+  petInteractive(on: boolean): void
+  /** Pet window: take the keyboard (the panel or a card opened). */
+  petFocus(): void
+  /** Pet window: the last measure of the floor and the Dock (null before the first one). */
+  petGeometry(): Promise<PetGeometry | null>
   onEvent(cb: (e: OfficeEvent) => void): () => void
+}
+
+/** Modo mini, in the pet window's CSS pixels (y grows down). */
+export interface PetGeometry {
+  width: number
+  height: number
+  /** Where the feet of an agent on the ground are. */
+  floor: number
+  /** The macOS Dock at the bottom, a platform they jump onto; null without one. */
+  dock: { left: number; right: number; top: number } | null
+  /** False when the Dock's width is an estimate (no Accessibility access). */
+  exact: boolean
 }

@@ -129,6 +129,11 @@ const api: OfficeAPI = {
   removeRef: (floorId, id) => ipcRenderer.invoke('office:removeRef', floorId, id),
   micAccess: () => ipcRenderer.invoke('office:micAccess'),
   transcribe: (audio) => ipcRenderer.invoke('office:transcribe', audio),
+  petEnter: () => ipcRenderer.invoke('office:petEnter'),
+  petLeave: () => ipcRenderer.invoke('office:petLeave'),
+  petInteractive: (on) => ipcRenderer.send('office:petInteractive', on === true),
+  petFocus: () => ipcRenderer.send('office:petFocus'),
+  petGeometry: () => ipcRenderer.invoke('office:petGeometry'),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

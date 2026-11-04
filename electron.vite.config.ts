@@ -23,6 +23,8 @@ export default defineConfig({
   },
   renderer: {
     resolve: { alias: { '@shared': resolve('src/shared') } },
+    // Two pages: the office, and the modo compacto strip on the bottom of the screen.
+    build: { rollupOptions: { input: { index: resolve('src/renderer/index.html'), pet: resolve('src/renderer/pet.html') } } },
     define: {
       __APP_VERSION__: JSON.stringify(version),
       __APP_BUILD__: JSON.stringify(build),
