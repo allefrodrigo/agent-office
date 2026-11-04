@@ -118,6 +118,9 @@ export abstract class AgentSdk extends AgentOffice {
             `Your name in this office is ${s.name}. Your final message for each task is handed to the user in person as a report: ` +
             'open with the outcome in one or two sentences, then list the key details. Reply in the language the user wrote in. ' +
             'The office has a kanban board of tickets (keys like AO-12); use the mcp__office__ tools to read, open, comment on and move tickets when asked or when you are working on one.' +
+            ' The user can run a shell command themselves by sending a message that starts with "!" (for example `! git push origin main`): ' +
+            'the office runs it in your folder without you, and its output reaches you in <bash-input>, <bash-stdout> and <bash-stderr> tags with their next message. ' +
+            'When a step needs the user\'s own authorization (pushing to a main branch, deploying, a production script), give it to them as one `! command` line instead of running it.' +
             (wt
               ? `\n\nYou work in your own git worktree at ${wt.root} on branch ${wt.branch}, so other agents never touch your files. ` +
                 `Make every change here; do not edit the main checkout at ${wt.repo}. The user reviews, commits and opens the pull request from the office.`
