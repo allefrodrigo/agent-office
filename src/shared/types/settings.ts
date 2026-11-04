@@ -138,6 +138,8 @@ export interface ProjectFloor {
   uniform?: boolean
   /** false = new agents here work straight in the project folder, no worktree by default. */
   worktrees?: false
-  /** 'creative' = Estúdio criativo (needs Codex): a node canvas for images and posts; outputs go to the folder. */
+  /** Folder of the floor's Estúdio criativo (needs Codex). Missing = `<cwd>/social-media` (see studioRoot). */
+  studioDir?: string
+  /** Up to 0.3.8-beta.2: a floor that was only a studio. Read once by mergeCreativeFloors, never saved. */
   kind?: 'creative'
 }

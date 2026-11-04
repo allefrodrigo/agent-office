@@ -48,9 +48,8 @@ export function adaptGround(office: GroundFloor): void {
 }
 
 /** Project floors: the spending board and the alarm go from the side wall to the back wall of the first room. */
-export function adaptUpper(floor: Office, rooftop: boolean): void {
+export function adaptUpper(floor: Office): void {
   clearDesks(floor.group)
-  if (rooftop) return
   put(floor.money.group, 2.6, 1.0, 0.06)
   put(floor.alarm.group, 3.95, 1.85, 0.04)
 }

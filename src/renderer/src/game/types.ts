@@ -43,6 +43,8 @@ export interface Upper {
   scene: UpperFloor
   /** "Contratar squad" on the Diretoria board; null when the project has no squads. */
   boardTag: Tag | null
+  /** "Abrir estúdio criativo" over the studio screen, while Codex is ready. */
+  studioTag: Tag | null
   /** One "Passo 3/6 · Texto" line over each Diretoria desk. */
   stepTags: Tag[]
   /** Over the alarm, while an account of this floor is at its limit. */

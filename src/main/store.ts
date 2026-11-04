@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentResult, AgentSummary, Ledger, LogEntry, Settings } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
-import { floorNameFor } from '@shared/projects'
+import { floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { DEFAULT_VIDEO } from '@shared/video'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
@@ -62,6 +62,8 @@ function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
   const { squadFolder, squadFloorName, ...rest } = (raw ?? {}) as Record<string, unknown>
   const settings = { ...DEFAULT_SETTINGS, ...rest } as Settings
   if (!Array.isArray(settings.projects)) settings.projects = []
+  // 0.3.8-beta.3: creative floors became the studio of every floor.
+  settings.projects = mergeCreativeFloors(settings.projects)
   if (!Array.isArray(settings.accounts)) settings.accounts = []
   // The main login (~/.claude) is always there, first.
   if (!settings.accounts.some((a) => a.id === MAIN_ACCOUNT)) settings.accounts = [mainAccount(), ...settings.accounts]

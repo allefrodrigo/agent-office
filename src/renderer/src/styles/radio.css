@@ -2,8 +2,8 @@
 
 .radio {
   position: fixed;
-  /* above the voice button and its card */
-  bottom: calc(var(--voice-h, 48px) + 24px);
+  /* above the elevator panel */
+  bottom: calc(var(--floors-h, 48px) + 24px);
   left: 16px;
   z-index: 100000;
   width: 248px;
@@ -14,7 +14,7 @@
 
 /* Keep toasts above the card while the radio is on. */
 body:has(.radio:not(.hidden)) .toasts {
-  bottom: calc(var(--voice-h, 48px) + 100px);
+  bottom: calc(var(--floors-h, 48px) + 100px);
 }
 
 /* One iframe, laid over the lounge TV by a matrix from radio.ts. */

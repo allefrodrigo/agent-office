@@ -1,6 +1,7 @@
 import { labelOf, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
 import type { AgentSummary, OfficePermissionMode, Ticket, TicketPatch, TicketPriority, TicketType } from '@shared/types'
 import { h, icon, timeAgo } from '../dom'
+import { MicButton } from '../voice'
 import { STATUS_LABEL } from '../hud'
 import { renderMarkdown } from '../markdown'
 import { brainFields, cleanError, field, LAST_CWD, worktreeToggle } from '../modals'
@@ -397,7 +398,7 @@ export abstract class BoardDetail extends BoardColumns {
         'div',
         { class: 'tcomment-new' },
         this.commentBox,
-        h('button', { class: 'btn btn-small', title: 'Comentar (⌘/Ctrl + Enter)', onclick: () => void send() }, icon('send', 13), 'Comentar'),
+        h('div', { class: 'tcomment-send' }, new MicButton(this.commentBox, { size: 13, small: true }).el, h('button', { class: 'btn btn-small', title: 'Comentar (⌘/Ctrl + Enter)', onclick: () => void send() }, icon('send', 13), 'Comentar')),
       ),
     )
   }

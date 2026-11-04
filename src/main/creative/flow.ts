@@ -116,7 +116,7 @@ export function cleanFlow(raw: unknown): Flow {
 export function cleanJob(raw: unknown, floorIds: string[]): CreativeJob {
   const j = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   if (typeof j.jobId !== 'string' || !ID.test(j.jobId) || typeof j.nodeId !== 'string' || !ID.test(j.nodeId)) throw new Error('Pedido inválido.')
-  if (typeof j.floorId !== 'string' || !floorIds.includes(j.floorId)) throw new Error('Esse andar criativo não existe mais.')
+  if (typeof j.floorId !== 'string' || !floorIds.includes(j.floorId)) throw new Error('Esse andar não existe mais.')
   if (!isKind(j.kind) || !NODE_DEFS[j.kind].engine) throw new Error('Esse nó não roda: é uma entrada.')
   const inputs: Record<string, PortValue[]> = {}
   const raws = (j.inputs && typeof j.inputs === 'object' ? j.inputs : {}) as Record<string, unknown>

@@ -109,7 +109,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
           })
         : [h('div', { class: 'field-hint' }, 'Nenhum andar: o escritório fica só no térreo.')]),
     )
-    addFloor.classList.toggle('hidden', !canAddFloor(floors, 'project'))
+    addFloor.classList.toggle('hidden', !canAddFloor(floors))
   }
   addFloor.addEventListener('click', async () => {
     const p = await window.office.pickFolder()

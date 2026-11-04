@@ -8,6 +8,7 @@ import { modalA11y } from '../a11y'
 import { h, icon } from '../dom'
 import { renderMarkdown } from '../markdown'
 import { cleanError, confirmDialog, modal } from '../modals'
+import { studioRoot } from '@shared/projects'
 import { integrationsView, readStatus } from './integrations'
 import { galleryPanel } from './gallery'
 import { dropSession, floorTabs, isBusy, newId, onBusyChange, sessionFor, type StudioSession } from './session'
@@ -134,7 +135,7 @@ export async function openStudio(root: HTMLElement, state: State, floor: Project
     'div',
     { class: 'st-w st-w-bar st-w-janela', role: 'toolbar', 'aria-label': 'Janela do estúdio' },
     galleryBtn,
-    h('button', { class: 'icon-btn', title: `Abrir a pasta do andar (${floor.cwd})`, 'aria-label': 'Pasta do andar', onclick: () => void window.office.revealPath(floor.cwd) }, icon('folder', 16)),
+    h('button', { class: 'icon-btn', title: `Abrir a pasta do estúdio (${studioRoot(floor)})`, 'aria-label': 'Pasta do estúdio', onclick: () => void window.office.revealPath(studioRoot(floor)) }, icon('folder', 16)),
     h('button', { class: 'icon-btn', title: 'Fechar (Esc)', 'aria-label': 'Fechar o estúdio', onclick: () => close() }, icon('x', 17)),
   )
 

@@ -1,4 +1,4 @@
-import { autoStop, bandEdges, SETTLE_MS, SILENCE_STOP_MS, VOICE_MAX_SECONDS, type Dictation } from '@shared/voice'
+import { autoStop, bandEdges, insertDictation, SETTLE_MS, SILENCE_STOP_MS, VOICE_MAX_SECONDS } from '@shared/voice'
 import { h, icon } from './dom'
 import { cleanError } from './modals/common'
 
@@ -8,30 +8,32 @@ const HOLD_MS = 350
 const MIN_MS = 400
 const MIME = 'audio/webm;codecs=opus'
 /** Bars of the wave, mirrored around the middle one. */
-const BARS = 23
+const BARS = 19
 /** Raw RMS of the mic above this counts as speech (quiet rooms sit near 0.003 with noise suppression). */
 const SPEECH_RMS = 0.015
 
-type Phase = 'idle' | 'asking' | 'recording' | 'transcribing' | 'done' | 'error'
+type Phase = 'idle' | 'asking' | 'recording' | 'transcribing' | 'error'
 type StopReason = 'user' | 'cancel' | 'max' | 'silence' | 'nospeech'
 
+/** An error stays up this long, then the tip goes away by itself. */
+const ERROR_MS = 7000
+
 /**
- * Modo voz, first test: the round button at the bottom left records the microphone and
- * whisper-cli (the creative studio's) turns it into text on this machine. While it listens
- * the button opens into a pill whose bars follow the voice; the text shows in a card above.
- * Hold to talk, or click to start and click again (or go quiet) to stop.
+ * Modo voz: the mic beside the Send button of a text box. It records the microphone and
+ * whisper-cli (the creative studio's) turns it into text on this machine; the text goes into
+ * the box at the caret, ready to read and send. Hold to talk, or click to start and click
+ * again (or go quiet) to stop. While it listens a tip over the button shows the voice's wave.
  */
-export class VoiceButton {
-  readonly el: HTMLDivElement
+export class MicButton {
+  /** Only one mic records at a time, whichever box it sits in. */
+  private static busy: MicButton | null = null
+  readonly el: HTMLSpanElement
   private button: HTMLButtonElement
   private bars: HTMLSpanElement[]
-  private card: HTMLDivElement
+  private tip: HTMLDivElement
   private status: HTMLSpanElement
-  private text: HTMLParagraphElement
   private meta: HTMLSpanElement
-  private actions: HTMLDivElement
   private phase: Phase = 'idle'
-  private last: Dictation | null = null
   private recorder: MediaRecorder | null = null
   private stream: MediaStream | null = null
   private audio: AudioContext | null = null
@@ -49,15 +51,21 @@ export class VoiceButton {
   private reason: StopReason = 'user'
   private tick = 0
   private frame = 0
+  private hideTimer = 0
 
-  constructor(root: HTMLElement) {
+  /** `target` is the box the text goes into; `size` the icon size of the box's other buttons. */
+  constructor(
+    private target: HTMLTextAreaElement | HTMLInputElement,
+    opts: { size?: number; small?: boolean } = {},
+  ) {
     this.bars = Array.from({ length: BARS }, (_, i) => h('span', { style: `--i: ${i}` }))
     this.button = h(
       'button',
       {
-        class: 'voice-btn',
-        title: 'Modo voz (teste): segure para falar, ou clique para gravar e clique de novo para parar',
-        'aria-label': 'Gravar a voz e transcrever com o whisper',
+        type: 'button',
+        class: `btn btn-icon mic-btn${opts.small ? ' btn-small' : ''}`,
+        title: 'Falar (segure para falar, ou clique para gravar e clique de novo para parar)',
+        'aria-label': 'Ditar por voz: grava e transcreve com o whisper',
         'aria-pressed': 'false',
         onpointerdown: (e: Event) => this.press(e as PointerEvent),
         onpointerup: () => this.release(),
@@ -65,29 +73,18 @@ export class VoiceButton {
         // Enter or Space (no pointer): toggle.
         onclick: (e: Event) => (e as MouseEvent).detail === 0 && this.toggle(),
       },
-      icon('mic', 22),
-      h('span', { class: 'voice-wave', 'aria-hidden': 'true' }, this.bars),
+      icon('mic', opts.size ?? 16),
     )
-    this.status = h('span', { class: 'voice-status' })
-    this.text = h('p', { class: 'voice-text' })
-    this.meta = h('span', { class: 'voice-meta' })
-    this.actions = h(
+    this.status = h('span', { class: 'mic-status' })
+    this.meta = h('span', { class: 'mic-meta' })
+    this.tip = h(
       'div',
-      { class: 'voice-actions' },
-      h('button', { class: 'icon-btn', title: 'Copiar o texto', 'aria-label': 'Copiar o texto', onclick: () => void this.copy() }, icon('copy', 14)),
-      h('button', { class: 'icon-btn', title: 'Fechar', 'aria-label': 'Fechar', onclick: () => this.close() }, icon('x', 14)),
-    )
-    this.card = h(
-      'div',
-      { class: 'voice-card card hidden', role: 'status', 'aria-live': 'polite' },
-      h('div', { class: 'voice-head' }, h('span', { class: 'voice-dot' }), this.status, this.actions),
-      this.text,
+      { class: 'mic-tip hidden', role: 'status', 'aria-live': 'polite' },
+      h('span', { class: 'mic-wave', 'aria-hidden': 'true' }, this.bars),
+      h('div', { class: 'mic-line' }, h('span', { class: 'mic-dot' }), this.status, h('button', { type: 'button', class: 'icon-btn mic-close', title: 'Fechar', 'aria-label': 'Fechar', onclick: () => this.close() }, icon('x', 12))),
       this.meta,
     )
-    this.el = h('div', { class: 'voice' }, this.card, this.button)
-    // Toasts and the radio card stack above the button and its card, whatever their height.
-    new ResizeObserver(() => document.documentElement.style.setProperty('--voice-h', `${this.el.offsetHeight}px`)).observe(this.el)
-    root.append(this.el)
+    this.el = h('span', { class: 'mic' }, this.tip, this.button)
   }
 
   private press(e: PointerEvent): void {
@@ -95,6 +92,7 @@ export class VoiceButton {
     e.preventDefault()
     if (this.phase === 'recording') return this.stop('user')
     if (this.phase === 'asking' || this.phase === 'transcribing') return
+    if (MicButton.busy && MicButton.busy !== this) return
     this.button.setPointerCapture(e.pointerId)
     this.pressedAt = performance.now()
     this.holding = true
@@ -112,10 +110,11 @@ export class VoiceButton {
 
   private toggle(): void {
     if (this.phase === 'recording') this.stop('user')
-    else if (this.phase !== 'asking' && this.phase !== 'transcribing') void this.start()
+    else if (this.phase !== 'asking' && this.phase !== 'transcribing' && (!MicButton.busy || MicButton.busy === this)) void this.start()
   }
 
   private async start(): Promise<void> {
+    MicButton.busy = this
     this.set('asking', 'Pedindo o microfone…')
     try {
       if (!(await window.office.micAccess())) throw new Error('mic-denied')
@@ -155,7 +154,7 @@ export class VoiceButton {
     this.meta.textContent = this.holding ? `${clock(s)} · Esc cancela` : `${clock(s)} · ${SILENCE_STOP_MS / 1000} s de silêncio encerra · Esc cancela`
   }
 
-  /** Esc while recording throws the take away. */
+  /** Esc while recording throws the take away (and does not close the panel behind). */
   private onKey = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape' || this.phase !== 'recording') return
     e.preventDefault()
@@ -176,21 +175,29 @@ export class VoiceButton {
     if (this.reason === 'cancel') return this.close()
     if (this.reason === 'nospeech') return this.fail('Não ouvi nada e parei sozinho. Fale mais perto do microfone e tente de novo.')
     if (took < MIN_MS) return this.fail('Curto demais. Segure o botão enquanto fala, ou clique uma vez para gravar e outra para parar.')
-    const why = this.reason === 'silence' ? 'parou no silêncio' : this.reason === 'max' ? 'parou no limite' : ''
     this.set('transcribing', 'Transcrevendo com o whisper…')
-    this.meta.textContent = [`${clock(took / 1000)} de áudio`, why].filter(Boolean).join(' · ')
+    this.meta.textContent = `${clock(took / 1000)} de áudio`
     try {
       const bytes = new Uint8Array(await new Blob(this.chunks, { type: mime }).arrayBuffer())
       const d = await window.office.transcribe(bytes)
       this.chunks = []
       if (!d.text) return this.fail('Não ouvi nada. Fale mais perto do microfone e tente de novo.')
-      this.last = d
-      this.set('done', 'Transcrição')
-      this.text.textContent = d.text
-      this.meta.textContent = [d.lang, d.model.replace(/^ggml-|\.bin$/g, ''), `${(d.ms / 1000).toFixed(1).replace('.', ',')} s`, why].filter(Boolean).join(' · ')
+      this.write(d.text)
+      this.close()
     } catch (err) {
       this.fail(cleanError(err))
     }
+  }
+
+  /** The text goes into the box at the caret, as if typed: the box resizes and keeps its draft. */
+  private write(text: string): void {
+    const t = this.target
+    if (!t.isConnected) return
+    const { value, caret } = insertDictation(t.value, t.selectionStart ?? t.value.length, t.selectionEnd ?? t.value.length, text)
+    t.value = value
+    t.dispatchEvent(new Event('input', { bubbles: true }))
+    t.focus({ preventScroll: true })
+    t.setSelectionRange(caret, caret)
   }
 
   /** Mic off, wave off, timers off; the take (chunks) stays until it is sent. */
@@ -251,34 +258,34 @@ export class VoiceButton {
   }
 
   private set(phase: Phase, status: string): void {
+    window.clearTimeout(this.hideTimer)
     this.phase = phase
     this.el.dataset.phase = phase
     this.button.setAttribute('aria-pressed', String(phase === 'recording'))
     this.status.textContent = status
-    this.text.textContent = ''
     this.meta.textContent = ''
-    this.actions.classList.toggle('hidden', phase !== 'done' && phase !== 'error')
-    this.actions.firstElementChild?.classList.toggle('hidden', phase !== 'done')
-    this.card.classList.remove('hidden')
+    this.tip.classList.remove('hidden')
   }
 
   private fail(message: string): void {
     this.teardown()
     this.set('error', 'Não deu certo')
-    this.text.textContent = message
+    this.meta.textContent = message
+    if (MicButton.busy === this) MicButton.busy = null
+    this.hideTimer = window.setTimeout(() => this.close(), ERROR_MS)
   }
 
   private close(): void {
+    window.clearTimeout(this.hideTimer)
+    if (this.phase === 'recording') {
+      this.reason = 'cancel'
+      this.recorder?.stop()
+    }
     this.phase = 'idle'
     this.el.dataset.phase = 'idle'
     this.button.setAttribute('aria-pressed', 'false')
-    this.card.classList.add('hidden')
-  }
-
-  private async copy(): Promise<void> {
-    if (!this.last) return
-    await window.office.copyText(this.last.text)
-    this.status.textContent = 'Copiado'
+    this.tip.classList.add('hidden')
+    if (MicButton.busy === this) MicButton.busy = null
   }
 }
 

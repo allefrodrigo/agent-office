@@ -718,40 +718,25 @@ textarea.st-input {
   font-weight: 500;
 }
 
-/* ---------- new floor: kind picker ---------- */
+/* ---------- new floor: the optional studio section ---------- */
 
-.floor-kinds {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
-
-.floor-kind {
+.floor-studio {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 8px;
+  padding: 8px 12px;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.03);
-  color: var(--text);
-  text-align: left;
+}
+
+.floor-studio summary {
   cursor: pointer;
+  font-weight: 600;
 }
 
-.floor-kind small {
-  color: var(--muted);
-  line-height: 1.4;
-}
-
-.floor-kind.on {
-  border-color: var(--accent);
-  background: rgba(217, 119, 87, 0.1);
-}
-
-.floor-kind[disabled] {
-  opacity: 0.55;
-  cursor: not-allowed;
+.floor-studio[open] summary {
+  margin-bottom: 6px;
 }
 
 /* ---------- plan usage (Uso widget) ---------- */

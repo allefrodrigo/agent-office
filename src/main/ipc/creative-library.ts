@@ -1,4 +1,6 @@
 import { ipcMain } from 'electron'
+import { mkdirSync } from 'node:fs'
+import { studioRoot } from '@shared/projects'
 import type { ProjectFloor } from '@shared/types'
 import { parseAdsTarget } from '@shared/social'
 import { captureAds } from '../creative/ads'
@@ -15,9 +17,12 @@ export function registerCreativeLibraryIpc(ctx: IpcContext): void {
   const captures = new Map<string, AbortController>()
   const rootOf = (raw: unknown): string => {
     const fid = parse(idSchema, raw, 'Esse andar não existe mais.')
-    const f: ProjectFloor | undefined = store.settings.projects.find((p) => p.kind === 'creative' && p.id === fid)
-    if (!f) throw new Error('Esse andar criativo não existe mais.')
-    return f.cwd
+    const f: ProjectFloor | undefined = store.settings.projects.find((p) => p.id === fid)
+    if (!f) throw new Error('Esse andar não existe mais.')
+    // The studio folder of the floor; made on first use (a project may have no social-media yet).
+    const root = studioRoot(f)
+    mkdirSync(root, { recursive: true })
+    return root
   }
   ipcMain.handle('office:listFlows', (_e, floorId: unknown) => listFlows(rootOf(floorId)))
   ipcMain.handle('office:loadFlowTab', (_e, floorId: unknown, flowId: unknown) => loadFlowTab(rootOf(floorId), flowId))

@@ -3,7 +3,6 @@ import type { ProjectFloor, SquadInfo } from '@shared/types'
 import { brandOf, releaseLogos } from '../world/brand'
 import { disposeTree } from '../world/dispose'
 import * as L from '../world/layout'
-import { buildRooftop } from '../world/rooftop'
 import { buildUpperFloor } from '../world/upper-floor'
 import { Tag } from '../world/overlays'
 import { adaptUpper } from '../pixel/layout2d'
@@ -50,9 +49,10 @@ export abstract class GameFloors extends GameBase {
   /** Builds the project floors again when the floors or their squads change. */
   setProjects(projects: ProjectFloor[], squads: SquadInfo[], notify = true): void {
     const squadsOf = (p: ProjectFloor) => squads.filter((q) => q.cwd === p.cwd)
-    const plans = projects.map((p) => (p.kind === 'creative' ? L.rooftopPlan() : L.projectPlan(squadsOf(p))))
+    // Every floor has its Estúdio criativo room while Codex is ready; without Codex it is not built.
+    const plans = projects.map((p) => L.projectPlan(squadsOf(p), this.studios))
     const logoKey = (p: ProjectFloor) => (p.logo ? `${p.logo.length}:${p.logo.slice(-48)}` : '')
-    const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, p.kind, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
+    const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, this.studios, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
     if (key === this.uppersKey) return
     this.uppersKey = key
     const playerOn = this.upperOf(this.player.floor)?.project.id
@@ -64,6 +64,7 @@ export abstract class GameFloors extends GameBase {
       this.engine.scene.remove(u.scene.group)
       this.overlays.clearLabels(i + 1)
       if (u.boardTag) this.overlays.remove(u.boardTag)
+      if (u.studioTag) this.overlays.remove(u.studioTag)
       this.overlays.remove(u.alarmTag)
       this.overlays.remove(u.moneyTag)
       this.overlays.remove(u.routinesTag)
@@ -72,20 +73,22 @@ export abstract class GameFloors extends GameBase {
     this.uppers = projects.map((project, i) => {
       const n = i + 1
       const plan = plans[i]
-      const scene = project.kind === 'creative' ? buildRooftop(plan, brandOf(project)) : buildUpperFloor(plan, brandOf(project))
-      if (this.flat) adaptUpper(scene, project.kind === 'creative')
+      const scene = buildUpperFloor(plan, brandOf(project))
+      if (this.flat) adaptUpper(scene)
       scene.reducedMotion = this.reducedEffects
       scene.setNight(this.engine.night)
       this.engine.scene.add(scene.group)
-      this.overlays.label(project.kind === 'creative' ? 'Cobertura' : 'Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
-      for (const r of [...plan.team, ...plan.sectors]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
+      this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
+      for (const r of [...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
       let boardTag: Tag | null = null
-      if (project.kind === 'creative') {
-        boardTag = this.overlays.add(new Tag(scene.board, '🎨 Abrir estúdio criativo', false, () => this.hooks.onStudio(project)))
-        boardTag.setDot('term')
-      } else if (squadsOf(project).length) {
+      if (squadsOf(project).length) {
         boardTag = this.overlays.add(new Tag(scene.board, '▶ Contratar squad', false, () => this.hooks.onRunSquad(project)))
         boardTag.setDot('term')
+      }
+      let studioTag: Tag | null = null
+      if (scene.studioBoard) {
+        studioTag = this.overlays.add(new Tag(scene.studioBoard, '🎨 Abrir estúdio criativo', false, () => this.hooks.onStudio(project)))
+        studioTag.setDot('term')
       }
       const stepTags = plan.directors.map((d) => {
         const anchor = new THREE.Object3D()
@@ -95,7 +98,7 @@ export abstract class GameFloors extends GameBase {
         tag.el.classList.add('tag-step')
         return tag
       })
-      return { project, scene, boardTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money), routinesTag: this.routinesTagFor(scene.routines) }
+      return { project, scene, boardTag, studioTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money), routinesTag: this.routinesTagFor(scene.routines) }
     })
     this.office.setFloors(projects.length + 1)
     for (const u of this.uppers) u.scene.setFloors(projects.length + 1)
@@ -128,6 +131,13 @@ export abstract class GameFloors extends GameBase {
     // the new floors' routines boards are blank until drawn
     this.routinesIn = 0
     if (notify) this.hooks.onFloor(this.player.floor)
+  }
+
+  /** Codex is ready: every floor builds its Estúdio criativo room. */
+  setStudios(on: boolean): void {
+    if (on === this.studios) return
+    this.studios = on
+    this.setProjects(this.state.settings.projects, this.state.squads, false)
   }
 
   get floors(): string[] {

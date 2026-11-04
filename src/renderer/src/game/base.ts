@@ -28,6 +28,8 @@ export abstract class GameBase {
   /** Project floors, 1º andar first. */
   protected uppers: Upper[] = []
   protected uppersKey = ''
+  /** Codex is ready: the floors have their Estúdio criativo room. */
+  protected studios = false
   protected members = new Map<string, Member>()
   protected pcTag: Tag
   /** Over the ground floor alarm. */

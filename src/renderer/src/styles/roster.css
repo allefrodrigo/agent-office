@@ -5,8 +5,8 @@
   top: 16px;
   right: 16px;
   width: 340px;
-  /* 100px is where the elevator panel starts; --floors-h is its height */
-  max-height: calc(100vh - 128px - var(--floors-h, 0px));
+  /* ends above the zoom buttons at the bottom right */
+  max-height: calc(100vh - 160px);
   display: flex;
   flex-direction: column;
   overflow: hidden;

@@ -220,6 +220,8 @@ export interface ProjectPlan {
   sectorOf: Map<string, string>
   /** Front rooms no sector uses: open common areas (lounge, café, games…). */
   commons: Rect[]
+  /** The Estúdio criativo, in the front room nearest the elevator, while Codex is ready. */
+  studio?: SectorRoom
 }
 
 /** Squad members share one floor: `squad/member` ids keep two squads with the same member id apart. */
@@ -247,11 +249,14 @@ function roomDesks(rect: Rect, top: boolean, count: number, first: number): { de
   return { desks, stand }
 }
 
+export const STUDIO_ROOM = 'Estúdio criativo'
+
 /**
  * Plan of a project floor. Team rooms take the back wall; squad sectors the front.
- * A project with five or more sectors gives one back room to them.
+ * A project with more sectors than front rooms gives one back room to them.
+ * `studio` keeps the front room nearest the elevator for the Estúdio criativo.
  */
-export function projectPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[]): ProjectPlan {
+export function projectPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[], studio = false): ProjectPlan {
   // Sectors in order of first appearance; inline members work in the Diretoria, so they need no room.
   const bySector = new Map<string, string[]>()
   for (const s of squads) {
@@ -262,8 +267,9 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
     }
   }
   let entries = [...bySector.entries()]
-  const teamRects = entries.length > FRONT_ROOMS.length ? BACK_ROOMS.slice(0, 1) : BACK_ROOMS
-  const sectorSlots = [...FRONT_ROOMS.map((rect) => ({ rect, top: false })), ...BACK_ROOMS.slice(teamRects.length).map((rect) => ({ rect, top: true }))]
+  const front = studio ? FRONT_ROOMS.slice(1) : FRONT_ROOMS
+  const teamRects = entries.length > front.length ? BACK_ROOMS.slice(0, 1) : BACK_ROOMS
+  const sectorSlots = [...front.map((rect) => ({ rect, top: false })), ...BACK_ROOMS.slice(teamRects.length).map((rect) => ({ rect, top: true }))]
   // More sectors than rooms: the last room takes everyone left over.
   if (entries.length > sectorSlots.length) {
     const rest = entries.slice(sectorSlots.length - 1).flatMap(([, ids]) => ids)
@@ -285,6 +291,7 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
     index += desks.length
     return { name, rect, top, desks, stand, members }
   })
+  const studioRoom: SectorRoom | undefined = studio ? { name: STUDIO_ROOM, rect: FRONT_ROOMS[0], top: false, desks: [], stand: [], members: [] } : undefined
 
   const [dx0, dz0, dx1, dz1] = DIRECTOR_RECT
   const partitions: Partition[] = [
@@ -292,7 +299,7 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
     { axis: 'z', at: dz1, from: dx0, to: dx1, doors: [Math.floor((dx0 + dx1) / 2) - 1, Math.floor((dx0 + dx1) / 2)] },
   ]
   const xWalls = new Set<string>()
-  for (const r of [...team, ...sectors]) {
+  for (const r of [...team, ...sectors, ...(studioRoom ? [studioRoom] : [])]) {
     const [x0, z0, x1, z1] = r.rect
     const mid = Math.floor((x0 + x1) / 2)
     partitions.push({ axis: 'z', at: r.top ? 10 : 13, from: x0, to: x1, doors: [mid - 1, mid] })
@@ -319,24 +326,6 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
   const doors = new Set(partitions.filter((p) => p.axis === 'z').flatMap((p) => p.doors))
   const teamStand: [number, number][] = []
   for (let x = 1; x < dx0; x++) if (!doors.has(x)) teamStand.push([x, 11])
-  const commons = FRONT_ROOMS.filter((rect) => !sectors.some((s) => s.rect === rect))
-  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf, commons }
-}
-
-/** The rooftop (creative floor) is the back strip of the building: x 11..32, z 0..13. */
-export const ROOF_RECT: Rect = [11, 0, 32, 13]
-export const STUDIO_ROOM = 'Estúdio'
-
-/**
- * The creative floor sits on top of the building: one open studio (6 desks under a pergola),
- * the penthouse by the elevator where the studio screen is, no front rooms and no squads.
- */
-export function rooftopPlan(): ProjectPlan {
-  const base = projectPlan([])
-  const rect = BACK_ROOMS[0]
-  const { desks, stand } = roomDesks(rect, true, DESKS_PER_ROOM, 0)
-  const team: SectorRoom[] = [{ name: STUDIO_ROOM, rect, top: true, desks, stand, members: [] }]
-  const teamStand: [number, number][] = []
-  for (let x = ROOF_RECT[0] + 1; x < DIRECTOR_RECT[0]; x++) teamStand.push([x, 11])
-  return { ...base, team, teamDesks: desks, teamStand, sectors: [], partitions: [], commons: [] }
+  const commons = front.filter((rect) => !sectors.some((s) => s.rect === rect))
+  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf, commons, studio: studioRoom }
 }

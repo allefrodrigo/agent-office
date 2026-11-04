@@ -8,7 +8,6 @@ import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
-import { VoiceButton } from './ui/voice'
 import type { DataNotice, ProjectFloor } from '@shared/types'
 import { DEFAULT_VIDEO, effectiveVideo, frameInterval } from '@shared/video'
 import { openAccounts } from './ui/accounts'
@@ -30,7 +29,8 @@ import { mountQuitBanner } from './ui/quit'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 import { osText } from './ui/os-text'
 import { openStudio } from './ui/studio'
-import { setLoginUrl } from './ui/studio/integrations'
+import { creativeReady } from '@shared/creative'
+import { onStatus, readStatus, setLoginUrl } from './ui/studio/integrations'
 import { studioProgress } from './ui/studio/session'
 import { setCodexUsage } from './ui/studio/usage'
 import { h, icon } from './ui/dom'
@@ -158,19 +158,16 @@ async function boot(): Promise<void> {
       game.focusAgent(a.id)
     })
 
-  /** A project folder becomes a floor; the player rides up to it. A creative floor opens its studio. */
+  /** A project folder becomes a floor; the player rides up to it. */
   const newFloor = async () => {
     const floor = await openNewFloor(ui, state, toast)
     if (!floor) return
     game.setProjects(state.settings.projects, state.squads)
     game.goFloor(state.settings.projects.findIndex((p) => p.id === floor.id) + 1)
-    if (floor.kind === 'creative') {
-      toast(`Andar ${floor.name} pronto. O estúdio salva tudo em ${floor.cwd}.`, 'ok')
-      studio(floor)
-    } else toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
+    toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
   }
 
-  /** Estúdio criativo of a creative floor, full screen. */
+  /** Estúdio criativo of a floor, full screen. */
   const studio = (floor: ProjectFloor) =>
     void openStudio(ui, state, floor, {
       toast,
@@ -179,14 +176,15 @@ async function boot(): Promise<void> {
         game.focusAgent(id)
       },
     })
-  // On a creative floor, a button at the top opens its studio.
+  // Every floor has its studio while Codex is ready: a button at the top opens it.
+  let codexReady = false
   const studioLaunch = h('button', { class: 'studio-launch', hidden: true }, icon('spark', 16), 'Abrir estúdio criativo', h('small', {}, 'E'))
   studioLaunch.addEventListener('click', () => {
     const p = game.currentProject
-    if (p?.kind === 'creative') studio(p)
+    if (p && codexReady) studio(p)
   })
   ui.append(studioLaunch)
-  const syncLaunch = () => (studioLaunch.hidden = game.currentProject?.kind !== 'creative')
+  const syncLaunch = () => (studioLaunch.hidden = !codexReady || !game.currentProject)
 
   const radio = new Radio(document.getElementById('overlay')!)
 
@@ -281,8 +279,6 @@ async function boot(): Promise<void> {
   }, radio)
 
   radio.attach({ corners: () => game.tvCorners(), setOn: (on) => game.setTvOn(on) })
-  // Modo voz (teste): bottom left, speech to text with the studio's whisper.
-  new VoiceButton(ui)
 
   const panel = new AgentPanel(ui, state, {
     goTo: (id) => game.goToAgent(id),
@@ -334,7 +330,7 @@ async function boot(): Promise<void> {
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
     if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
     if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.openBackstage()
-    if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && game.currentProject?.kind === 'creative') studio(game.currentProject)
+    if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && codexReady && game.currentProject) studio(game.currentProject)
     if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) setNight(!game.engine.night)
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
@@ -394,6 +390,13 @@ async function boot(): Promise<void> {
 
   hud.setFloors(game.floors, game.currentFloor)
   syncLaunch()
+  // Codex signed in (now, or later from the studio's integrations): the floors get their studio room.
+  onStatus((st) => {
+    codexReady = creativeReady(st)
+    game.setStudios(codexReady)
+    syncLaunch()
+  })
+  void readStatus().catch(() => undefined)
   mountUpdateNotice(ui)
 
   // Configurações → Vídeo (AO-32): shadows and effects apply live; on battery, Economia if asked.

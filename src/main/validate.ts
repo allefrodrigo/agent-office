@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { basename, isAbsolute } from 'node:path'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { ATTACH_LIMITS } from '@shared/attachments'
 import { HAIR_STYLES } from '@shared/describe'
-import { canAddFloor, floorNameFor, MAX_CREATIVE_FLOORS, MAX_PROJECT_FLOORS } from '@shared/projects'
+import { canAddFloor, floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
 import { EFFORT_LEVELS, ROUTINE_LIMITS } from '@shared/types'
@@ -188,16 +188,24 @@ export function cleanProjects(raw: unknown, previous: ProjectFloor[]): ProjectFl
     const p = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
     const cwd = typeof p.cwd === 'string' ? p.cwd : ''
     if (!isAbsolute(cwd) || !isDir(cwd) || out.some((o) => o.cwd === cwd)) continue
-    if (!canAddFloor(out, p.kind === 'creative' ? 'creative' : 'project')) continue
+    if (!canAddFloor(out)) break
     const id = typeof p.id === 'string' && /^[\w-]{1,40}$/.test(p.id) && !out.some((o) => o.id === p.id) ? p.id : `p-${randomUUID().slice(0, 8)}`
     const name = (typeof p.name === 'string' ? p.name.trim().slice(0, 32) : '') || floorNameFor(cwd)
     // A floor's accounts change only through setAccountPool: the settings form may hold an old copy.
     const accounts = previous.find((o) => o.id === id)?.accounts
-    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p), ...(p.worktrees === false ? { worktrees: false as const } : {}), ...(p.kind === 'creative' ? { kind: 'creative' as const } : {}) })
-    if (out.length === MAX_PROJECT_FLOORS + MAX_CREATIVE_FLOORS) break
+    // The studio folder: an existing folder, or one inside the project the studio makes on first use.
+    // A form that dropped the field keeps the one saved.
+    const asked = typeof p.studioDir === 'string' ? p.studioDir : previous.find((o) => o.id === id)?.studioDir
+    const studioDir = asked && isAbsolute(asked) && asked.length < 1024 && (isDir(asked) || insideFolder(cwd, asked)) ? asked : undefined
+    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p), ...(p.worktrees === false ? { worktrees: false as const } : {}), ...(studioDir ? { studioDir } : {}), ...(p.kind === 'creative' ? { kind: 'creative' as const } : {}) })
   }
-  // creative floors are the roof: always the top of the elevator
-  return [...out.filter((p) => p.kind !== 'creative'), ...out.filter((p) => p.kind === 'creative')]
+  return mergeCreativeFloors(out)
+}
+
+/** `child` sits inside `root` (or is it), after resolving `..`. */
+function insideFolder(root: string, child: string): boolean {
+  const rel = relative(resolve(root), resolve(child))
+  return !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 /** Days as 'YYYY-MM-DD' and an absolute folder; anything else is dropped. */

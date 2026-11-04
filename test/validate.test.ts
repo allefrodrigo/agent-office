@@ -182,9 +182,9 @@ describe('cleanProjects', () => {
     const [p] = cleanProjects([{ id: 'p1', name: 'Loja', cwd: dir, accounts: ['main'] }], previous)
     expect(p.accounts).toEqual(['a-1'])
   })
-  it('para no limite de andares e aceita lixo sem lançar', () => {
-    const many = Array.from({ length: 10 }, () => ({ cwd: mkdtempSync(join(dir, 'f-')) }))
-    expect(cleanProjects(many, [])).toHaveLength(6)
+  it('aceita muitos andares e lixo sem lançar', () => {
+    const many = Array.from({ length: 12 }, () => ({ cwd: mkdtempSync(join(dir, 'f-')) }))
+    expect(cleanProjects(many, [])).toHaveLength(12)
     expect(cleanProjects('lixo', [])).toEqual([])
     expect(cleanProjects([null, 3], [])).toEqual([])
   })
