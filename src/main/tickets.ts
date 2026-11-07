@@ -20,6 +20,7 @@ import type {
   TicketType,
 } from '@shared/types'
 import { backupCopies, shapeOf } from './backups'
+import { meetingTools, type MeetingReader } from './meetings/mcp'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 
 const KEY_PREFIX = 'AO'
@@ -362,8 +363,10 @@ export class TicketBoard extends EventEmitter {
    * Agents can open, read, comment and move tickets up to review; closing ("done")
    * stays with the people who review the work.
    */
-  toolsFor(agent: AgentSummary, projects: () => ProjectFloor[]): McpSdkServerConfigWithInstance {
+  toolsFor(agent: AgentSummary, projects: () => ProjectFloor[], meetings?: MeetingReader): McpSdkServerConfigWithInstance {
     const me: Actor = { kind: 'agent', name: agent.name, id: agent.id }
+    // The agent's floor as the board sees it (agent.project, from its cwd at hire); its cwd when that floor is gone.
+    const myFloor = () => projects().find((p) => p.id === agent.project) ?? projectFor(projects(), agent.cwd)
     // Each project floor has its own board: by default an agent sees the tickets of the floor it works on.
     const onMyFloor = (t: Ticket) => projectFor(projects(), t.cwd)?.id === agent.project
     const find = (key: string) => {
@@ -389,7 +392,8 @@ export class TicketBoard extends EventEmitter {
         'Tickets têm chave curta como AO-12. Cada andar (projeto) tem o seu quadro: tickets_list mostra só os do seu andar, a não ser que peça all_floors. ' +
         'Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
         'Um bom ticket se explica sozinho: título no imperativo, contexto com arquivos e passos de reprodução, critérios de aceite verificáveis. ' +
-        'Só pessoas movem para done. Tickets fechados (arquivados depois de done) saem do quadro: consulte só quando precisar, com tickets_list closed=true ou ticket_get.',
+        'Só pessoas movem para done. Tickets fechados (arquivados depois de done) saem do quadro: consulte só quando precisar, com tickets_list closed=true ou ticket_get. ' +
+        'Reuniões do seu andar: meetings_list, meeting_get e meetings_search leem atas e itens de ação (transcrição só se o andar permitir); cite os trechos com a marca [r:<id>#s<n>].',
       tools: [
         tool(
           'tickets_list',
@@ -506,6 +510,7 @@ export class TicketBoard extends EventEmitter {
               return `Comentei em ${t.key}.`
             })(),
         ),
+        ...(meetings ? meetingTools(meetings, myFloor) : []),
       ],
     })
   }

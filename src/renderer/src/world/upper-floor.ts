@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { brandSign, type Brand } from './brand'
 import * as F from './furniture'
-import { beacon, costBoard, routinesBoard } from './props'
+import { beacon, costBoard, routinesBoard, sign } from './props'
+import { meetingRoom, type MeetingRoomView } from './meeting-room'
 import { workstation } from './workstation'
-import { box, panel } from './kit'
 import { mergeStatic } from './merge'
 import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
 import { buildPartitions, buildShell, CALM_BEACON, type Office } from './office'
@@ -11,7 +11,6 @@ import { setNightLights } from './night'
 import { Grid } from './pathfinding'
 import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
 import { rugTexture } from './textures'
-import { px } from './pixel-tag'
 
 /** A project floor. deskScreens holds the team desks first, then the sector desks (DeskSlot.index). */
 export interface UpperFloor extends Office {
@@ -20,6 +19,10 @@ export interface UpperFloor extends Office {
   board: THREE.Object3D
   /** The Estúdio criativo's screen: clicking it opens the studio. Only while Codex is ready. */
   studioBoard?: THREE.Object3D
+  /** Over the Sala de reunião's door: where its tag goes. */
+  meetingAnchor?: THREE.Object3D
+  /** The Sala de reunião: its sign and TV light up during a meeting (RN-17). */
+  meeting?: MeetingRoomView
 }
 
 const RUGS: [string, string, string][] = [
@@ -44,7 +47,7 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   }
 
   // planks in the Diretoria, carpet in the rooms (under their rugs), hall planks in the corridor
-  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
+  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...(plan.meeting ? [{ id: 'meeting' as const, label: '', rect: plan.meeting.rect }] : []), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
   buildPartitions(group, grid, plan.partitions)
 
   // ---------- Diretoria ----------
@@ -112,6 +115,8 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
 
   // ---------- Estúdio criativo ----------
   const studioBoard = plan.studio ? studioRoom(plan.studio, place, grid, loops, brand.color, group) : undefined
+  // ---------- Sala de reunião ----------
+  const meeting = plan.meeting ? meetingRoom(plan.meeting, place, grid, loops, brand.color, group) : undefined
 
   // the company's spending board on the side wall, the alarm above it
   const money = costBoard(brand.name, 2.2)
@@ -132,6 +137,8 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     plan,
     board,
     studioBoard,
+    meetingAnchor: meeting?.anchor,
+    meeting,
     money,
     alarm,
     routines,
@@ -274,28 +281,4 @@ function commons(kind: Common, rect: [number, number, number, number], place: (o
       place(F.plant('flower', '#f5f3ee'), x1 - 0.5, z0 + 1.5)
       block(x1 - 1, z0 + 1)
   }
-}
-
-/** A flat name plate (facing +z) for walls and doors. */
-function sign(text: string, bg: string, fg: string, width = 2.2): THREE.Group {
-  const g = new THREE.Group()
-  const c = document.createElement('canvas')
-  c.width = Math.round(116 * width)
-  c.height = 48
-  const ctx = c.getContext('2d')!
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, c.width, c.height)
-  ctx.fillStyle = fg
-  ctx.font = 'bold 26px -apple-system, "Segoe UI", sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  let label = text
-  while (ctx.measureText(label).width > c.width - 24 && label.length > 4) label = label.slice(0, -2) + '…'
-  ctx.fillText(label === text ? text : label, c.width / 2, c.height / 2 + 1)
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  const h = (width * c.height) / c.width
-  box(g, width + 0.08, h + 0.08, 0.04, '#5f5a8c', 0, -0.04, 0, false)
-  panel(g, width, h, tex, 0, h / 2, 0.025)
-  return px(g, 'roomSign')
 }

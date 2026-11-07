@@ -130,6 +130,18 @@ Depois de confirmar, a câmera vai até o agente, mesmo em outro andar. A caveir
 
 Se a sessão não fechar, o agente levanta e um aviso explica o erro. O painel do agente também tem "Dispensar agente" (contratados) e "Fechar sessão" (terminal).
 
+### Sala de reunião
+
+Cada andar tem uma sala de reunião, e o térreo também (na ponta do lounge). Abra pela etiqueta "🎙 Sala de reunião" no mapa, pela tecla `M` ou pelo botão "Reunião" no topo.
+
+1. **Instale o whisper:** `brew install whisper-cpp ffmpeg`. O app procura o modelo em `~/.cache/hyperframes/whisper/models` e nas pastas do whisper.cpp; prefira o `ggml-small.bin` (em máquinas com 8 GB, o `ggml-base.bin`).
+2. **Áudio do computador (macOS 14.2+):** em desenvolvimento, rode `npm run native` uma vez para compilar o ajudante `resources/bin/system-audio-tap`. O `dist:mac` já faz isso.
+3. **Permissões:** na primeira reunião o macOS pede o microfone e a "Gravação de áudio do sistema". Sem a segunda, a sala avisa e grava só o microfone.
+4. **Grave:** "+ Nova", escolha as fontes e aperte **Gravar**. Anote no bloco de notas; a transcrição chega pelo painel "Transcrição". Encerre pela tela ou pela barra de menus.
+5. **Ata:** ao encerrar, o Claude escreve a ata com as suas notas e a transcrição. Os itens de ação viram ticket ou tarefa de agente com um clique.
+
+O áudio nunca sai do Mac: o whisper roda local, e só texto vai ao Claude. Tudo fica em `userData/meetings`, fora do projeto. Para testar sem microfone: `AGENT_OFFICE_MEETING_WAV=<arquivo.wav> npm run dev`.
+
 ## 5. Gerar o app instalável
 
 ### Mac

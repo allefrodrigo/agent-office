@@ -6,13 +6,14 @@ import { lookFromSeed } from '@shared/describe'
 import { floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
 import { DEFAULT_VIDEO } from '@shared/video'
+import { DEFAULT_MEETING_SETTINGS } from '@shared/meetings'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { mainAccount } from './accounts'
 import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
 import { backupCopies, shapeOf } from './backups'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
-import { cleanVideo } from './validate'
+import { cleanMeetings, cleanVideo } from './validate'
 
 export interface PersistedAgent {
   summary: AgentSummary
@@ -55,6 +56,7 @@ const DEFAULT_SETTINGS: Settings = {
   coldConfirm: true,
   templates: [],
   video: DEFAULT_VIDEO,
+  meetings: DEFAULT_MEETING_SETTINGS,
 }
 
 /** Up to v0.2 one squad folder made a single squad floor; it becomes the first project floor. */
@@ -76,6 +78,9 @@ function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
   }
   // Templates came in v0.3.4: older files have none, and a broken one is dropped, not fatal.
   settings.templates = loadTemplates(settings.templates, settings.projects)
+  // Reuniões came in v0.4: older files have no section or miss newer keys (each gets its default);
+  // broken templates and recipes are dropped.
+  settings.meetings = cleanMeetings(settings.meetings, DEFAULT_SETTINGS.meetings, settings.projects)
   return settings
 }
 

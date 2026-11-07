@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Embedded in the helper's __TEXT,__info_plist section (scripts/build-system-audio.mjs).
+  The permission prompt shows the app that starts the helper ("Agent Office") and reads the
+  text from the app's Info.plist (electron-builder.yml extendInfo); this copy covers running
+  the helper on its own from the Terminal.
+-->
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.allef.agentoffice.system-audio-tap</string>
+	<key>CFBundleName</key>
+	<string>system-audio-tap</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>O Agent Office grava o áudio do sistema só durante a reunião, para transcrever o que os participantes falam. A transcrição fica no seu Mac.</string>
+</dict>
+</plist>

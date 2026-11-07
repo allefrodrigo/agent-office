@@ -44,7 +44,7 @@ export abstract class GameDeliveries extends GameLounge {
     } else if (a.status === 'working' || a.status === 'starting') {
       text = a.activity
     } else if (a.status === 'waiting') {
-      text = '! Indo até você'
+      text = actor.goal === 'meeting' ? '! Espero sua reunião acabar' : '! Indo até você'
       kind = 'wait'
     }
     actor.tag.setBubble(text, kind)

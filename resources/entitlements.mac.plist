@@ -5,6 +5,9 @@
   The V8 JIT, and the microphone for the voice button (the hardened runtime blocks it
   otherwise). Add com.apple.security.cs.allow-unsigned-executable-memory only if a
   signed build crashes at launch with a code-signing fault.
+  The system audio helper (Contents/Resources/bin/system-audio-tap) gets the same set as
+  entitlementsInherit; its Core Audio process tap needs no entitlement, only the TCC
+  "System Audio Recording" permission, which belongs to the app that starts it.
 -->
 <plist version="1.0">
   <dict>

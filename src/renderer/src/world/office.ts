@@ -2,7 +2,8 @@ import * as THREE from 'three'
 import * as F from './furniture'
 import { box, mat } from './kit'
 import { mergeStatic } from './merge'
-import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, ZONES, type Partition, type Zone } from './layout'
+import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, GROUND_MEETING, H, LOUNGE, PARTITIONS, W, WALL_H, ZONES, type Partition, type Zone } from './layout'
+import { meetingRoom, type MeetingRoomView } from './meeting-room'
 import { Grid } from './pathfinding'
 import { beacon, coffeeCorner, costBoard, routinesBoard, type Beacon, type CoffeeCorner, type CostBoard, type RoutinesBoard } from './props'
 import { arcadePainter, LoopScreen, Screen } from './screens'
@@ -41,6 +42,10 @@ export interface GroundFloor extends Office {
   tv: F.MonitorTv
   /** The copa's espresso machine: a click opens the café corner (keep the screen awake). */
   coffee: CoffeeCorner
+  /** Over the Sala de reunião's door: where its tag goes. */
+  meetingAnchor: THREE.Object3D
+  /** The Sala de reunião: its sign and TV light up during a meeting (RN-17). */
+  meeting: MeetingRoomView
 }
 
 const WALL = '#aaa6d6'
@@ -176,8 +181,8 @@ export function buildOffice(): GroundFloor {
   const alarm = beacon()
   place(alarm.group, 0.04, 19.4, Math.PI / 2, 1.85)
 
-  // ---------- lounge (one big room: living area, games, chill corner) ----------
-  const { sofaA, tableA, armchairs, foosball, circle, circleBags, sofaC, tableC, bagsC, pingPong } = LOUNGE
+  // ---------- lounge (living area, games, bean bag circle) ----------
+  const { sofaA, tableA, armchairs, foosball, circle, circleBags, pingPong } = LOUNGE
 
   // living area
   place(F.rug(6, 5, rugTexture(6, 5, '#d7ecd9', '#5f9e7a', '#2f8f83')), tableA.x, tableA.z)
@@ -213,43 +218,28 @@ export function buildOffice(): GroundFloor {
   place(F.plant('tall'), 20.5, 15.5)
   grid.block(20, 15)
 
-  // chill corner with the arcades
-  place(F.rug(6, 5, rugTexture(6, 5, '#f3e4c4', '#c98b5e', '#d97757')), tableC.x, tableC.z)
-  place(F.sofa(3, '#4a8fe0'), sofaC.x, sofaC.z, 0)
-  grid.blockRect(25, 16, 3, 1)
-  place(F.coffeeTable(3), tableC.x, tableC.z)
-  grid.blockRect(25, 18, 3, 1)
-  for (const b of bagsC) {
-    place(F.beanBag(b.color), b.x, b.z, Math.atan2(tableC.x - b.x, tableC.z - b.z))
-    grid.block(Math.floor(b.x), Math.floor(b.z))
-  }
-  const arcadeScreen = new LoopScreen(24, 20, arcadePainter, 8)
-  loops.push(arcadeScreen)
-  place(F.arcade(arcadeScreen.texture), 31.5, 15.5)
-  grid.block(31, 15)
-  const arcade2 = new LoopScreen(24, 20, arcadePainter, 7)
-  loops.push(arcade2)
-  place(F.arcade(arcade2.texture), 30.5, 15.5)
-  grid.block(30, 15)
-  place(F.pingPong(), pingPong.x, pingPong.z, Math.PI / 2)
-  grid.blockRect(29, 22, 2, 1)
-  place(F.bookshelf(2, 1.7, 9), 24, 15.3)
-  grid.blockRect(23, 15, 2, 1)
-  place(F.floorLamp(), 24.4, 16.5)
-  grid.block(24, 16)
-  place(F.plant('tall'), 28.5, 15.5)
-  grid.block(28, 15)
+  // two arcades by the meeting room's glass, the ping-pong table along it (RN-16)
+  LOUNGE.arcades.forEach((a, i) => {
+    const screen = new LoopScreen(24, 20, arcadePainter, 8 - i)
+    loops.push(screen)
+    place(F.arcade(screen.texture), a.x, a.z)
+    grid.block(Math.floor(a.x), Math.floor(a.z))
+  })
+  place(F.pingPong(), pingPong.x, pingPong.z)
+  grid.blockRect(Math.floor(pingPong.x), Math.floor(pingPong.z) - 1, 1, 2)
 
-  // plants along the front edge
+  // plants along the front edge (the meeting room has its own)
   for (const [x, kind] of [
     [11, 'bush'],
     [15, 'fern'],
     [23, 'bush'],
-    [31, 'fern'],
   ] as const) {
     place(F.plant(kind), x + 0.5, 23.5)
     grid.block(x, 23)
   }
+
+  // ---------- Sala de reunião at the lounge's end (RN-16) ----------
+  const meeting = meetingRoom(GROUND_MEETING, place, grid, loops, '#d97757', group)
 
   // every box that never moves becomes one mesh per material (AO-30)
   mergeStatic(group)
@@ -265,6 +255,8 @@ export function buildOffice(): GroundFloor {
     deskScreens,
     tv,
     coffee,
+    meetingAnchor: meeting.anchor,
+    meeting,
     money,
     alarm,
     routines,
@@ -342,6 +334,7 @@ export function buildPartitions(group: THREE.Group, grid: Grid, partitions: Part
   const glass = new THREE.MeshLambertMaterial({ color: '#cfe8ff', transparent: true, opacity: 0.22, depthWrite: false })
   const frame = '#6d6a8f'
   for (const p of partitions) {
+    grid.blockPartition(p)
     for (let i = p.from; i < p.to; i++) {
       const isDoor = p.doors.includes(i)
       const cx = p.axis === 'x' ? p.at : i + 0.5
@@ -354,8 +347,6 @@ export function buildPartitions(group: THREE.Group, grid: Grid, partitions: Part
       const pane = along(0.98, 1.22, 0.03, glass, 0.14)
       pane.castShadow = false
       pane.renderOrder = 2
-      if (p.axis === 'x') grid.blockEdgeX(p.at, i)
-      else grid.blockEdgeZ(p.at, i)
     }
     // posts at every tile boundary, plus door jambs
     for (let i = p.from; i <= p.to; i++) {

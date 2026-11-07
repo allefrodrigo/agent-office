@@ -3,6 +3,7 @@
 import type { VideoSettings } from '../video'
 import type { Account } from './accounts'
 import type { AgentTemplate, EffortLevel, Look, OfficePermissionMode } from './agents'
+import type { MeetingSettings } from './meetings'
 
 export interface BridgeStatus {
   installed: boolean
@@ -51,6 +52,8 @@ export interface Settings {
   disabledMcp?: string[]
   /** Configurações → Vídeo: shadows, fps limit, effects, battery saver. */
   video: VideoSettings
+  /** Configurações → Reuniões: modelos de ata e receitas próprios (o RN-13 completa a seção). */
+  meetings: MeetingSettings
   /** Café corner (Copa): keep the screen awake. Missing = 'off'. */
   caffeine?: CaffeineMode
 }
@@ -140,6 +143,8 @@ export interface ProjectFloor {
   worktrees?: false
   /** Folder of the floor's Estúdio criativo (needs Codex). Missing = `<cwd>/social-media` (see studioRoot). */
   studioDir?: string
+  /** Agents read the transcripts of this floor's meetings (office MCP), not only the atas. Missing = false. */
+  meetingsTranscripts?: boolean
   /** Up to 0.3.8-beta.2: a floor that was only a studio. Read once by mergeCreativeFloors, never saved. */
   kind?: 'creative'
 }

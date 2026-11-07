@@ -1,10 +1,10 @@
 import * as THREE from 'three'
 import * as L from '../world/layout'
-import { GameMovement } from './movement'
+import { GameMeetings } from './meetings'
 import { SKULL_HOME, type Point } from './types'
 
 /** Camera and input: keys, drag to pan, wheel to zoom, clicks and the hover outline. */
-export abstract class GameInput extends GameMovement {
+export abstract class GameInput extends GameMeetings {
   // ---------- input ----------
 
   protected bindInput(el: HTMLElement): void {

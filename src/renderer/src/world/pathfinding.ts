@@ -36,6 +36,15 @@ export class Grid {
     this.edges.add(`z${at},${x}`)
   }
 
+  /** A glass partition along a tile edge (world/layout.ts Partition): every tile of the span but its doors. */
+  blockPartition(p: { axis: 'x' | 'z'; at: number; from: number; to: number; doors: number[] }): void {
+    for (let i = p.from; i < p.to; i++) {
+      if (p.doors.includes(i)) continue
+      if (p.axis === 'x') this.blockEdgeX(p.at, i)
+      else this.blockEdgeZ(p.at, i)
+    }
+  }
+
   walkable(x: number, z: number): boolean {
     return this.inside(x, z) && this.blocked[z * this.w + x] === 0
   }

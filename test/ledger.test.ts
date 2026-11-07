@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SDKResultMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentSummary, Ledger } from '@shared/types'
-import { CostBook, localDay, type SessionMark } from '../src/main/ledger'
+import { categoryId, CostBook, localDay, type SessionMark } from '../src/main/ledger'
 import type { Store } from '../src/main/store'
 
 // CostBook only needs the ledger, the session marks and save() from the store.
@@ -188,5 +188,32 @@ describe('trocas de conta e saída', () => {
     const old = fakeStore({ velha: { total: 1, t: T - 121 * 86_400_000 }, nova: { total: 1, t: T }, sem: { total: 1 } as SessionMark })
     new CostBook(old).stop()
     expect(Object.keys(old.ledgerSessions)).toEqual(['nova'])
+  })
+})
+
+describe('categorias (chamadas do próprio escritório)', () => {
+  it('Reuniões entra no dia do andar como um agente com o nome da categoria', () => {
+    const today = vi.fn()
+    book.on('today', today)
+    const id = categoryId('reunioes')
+    expect(book.recordCategory('reunioes', { cwd: '/proj', costUsd: 0.25, account: 'acc-2', modelUsage: { 'claude-sonnet-5': usage(0.25, 900, 120) }, turns: 1, durationMs: 4000 }, T)).toBeCloseTo(0.25)
+    expect(book.recordCategory('reunioes', { cwd: '/proj', costUsd: 0.05 }, T)).toBeCloseTo(0.05)
+    const d = store.ledger.days['/proj'][DAY]
+    expect(d.costUsd).toBeCloseTo(0.3)
+    expect(d.results).toBe(2)
+    expect(d.agents[id]).toMatchObject({ results: 2, turns: 1, durationMs: 4000, accounts: { 'acc-2': 0.25, main: 0.05 } })
+    expect(d.models['claude-sonnet-5']).toMatchObject({ inputTokens: 900, outputTokens: 120 })
+    expect(store.ledger.agents[id]).toMatchObject({ name: 'Reuniões', category: 'reunioes', cwd: '/proj', firstAt: T, lastAt: T })
+    expect(book.today().agents[id]).toMatchObject({ name: 'Reuniões', cwd: '/proj' })
+    expect(book.spentToday()).toBeCloseTo(0.3)
+    expect(book.query({ cwd: '/proj' }).agents[id].name).toBe('Reuniões')
+    expect(today).toHaveBeenCalledTimes(2)
+    expect(store.save).toHaveBeenCalled()
+  })
+
+  it('custo inválido ou negativo conta zero', () => {
+    expect(book.recordCategory('reunioes', { cwd: '/proj', costUsd: Number.NaN }, T)).toBe(0)
+    expect(book.recordCategory('reunioes', { cwd: '/proj', costUsd: -1 }, T)).toBe(0)
+    expect(store.ledger.days['/proj'][DAY].costUsd).toBe(0)
   })
 })

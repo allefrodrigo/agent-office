@@ -1,5 +1,6 @@
-import { app, type BrowserWindow } from 'electron'
+import { app, ipcMain, type BrowserWindow } from 'electron'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import type { HireRequest } from '@shared/types'
 import type { AgentManager } from './agents'
 import { log } from './log'
@@ -163,4 +164,21 @@ export function forceCrash(w: BrowserWindow, what: string): void {
     }
     if (what === 'page-error') void w.webContents.executeJavaScript("setTimeout(() => { throw new Error('Erro de teste na janela') }); Promise.reject(new Error('Rejeição de teste na janela')); 1")
   }, 6000)
+}
+
+/** Biggest WAV the meeting hook hands to the page: about 2 h of 16 kHz mono, 23 min of 48 kHz stereo. */
+const MEETING_WAV_MAX_BYTES = 256 * 1024 * 1024
+
+/**
+ * Dev helper (never in a packaged app): AGENT_OFFICE_MEETING_WAV=/path/fala.wav makes the meeting
+ * capture play that file through the pcm16k worklet instead of opening the microphone, for end-to-end
+ * runs with AGENT_OFFICE_SHOTS and for `npm run demo`. `office:devMeetingWav` returns null when unset.
+ */
+export function registerMeetingWavHook(file: string | undefined): void {
+  ipcMain.handle('office:devMeetingWav', async (): Promise<Uint8Array | null> => {
+    if (!file) return null
+    const { size } = await stat(file)
+    if (size > MEETING_WAV_MAX_BYTES) throw new Error(`AGENT_OFFICE_MEETING_WAV: arquivo grande demais (${Math.round(size / 1048576)} MB).`)
+    return new Uint8Array(await readFile(file))
+  })
 }

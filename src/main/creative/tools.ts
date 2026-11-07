@@ -33,8 +33,8 @@ export function findBin(name: string): string | undefined {
   return undefined
 }
 
-/** A ggml whisper model already on disk (hyperframes and whisper.cpp keep them here). Small beats base beats tiny. */
-export function findWhisperModel(): string | undefined {
+/** ggml whisper models already on disk (hyperframes and whisper.cpp keep them here), best first. Small beats base beats tiny. */
+export function listWhisperModels(): string[] {
   const dirs = [
     process.env.AGENT_OFFICE_WHISPER_MODELS ?? '',
     join(homedir(), '.cache', 'hyperframes', 'whisper', 'models'),
@@ -44,7 +44,7 @@ export function findWhisperModel(): string | undefined {
     '/usr/local/share/whisper-cpp/models',
   ]
   const rank = (f: string) => ['large', 'medium', 'small', 'base', 'tiny'].findIndex((s) => f.includes(s))
-  let best: { path: string; rank: number } | undefined
+  const found: { path: string; score: number }[] = []
   for (const d of dirs) {
     if (!d || !existsSync(d)) continue
     let files: string[]
@@ -57,10 +57,16 @@ export function findWhisperModel(): string | undefined {
       // large and medium are slow on a laptop: small is the sweet spot, then base.
       const r = rank(f)
       const score = r === 2 ? 0 : r === 3 ? 1 : r === 1 ? 2 : r === 4 ? 3 : r === 0 ? 4 : 5
-      if (!best || score < best.rank) best = { path: join(d, f), rank: score }
+      found.push({ path: join(d, f), score })
     }
   }
-  return best?.path
+  // stable: on a tie the folder listed first wins, as before
+  return found.sort((a, b) => a.score - b.score).map((m) => m.path)
+}
+
+/** The best ggml whisper model on disk (see listWhisperModels). */
+export function findWhisperModel(): string | undefined {
+  return listWhisperModels()[0]
 }
 
 function run(bin: string, args: string[], timeout = 15000): Promise<{ code: number; out: string }> {

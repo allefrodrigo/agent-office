@@ -27,6 +27,30 @@ const ERROR_MS = 7000
 export class MicButton {
   /** Only one mic records at a time, whichever box it sits in. */
   private static busy: MicButton | null = null
+  /** Why every mic button is off (the meeting room holds the microphone); null = on. */
+  private static blocked: string | null = null
+
+  /**
+   * Turns every mic button off (with the reason as the tip) or back on. The meeting room calls
+   * this while it records, so dictation does not fight it for the microphone.
+   */
+  static block(reason: string | null): void {
+    MicButton.blocked = reason
+    if (reason) MicButton.busy?.close()
+    for (const b of document.querySelectorAll<HTMLButtonElement>('button.mic-btn')) MicButton.applyBlock(b)
+  }
+
+  private static applyBlock(b: HTMLButtonElement): void {
+    const reason = MicButton.blocked
+    b.disabled = !!reason
+    if (reason) {
+      b.dataset.title ??= b.title
+      b.title = reason
+    } else if (b.dataset.title !== undefined) {
+      b.title = b.dataset.title
+      delete b.dataset.title
+    }
+  }
   readonly el: HTMLSpanElement
   private button: HTMLButtonElement
   private bars: HTMLSpanElement[]
@@ -85,6 +109,7 @@ export class MicButton {
       this.meta,
     )
     this.el = h('span', { class: 'mic' }, this.tip, this.button)
+    if (MicButton.blocked) MicButton.applyBlock(this.button)
   }
 
   private press(e: PointerEvent): void {
@@ -92,7 +117,7 @@ export class MicButton {
     e.preventDefault()
     if (this.phase === 'recording') return this.stop('user')
     if (this.phase === 'asking' || this.phase === 'transcribing') return
-    if (MicButton.busy && MicButton.busy !== this) return
+    if ((MicButton.busy && MicButton.busy !== this) || MicButton.blocked) return
     this.button.setPointerCapture(e.pointerId)
     this.pressedAt = performance.now()
     this.holding = true
@@ -110,7 +135,7 @@ export class MicButton {
 
   private toggle(): void {
     if (this.phase === 'recording') this.stop('user')
-    else if (this.phase !== 'asking' && this.phase !== 'transcribing' && (!MicButton.busy || MicButton.busy === this)) void this.start()
+    else if (this.phase !== 'asking' && this.phase !== 'transcribing' && !MicButton.blocked && (!MicButton.busy || MicButton.busy === this)) void this.start()
   }
 
   private async start(): Promise<void> {
@@ -294,7 +319,8 @@ function clock(s: number): string {
   return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`
 }
 
-function micError(err: unknown): string {
+/** What went wrong opening the microphone, in words the player can act on (also used by the meeting capture). */
+export function micError(err: unknown): string {
   const name = err instanceof DOMException ? err.name : err instanceof Error ? err.message : ''
   if (name === 'mic-denied' || name === 'NotAllowedError')
     return 'O microfone está bloqueado para o Agent Office. Libere em Ajustes do Sistema › Privacidade e Segurança › Microfone e tente de novo.'

@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import type { Avatar } from '../world/avatar'
-import { H, W, WALL_H, type Zone } from '../world/layout'
+import { H, W, WALL_H, type FloorStyle, type Zone } from '../world/layout'
 import type { Office } from '../world/office'
 import { pxTag } from '../world/pixel-tag'
 import { sprite, whenLoaded } from './assets'
@@ -52,12 +52,13 @@ interface Drawable {
   draw(order: number): void
 }
 
-const ZONE_FLOOR: Record<string, string> = {
+const ZONE_FLOOR: Record<FloorStyle, string> = {
   hall: 'chao/chao-hall',
   boss: 'chao/chao-chefe',
   team: 'chao/chao-time',
   lounge: 'chao/chao-lounge',
   cafe: 'chao/chao-copa',
+  meeting: 'chao/chao-reuniao',
 }
 
 /** Wall-mounted: hangs on the back wall (z ≈ 0) or the side wall (x ≈ 0), off the floor. */

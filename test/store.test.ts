@@ -5,6 +5,7 @@ import { app } from 'electron'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { Store } from '../src/main/store'
 import { DEFAULT_VIDEO } from '../src/shared/video'
+import { DEFAULT_MEETING_SETTINGS } from '../src/shared/meetings'
 
 // Store reads userData/office.json; each test gets its own folder through the electron mock.
 let dir: string
@@ -68,6 +69,27 @@ describe('Store: carga e migração das configurações', () => {
     expect(s.maxSubagents).toBe(10)
     expect(s.agentBudgetUsd).toBe(0)
     expect(s.video).toEqual(DEFAULT_VIDEO)
+    expect(s.meetings).toEqual(DEFAULT_MEETING_SETTINGS)
+  })
+
+  it('reuniões: modelo e receita próprios voltam do arquivo; os quebrados saem', () => {
+    const tpl = { id: 'comite', name: 'Comitê', sections: [{ title: 'Pauta', hint: '' }], instruction: '' }
+    const recipe = { id: 'pauta', command: '/pauta', name: 'Pauta', prompt: 'Monte a pauta.' }
+    write({ settings: { meetings: { templates: [tpl, { name: 'x', hack: 1 }], recipes: [recipe, { command: 'sem-barra' }] } } })
+    expect(new Store().settings.meetings).toEqual({ ...DEFAULT_MEETING_SETTINGS, templates: [tpl], recipes: [recipe] })
+  })
+
+  it('reuniões: arquivo da v0.4 só com as listas ganha os ajustes novos com o padrão', () => {
+    const tpl = { id: 'comite', name: 'Comitê', sections: [{ title: 'Pauta', hint: '' }], instruction: '' }
+    write({ settings: { meetings: { templates: [tpl], recipes: [] } } })
+    expect(new Store().settings.meetings).toEqual({ ...DEFAULT_MEETING_SETTINGS, templates: [tpl] })
+  })
+
+  it('reuniões: ajustes guardados voltam; fora da faixa vai para a borda; inválido volta ao padrão', () => {
+    write({ settings: { meetings: { lang: 'en', ataModel: 'opus', autoStopMin: 2, retentionDays: 99_999, keepAudio: 'sim', defaultSources: 'tudo', extra: 1 } } })
+    const m = new Store().settings.meetings
+    expect(m).toEqual({ ...DEFAULT_MEETING_SETTINGS, lang: 'en', ataModel: 'opus', autoStopMin: 5, retentionDays: 3650 })
+    expect('extra' in m).toBe(false)
   })
 
   it('vídeo: campo ruim volta ao padrão, os bons ficam', () => {

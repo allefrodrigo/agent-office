@@ -49,8 +49,8 @@ export abstract class GameFloors extends GameBase {
   /** Builds the project floors again when the floors or their squads change. */
   setProjects(projects: ProjectFloor[], squads: SquadInfo[], notify = true): void {
     const squadsOf = (p: ProjectFloor) => squads.filter((q) => q.cwd === p.cwd)
-    // Every floor has its Estúdio criativo room while Codex is ready; without Codex it is not built.
-    const plans = projects.map((p) => L.projectPlan(squadsOf(p), this.studios))
+    // Every floor has its Estúdio criativo room while Codex is ready (without Codex it is not built) and its Sala de reunião.
+    const plans = projects.map((p) => L.projectPlan(squadsOf(p), this.studios, true))
     const logoKey = (p: ProjectFloor) => (p.logo ? `${p.logo.length}:${p.logo.slice(-48)}` : '')
     const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, this.studios, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
     if (key === this.uppersKey) return
@@ -65,6 +65,7 @@ export abstract class GameFloors extends GameBase {
       this.overlays.clearLabels(i + 1)
       if (u.boardTag) this.overlays.remove(u.boardTag)
       if (u.studioTag) this.overlays.remove(u.studioTag)
+      if (u.meetingTag) this.overlays.remove(u.meetingTag)
       this.overlays.remove(u.alarmTag)
       this.overlays.remove(u.moneyTag)
       this.overlays.remove(u.routinesTag)
@@ -79,7 +80,7 @@ export abstract class GameFloors extends GameBase {
       scene.setNight(this.engine.night)
       this.engine.scene.add(scene.group)
       this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
-      for (const r of [...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
+      for (const r of [...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : []), ...(plan.meeting ? [plan.meeting] : [])]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
       let boardTag: Tag | null = null
       if (squadsOf(project).length) {
         boardTag = this.overlays.add(new Tag(scene.board, '▶ Contratar squad', false, () => this.hooks.onRunSquad(project)))
@@ -90,6 +91,7 @@ export abstract class GameFloors extends GameBase {
         studioTag = this.overlays.add(new Tag(scene.studioBoard, '🎨 Abrir estúdio criativo', false, () => this.hooks.onStudio(project)))
         studioTag.setDot('term')
       }
+      const meetingTag = scene.meetingAnchor ? this.meetingTagFor(scene.meetingAnchor, project.id) : null
       const stepTags = plan.directors.map((d) => {
         const anchor = new THREE.Object3D()
         anchor.position.set(d.x + d.w / 2, 0.95, d.z + 1.2)
@@ -98,10 +100,12 @@ export abstract class GameFloors extends GameBase {
         tag.el.classList.add('tag-step')
         return tag
       })
-      return { project, scene, boardTag, studioTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money), routinesTag: this.routinesTagFor(scene.routines) }
+      return { project, scene, boardTag, studioTag, meetingTag, stepTags, alarmTag: this.alarmTagFor(scene.alarm), moneyTag: this.moneyTagFor(scene.money), routinesTag: this.routinesTagFor(scene.routines) }
     })
     this.office.setFloors(projects.length + 1)
     for (const u of this.uppers) u.scene.setFloors(projects.length + 1)
+    // a meeting going on keeps its sign and timer on the new floor
+    this.syncMeetingRooms()
 
     // The player stays with the same project, wherever its floor is now; a floor that is gone sends them down.
     const at = playerOn ? this.uppers.findIndex((u) => u.project.id === playerOn) + 1 : 0
@@ -193,6 +197,8 @@ export abstract class GameFloors extends GameBase {
       const here = view === i + 1
       u.scene.group.visible = here
       if (u.boardTag) u.boardTag.hidden = !here
+      if (u.studioTag) u.studioTag.hidden = !here
+      if (u.meetingTag) u.meetingTag.hidden = !here
       const seated = here ? this.directorsOn(i + 1) : null
       u.stepTags.forEach((t, d) => (t.hidden = !seated?.has(d)))
     })
@@ -202,6 +208,7 @@ export abstract class GameFloors extends GameBase {
     this.moneyTag.hidden = view !== 0
     this.routinesTag.hidden = view !== 0
     this.coffeeTag.hidden = view !== 0
+    this.meetingTag.hidden = view !== 0
     this.uppers.forEach((u, i) => {
       u.alarmTag.hidden = view !== i + 1 || !u.scene.alarm.on
       u.moneyTag.hidden = view !== i + 1

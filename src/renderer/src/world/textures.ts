@@ -141,6 +141,8 @@ const PAINTERS: Record<FloorStyle, Painter> = {
   team: carpet('#8d96bd', '#868fb6', 'rgba(60,64,100,0.18)'),
   lounge: diamonds('#b7a5d8', '#ad9ad1'),
   cafe: tiles('#eef0f3', '#dfe3ea', 'rgba(90,96,120,0.25)'),
+  // the Sala de reunião: slate-teal carpet, the color of its sign
+  meeting: carpet('#7fa3a3', '#789b9c', 'rgba(30,62,66,0.2)'),
 }
 
 /** The floor of a whole storey: hall planks, then each zone's own surface. */

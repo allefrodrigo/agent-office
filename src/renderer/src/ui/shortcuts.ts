@@ -16,6 +16,7 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
         ['R', 'Relatórios'],
         ['B', 'Bastidores: o que roda em segundo plano, MCP e skills'],
         ['I', 'Caixa de entrada: pedidos e resultados esperando você'],
+        ['M', 'Sala de reunião do andar em que você está'],
         ['L', 'Apagar ou acender as luzes (modo noturno)'],
         ['W A S D ou ← ↑ → ↓', 'Andar pelo escritório'],
         ['F3', 'Painel de desempenho (fps, draw calls, memória)'],

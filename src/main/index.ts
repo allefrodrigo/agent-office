@@ -1,12 +1,13 @@
 import { app, BrowserWindow, dialog, nativeImage, Notification, powerMonitor, session, type NativeImage } from 'electron'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { permissionNotice, realPathOf } from '@shared/permission-notice'
 import type { Actor, AgentBrain, OfficeEvent, PermissionRequest } from '@shared/types'
 import { Accounts } from './accounts'
 import { AgentManager } from './agents'
-import { badgeDescription, badgeLabel, badgePixels, encodePng } from './badge'
+import { badgePixels, encodePng } from './badge'
+import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { prepareStress, startDemo, startRoutineDemo, startStress } from './demo'
@@ -18,6 +19,7 @@ import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env
 import { isDir, loadSquads, squadInfo } from './squads'
 import { MacJobs } from './mac-jobs'
 import { RoutineScheduler, RoutineStore } from './routines'
+import { MeetingStore } from './meetings/store'
 import { Store } from './store'
 import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
@@ -25,9 +27,11 @@ import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
 import { pruneWorktrees } from './git'
 import { Caffeine } from './caffeine'
-import { QuitFlow } from './quit'
+import { QuitFlow, runQuitHooks } from './quit'
 import { Updater } from './updater'
-import { captureShots, forceCrash, runBench, seedAgents } from './dev-hooks'
+import { captureShots, forceCrash, registerMeetingWavHook, runBench, seedAgents } from './dev-hooks'
+import { installMediaPermissions } from './meetings/capture'
+import { meetingLive, onMeetingLiveChange } from './meetings/tray'
 import type { IpcContext } from './ipc/context'
 import { registerAccountsIpc } from './ipc/accounts'
 import { registerAgentsIpc } from './ipc/agents'
@@ -44,7 +48,9 @@ import { registerWorktreesIpc } from './ipc/worktrees'
 import { registerCreativeIpc } from './ipc/creative'
 import { registerVoiceIpc } from './ipc/voice'
 import { registerCreativeLibraryIpc } from './ipc/creative-library'
+import { registerMeetingsIpc } from './ipc/meetings'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
+import { stopAllWhisper } from './meetings/whisper'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
@@ -87,6 +93,11 @@ function createWindow(): BrowserWindow {
   guardWindow(w, loadPage)
   loadPage(w)
   return w
+}
+
+/** The page the window shows: the dev server, or index.html in the bundle. Only it gets the microphone. */
+function appPageUrl(): string {
+  return process.env.ELECTRON_RENDERER_URL || pathToFileURL(join(here, '../renderer/index.html')).href
 }
 
 function loadPage(w: BrowserWindow): void {
@@ -208,6 +219,8 @@ installFatalHandlers()
 log.info(`Agent Office ${app.getVersion()} iniciando (${process.platform} ${process.arch}, Electron ${process.versions.electron})`)
 
 app.whenReady().then(async () => {
+  // Before any page loads: microphone only for our own page, everything else denied (sala de reunião).
+  installMediaPermissions(session.defaultSession, appPageUrl())
   await loadShellPath()
   const store = new Store()
   const manager = new AgentManager(store)
@@ -215,13 +228,17 @@ app.whenReady().then(async () => {
   manager.book = book
   const board = new TicketBoard(app.getPath('userData'))
   const routineStore = new RoutineStore(app.getPath('userData'))
+  const meetingStore = new MeetingStore(app.getPath('userData'))
+  // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
+  meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
   onFatalFlush(() => {
     store.flush()
     board.flush()
     routineStore.flush()
+    meetingStore.flush()
   })
-  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects)
+  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore)
   const desk = new TicketDesk(board, manager, () => store.settings)
   // Old tickets in "Feito" close by themselves: now, then every hour.
   board.autoClose(store.settings.ticketAutoCloseDays)
@@ -242,18 +259,22 @@ app.whenReady().then(async () => {
     if (!img) {
       img = nativeImage.createFromBuffer(encodePng(16, 16, badgePixels(label, 16)))
       img.addRepresentation({ scaleFactor: 2, buffer: encodePng(32, 32, badgePixels(label, 32)) })
-      overlays.set(label, img) // at most 10 labels: 1…9 and 9+
+      overlays.set(label, img) // at most 11 labels: 1…9, 9+ and ● (meeting recording)
     }
     return img
   }
 
+  // RN-08: a meeting recording adds a red dot — '● 3' on the Dock, the dot on the taskbar overlay.
   const updateBadge = () => {
     const count = manager.pendingRequests().length + manager.pendingResults().length
-    if (process.platform === 'darwin') app.dock?.setBadge(count ? String(count) : '')
+    const recording = meetingLive()
+    if (process.platform === 'darwin') app.dock?.setBadge(dockBadge(count, recording))
     else if (process.platform === 'win32') {
-      if (win && !win.isDestroyed()) win.setOverlayIcon(count > 0 ? overlayFor(badgeLabel(count)) : null, badgeDescription(count))
+      const overlay = taskbarOverlay(count, recording)
+      if (win && !win.isDestroyed()) win.setOverlayIcon(overlay ? overlayFor(overlay.label) : null, overlay?.description ?? '')
     } else app.setBadgeCount(count)
   }
+  onMeetingLiveChange(updateBadge)
 
   // Windows: blink the taskbar button when something new waits for the user and the
   // window is not focused (macOS keeps its Dock bounce).
@@ -386,6 +407,7 @@ app.whenReady().then(async () => {
       store.flush()
       board.flush()
       routineStore.flush()
+      meetingStore.flush()
     },
     broadcast,
   })
@@ -419,6 +441,7 @@ app.whenReady().then(async () => {
     store.flush()
     board.flush()
     routineStore.flush()
+    meetingStore.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
@@ -432,6 +455,7 @@ app.whenReady().then(async () => {
       store.lock()
       board.lock()
       routineStore.lock()
+      meetingStore.lock()
     },
   })
 
@@ -448,6 +472,7 @@ app.whenReady().then(async () => {
     book,
     desk,
     routines,
+    meetings: meetingStore,
     macJobs,
     caffeine,
     quit,
@@ -479,7 +504,10 @@ app.whenReady().then(async () => {
   registerBackstageIpc(ipc)
   registerCreativeIpc(ipc)
   registerCreativeLibraryIpc(ipc)
+  registerMeetingsIpc(ipc)
   registerVoiceIpc()
+  // Dev only: AGENT_OFFICE_MEETING_WAV feeds the meeting capture from a WAV instead of the mic.
+  registerMeetingWavHook(app.isPackaged ? undefined : process.env.AGENT_OFFICE_MEETING_WAV)
   handleMediaScheme()
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
@@ -519,6 +547,8 @@ app.whenReady().then(async () => {
   })
   const stopAll = () => {
     log.info('Saindo')
+    // Child processes registered with onQuit (the meeting room's audio helper).
+    runQuitHooks()
     caffeine.stop()
     updater.stop()
     bridge.stop()
@@ -530,9 +560,11 @@ app.whenReady().then(async () => {
     book.stop()
     routines.stop()
     macJobs.stop()
+    void stopAllWhisper()
     store.flush()
     board.flush()
     routineStore.flush()
+    meetingStore.flush()
   }
   app.on('before-quit', (e) => {
     // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.

@@ -1,3 +1,4 @@
+import { doNotDisturb } from '@shared/meeting-map'
 import type { AgentSummary } from '@shared/types'
 import { Avatar, type Uniform } from '../world/avatar'
 import { DEFAULT_BRAND } from '../world/brand'
@@ -79,6 +80,12 @@ export abstract class GameActors extends GameBoards {
   }
 
   protected desired(actor: Actor, a: AgentSummary): Goal {
+    const goal = this.wanted(actor, a)
+    // "Não perturbe" (RN-17): project agents would follow you into the meeting room; they wait at their desks
+    return goal === 'boss' && this.homeFloor(a) > 0 && doNotDisturb(this.meeting, this.state.settings.meetings) ? 'meeting' : goal
+  }
+
+  private wanted(actor: Actor, a: AgentSummary): Goal {
     if (a.role === 'orchestrator') {
       // The Diretoria is home: no lounge between cycles.
       const items = this.state.itemsFor(a.id)
@@ -123,7 +130,8 @@ export abstract class GameActors extends GameBoards {
       actor.spot = null
       actor.hang = null
       actor.avatar.setProp('none')
-      if (goal === 'desk') this.goDesk(actor, a, instant)
+      // in a meeting: the agent that needs you goes back to (or stays at) its desk
+      if (goal === 'desk' || goal === 'meeting') this.goDesk(actor, a, instant)
       else if (goal === 'boss') this.goBoss(actor, instant)
       else this.goHang(actor, instant)
     } else if (actor.arrived) {
@@ -208,7 +216,13 @@ export abstract class GameActors extends GameBoards {
   protected pose(actor: Actor, a: AgentSummary): void {
     const av = actor.avatar
     if (av.isWalking) return
-    if (actor.goal === 'desk' && a.role === 'orchestrator') {
+    if (actor.goal === 'meeting') {
+      // waits for you at its desk (its chair in the Diretoria), facing the room, its bubble up
+      const seat = a.role === 'orchestrator' ? this.directorDesk(a) : this.deskOf(a)
+      av.face(seat && a.role === 'orchestrator' ? 0 : Math.PI)
+      av.pose = seat ? 'sit' : 'stand'
+      av.seatY = 0
+    } else if (actor.goal === 'desk' && a.role === 'orchestrator') {
       if (!this.directorDesk(a)) {
         av.pose = 'stand'
         av.face(Math.PI)

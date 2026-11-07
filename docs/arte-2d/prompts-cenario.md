@@ -487,6 +487,12 @@ Piso de ladrilho xadrez creme e terracota da copa: 4x4 ladrilhos quadrados alter
 Deck de madeira de terraço: 4 fileiras horizontais de tábuas cor de mel acinzentada, frestas escuras entre elas, pregos à vista. Textura contínua; cobre 2x2 tiles; imagem quadrada, proporção 64x64.
 ```
 
+#### `arte-2d/chao/chao-reuniao.png`
+
+```
+Carpete verde-petróleo acinzentado da sala de reunião: 2x2 placas quadradas com trama discreta e emendas finas mais escuras. Textura contínua; cobre 2x2 tiles; imagem quadrada, proporção 64x64.
+```
+
 #### `arte-2d/chao/parede-fundo.png` (prio 1)
 
 ```

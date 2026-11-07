@@ -17,7 +17,30 @@ export interface QuitDeps {
   broadcast: (wait: QuitWait | null) => void
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
+/**
+ * Work that must not outlive the app, undone in stopAll on every way out (before-quit,
+ * SIGTERM/SIGINT): child processes such as the meeting room's system audio helper.
+ * Hooks must be synchronous and quick. Returns the function that removes the hook.
+ */
+const quitHooks = new Set<() => void>()
+
+export function onQuit(fn: () => void): () => void {
+  quitHooks.add(fn)
+  return () => quitHooks.delete(fn)
+}
+
+export function runQuitHooks(): void {
+  for (const fn of [...quitHooks]) {
+    try {
+      fn()
+    } catch (err) {
+      log.error('Falha num gancho de saída:', err)
+    }
+  }
+  quitHooks.clear()
+}
+
+const plural =(n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`
 
 /** Resolves when `p` settles or after `ms`, whichever comes first. */
 const settle = (p: Promise<unknown>, ms: number) => Promise.race([p.catch(() => undefined), new Promise((r) => setTimeout(r, ms))])

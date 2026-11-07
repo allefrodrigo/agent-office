@@ -367,3 +367,27 @@ export function coffeeCorner(): CoffeeCorner {
     },
   }
 }
+
+/** A flat name plate (facing +z) for walls and doors. */
+export function sign(text: string, bg: string, fg: string, width = 2.2): THREE.Group {
+  const g = new THREE.Group()
+  const c = document.createElement('canvas')
+  c.width = Math.round(116 * width)
+  c.height = 48
+  const ctx = c.getContext('2d')!
+  ctx.fillStyle = bg
+  ctx.fillRect(0, 0, c.width, c.height)
+  ctx.fillStyle = fg
+  ctx.font = 'bold 26px -apple-system, "Segoe UI", sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  let label = text
+  while (ctx.measureText(label).width > c.width - 24 && label.length > 4) label = label.slice(0, -2) + '…'
+  ctx.fillText(label === text ? text : label, c.width / 2, c.height / 2 + 1)
+  const tex = new THREE.CanvasTexture(c)
+  tex.colorSpace = THREE.SRGBColorSpace
+  const h = (width * c.height) / c.width
+  box(g, width + 0.08, h + 0.08, 0.04, '#5f5a8c', 0, -0.04, 0, false)
+  panel(g, width, h, tex, 0, h / 2, 0.025)
+  return px(g, 'roomSign')
+}
