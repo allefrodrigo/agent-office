@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.allef.agentoffice.s1tap</string>
+	<key>CFBundleName</key>
+	<string>s1-tap</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>O Agent Office grava o áudio do sistema só durante a reunião, para transcrever o que os participantes falam.</string>
+</dict>
+</plist>

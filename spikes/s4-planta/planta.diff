@@ -1,0 +1,453 @@
+diff --git a/src/main/index.ts b/src/main/index.ts
+index d82718c..4f97c58 100644
+--- a/src/main/index.ts
++++ b/src/main/index.ts
+@@ -93,7 +93,7 @@ function loadPage(w: BrowserWindow): void {
+   if (process.env.ELECTRON_RENDERER_URL) void w.loadURL(process.env.ELECTRON_RENDERER_URL)
+   // Screenshot and bench runs get the dev globals (__game…) so AGENT_OFFICE_EVAL can move the camera; the bench opens the perf panel too.
+   else if (process.env.AGENT_OFFICE_BENCH) void w.loadFile(join(here, '../renderer/index.html'), { query: { shots: '1', perf: '1' } })
+-  else void w.loadFile(join(here, '../renderer/index.html'), process.env.AGENT_OFFICE_SHOTS ? { query: { shots: '1' } } : undefined)
++  else void w.loadFile(join(here, '../renderer/index.html'), process.env.AGENT_OFFICE_SHOTS ? { query: { shots: '1', terreo: process.env.AGENT_OFFICE_SPIKE_TERREO ?? '' } } : undefined) // SPIKE S-4
+ }
+ 
+ /** A card the notification points at: a permission request or a result. */
+diff --git a/src/renderer/src/game/base.ts b/src/renderer/src/game/base.ts
+index e17a45f..35586c7 100644
+--- a/src/renderer/src/game/base.ts
++++ b/src/renderer/src/game/base.ts
+@@ -90,7 +90,8 @@ export abstract class GameBase {
+         cafe: [4.5, 23.4],
+         lounge: [17.5, 23.4],
+       }
+-      const [x, zz] = pos[z.id] ?? [(z.rect[0] + z.rect[2]) / 2, (z.rect[1] + z.rect[3]) / 2]
++      // SPIKE S-4: the meeting room's label sits by its front edge
++      const [x, zz] = z.label === 'Sala de reunião' ? [(z.rect[0] + z.rect[2]) / 2, z.rect[3] - 0.6] : pos[z.id] ?? [(z.rect[0] + z.rect[2]) / 2, (z.rect[1] + z.rect[3]) / 2]
+       this.overlays.label(z.label, x, zz)
+     }
+ 
+diff --git a/src/renderer/src/game/floors.ts b/src/renderer/src/game/floors.ts
+index 7aa62d2..7268752 100644
+--- a/src/renderer/src/game/floors.ts
++++ b/src/renderer/src/game/floors.ts
+@@ -50,7 +50,7 @@ export abstract class GameFloors extends GameBase {
+   setProjects(projects: ProjectFloor[], squads: SquadInfo[], notify = true): void {
+     const squadsOf = (p: ProjectFloor) => squads.filter((q) => q.cwd === p.cwd)
+     // Every floor has its Estúdio criativo room while Codex is ready; without Codex it is not built.
+-    const plans = projects.map((p) => L.projectPlan(squadsOf(p), this.studios))
++    const plans = projects.map((p) => L.projectPlan(squadsOf(p), this.studios, !L.SPIKE_BEFORE)) // SPIKE S-4: meeting room on every floor
+     const logoKey = (p: ProjectFloor) => (p.logo ? `${p.logo.length}:${p.logo.slice(-48)}` : '')
+     const key = JSON.stringify(projects.map((p, i) => [p.id, p.name, this.studios, squadsOf(p).length, plans[i].sectors.map((r) => [r.name, r.desks.length]), logoKey(p), p.brandColor, !!p.uniform]))
+     if (key === this.uppersKey) return
+@@ -79,7 +79,7 @@ export abstract class GameFloors extends GameBase {
+       scene.setNight(this.engine.night)
+       this.engine.scene.add(scene.group)
+       this.overlays.label('Diretoria', (L.DIRECTOR_RECT[0] + L.DIRECTOR_RECT[2]) / 2, 9.4, n)
+-      for (const r of [...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
++      for (const r of [...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : []), ...(plan.meeting ? [plan.meeting] : [])]) this.overlays.label(r.name, (r.rect[0] + r.rect[2]) / 2, r.top ? 9.4 : r.rect[3] - 0.6, n)
+       let boardTag: Tag | null = null
+       if (squadsOf(project).length) {
+         boardTag = this.overlays.add(new Tag(scene.board, '▶ Contratar squad', false, () => this.hooks.onRunSquad(project)))
+diff --git a/src/renderer/src/game/types.ts b/src/renderer/src/game/types.ts
+index 91641b3..68cce7c 100644
+--- a/src/renderer/src/game/types.ts
++++ b/src/renderer/src/game/types.ts
+@@ -118,7 +118,8 @@ export interface GameHooks {
+ }
+ 
+ /** Floor spot by the boss office where the skeleton stands. */
+-export const SKULL_HOME = { x: 2.5, y: 0, z: 12.3 }
++// SPIKE S-4 option B: the copa's top half is the meeting room, so the skeleton moves to the copa's front
++export const SKULL_HOME = typeof location !== 'undefined' && new URLSearchParams(location.search).get('terreo') === 'copa' ? { x: 7.5, y: 0, z: 21.3 } : { x: 2.5, y: 0, z: 12.3 }
+ /** Seconds the camera gets to reach a dismissed agent before the skull drops. */
+ export const STRIKE_AFTER_S = 0.6
+ /** An idle agent waits at its desk this long before wandering off to the lounge. */
+diff --git a/src/renderer/src/world/layout.ts b/src/renderer/src/world/layout.ts
+index 144271b..bffee35 100644
+--- a/src/renderer/src/world/layout.ts
++++ b/src/renderer/src/world/layout.ts
+@@ -13,11 +13,23 @@ export interface Zone {
+   rect: [number, number, number, number] // x0, z0, x1, z1 (exclusive)
+ }
+ 
++// SPIKE S-4: AGENT_OFFICE_SPIKE_TERREO=lounge|copa (query ?terreo=) picks where the ground floor's meeting room goes.
++export const SPIKE_TERREO: '' | 'lounge' | 'copa' = (() => {
++  const v = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('terreo') : null
++  return v === 'lounge' || v === 'copa' ? v : ''
++})()
++/** SPIKE S-4: AGENT_OFFICE_SPIKE_TERREO=antes draws no meeting room anywhere (before shots). */
++export const SPIKE_BEFORE = typeof location !== 'undefined' && new URLSearchParams(location.search).get('terreo') === 'antes'
++/** SPIKE S-4: the ground floor's meeting room, by option. */
++export const GROUND_MEETING: [number, number, number, number] | null =
++  SPIKE_TERREO === 'lounge' ? [24, 15, 32, 24] : SPIKE_TERREO === 'copa' ? [0, 11, 9, 17] : null
++
+ export const ZONES: Zone[] = [
+   { id: 'boss', label: 'Sua sala', rect: [0, 0, 9, 9] },
+   { id: 'team', label: 'Time de agentes', rect: [11, 0, 32, 12] },
+-  { id: 'lounge', label: 'Lounge', rect: [11, 15, 32, 24] },
+-  { id: 'cafe', label: 'Copa', rect: [0, 11, 9, 24] },
++  { id: 'lounge', label: 'Lounge', rect: SPIKE_TERREO === 'lounge' ? [11, 15, 24, 24] : [11, 15, 32, 24] },
++  { id: 'cafe', label: 'Copa', rect: SPIKE_TERREO === 'copa' ? [0, 17, 9, 24] : [0, 11, 9, 24] },
++  ...(GROUND_MEETING ? [{ id: 'team' as const, label: 'Sala de reunião', rect: GROUND_MEETING }] : []),
+ ]
+ 
+ /** Glass partition along a tile edge. axis 'x' = line x = at, spanning z in [from, to). */
+@@ -32,6 +44,19 @@ export interface Partition {
+ export const PARTITIONS: Partition[] = [
+   { axis: 'x', at: 9, from: 0, to: 9, doors: [5, 6] },
+   { axis: 'z', at: 9, from: 0, to: 9, doors: [] },
++  // SPIKE S-4: glass around the ground floor's meeting room
++  ...(SPIKE_TERREO === 'lounge'
++    ? [
++        { axis: 'z' as const, at: 15, from: 24, to: 32, doors: [27, 28] },
++        { axis: 'x' as const, at: 24, from: 15, to: 24, doors: [] },
++      ]
++    : SPIKE_TERREO === 'copa'
++      ? [
++          { axis: 'x' as const, at: 9, from: 11, to: 17, doors: [13, 14] },
++          { axis: 'z' as const, at: 17, from: 0, to: 9, doors: [] },
++          { axis: 'z' as const, at: 11, from: 0, to: 9, doors: [] },
++        ]
++      : []),
+ ]
+ 
+ export interface DeskSlot {
+@@ -105,7 +130,7 @@ export const LOUNGE = {
+     { x: 28.5, z: 20.5, color: '#00b894' },
+     { x: 26.5, z: 21.5, color: '#fdcb6e' },
+   ],
+-  pingPong: { x: 30, z: 22.5 },
++  pingPong: SPIKE_TERREO === 'lounge' ? { x: 22.5, z: 20 } : { x: 30, z: 22.5 },
+ }
+ 
+ const sofaSeat = (x: number, z: number): HangSpot => ({ x, z, look: [x, z + 2], approach: [Math.floor(x), Math.floor(z) + 1], kind: 'sit' })
+@@ -118,7 +143,7 @@ const around = (p: { x: number; z: number }, c: { x: number; z: number }, approa
+ })
+ 
+ /** Ordered so even a few idle agents spread across the lounge. */
+-export const LOUNGE_SEATS: HangSpot[] = [
++const ALL_LOUNGE_SEATS: HangSpot[] = [
+   sofaSeat(14.5, 16.45),
+   { x: 21, z: 16.55, look: [21, 17.5], approach: [21, 16], kind: 'play' },
+   { x: 21, z: 18.45, look: [21, 17.5], approach: [21, 18], kind: 'play' },
+@@ -147,6 +172,20 @@ export const LOUNGE_SEATS: HangSpot[] = [
+   { x: 1.5, z: 16.6, look: [0.5, 16.6], approach: [1, 16], kind: 'stand' },
+ ]
+ 
++// SPIKE S-4: seats inside the meeting room go; option A gets ping-pong spots where the table moved, option B loses the copa's counter coffee.
++const inGroundMeeting = (h: HangSpot) => !!GROUND_MEETING && h.x >= GROUND_MEETING[0] && h.x < GROUND_MEETING[2] && h.z >= GROUND_MEETING[1] && h.z < GROUND_MEETING[3]
++export const LOUNGE_SEATS: HangSpot[] = [
++  ...ALL_LOUNGE_SEATS.filter((h) => !inGroundMeeting(h)),
++  ...(SPIKE_TERREO === 'lounge'
++    ? [
++        { x: 22.5, z: 18.3, look: [22.5, 20], approach: [22, 18], kind: 'play' },
++        { x: 22.5, z: 21.7, look: [22.5, 20], approach: [22, 21], kind: 'play' },
++      ] satisfies HangSpot[]
++    : SPIKE_TERREO === 'copa'
++      ? ([{ x: 1.5, z: 18.6, look: [0.5, 18.6], approach: [1, 18], kind: 'stand' }] satisfies HangSpot[])
++      : []),
++]
++
+ export function zoneAt(x: number, z: number): Zone | undefined {
+   return ZONES.find((zn) => x >= zn.rect[0] && x < zn.rect[2] && z >= zn.rect[1] && z < zn.rect[3])
+ }
+@@ -222,6 +261,8 @@ export interface ProjectPlan {
+   commons: Rect[]
+   /** The Estúdio criativo, in the front room nearest the elevator, while Codex is ready. */
+   studio?: SectorRoom
++  /** SPIKE S-4: the meeting room, in the front room after the studio. */
++  meeting?: SectorRoom
+ }
+ 
+ /** Squad members share one floor: `squad/member` ids keep two squads with the same member id apart. */
+@@ -250,13 +291,14 @@ function roomDesks(rect: Rect, top: boolean, count: number, first: number): { de
+ }
+ 
+ export const STUDIO_ROOM = 'Estúdio criativo'
++export const MEETING_ROOM = 'Sala de reunião'
+ 
+ /**
+  * Plan of a project floor. Team rooms take the back wall; squad sectors the front.
+  * A project with more sectors than front rooms gives one back room to them.
+  * `studio` keeps the front room nearest the elevator for the Estúdio criativo.
+  */
+-export function projectPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[], studio = false): ProjectPlan {
++export function projectPlan(squads: { code: string; members: { id: string; execution: string; sector: string }[] }[], studio = false, meeting = false): ProjectPlan {
+   // Sectors in order of first appearance; inline members work in the Diretoria, so they need no room.
+   const bySector = new Map<string, string[]>()
+   for (const s of squads) {
+@@ -267,7 +309,8 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
+     }
+   }
+   let entries = [...bySector.entries()]
+-  const front = studio ? FRONT_ROOMS.slice(1) : FRONT_ROOMS
++  const reserved = (studio ? 1 : 0) + (meeting ? 1 : 0)
++  const front = FRONT_ROOMS.slice(reserved)
+   const teamRects = entries.length > front.length ? BACK_ROOMS.slice(0, 1) : BACK_ROOMS
+   const sectorSlots = [...front.map((rect) => ({ rect, top: false })), ...BACK_ROOMS.slice(teamRects.length).map((rect) => ({ rect, top: true }))]
+   // More sectors than rooms: the last room takes everyone left over.
+@@ -292,6 +335,7 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
+     return { name, rect, top, desks, stand, members }
+   })
+   const studioRoom: SectorRoom | undefined = studio ? { name: STUDIO_ROOM, rect: FRONT_ROOMS[0], top: false, desks: [], stand: [], members: [] } : undefined
++  const meetingRoom: SectorRoom | undefined = meeting ? { name: MEETING_ROOM, rect: FRONT_ROOMS[studio ? 1 : 0], top: false, desks: [], stand: [], members: [] } : undefined
+ 
+   const [dx0, dz0, dx1, dz1] = DIRECTOR_RECT
+   const partitions: Partition[] = [
+@@ -299,7 +343,7 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
+     { axis: 'z', at: dz1, from: dx0, to: dx1, doors: [Math.floor((dx0 + dx1) / 2) - 1, Math.floor((dx0 + dx1) / 2)] },
+   ]
+   const xWalls = new Set<string>()
+-  for (const r of [...team, ...sectors, ...(studioRoom ? [studioRoom] : [])]) {
++  for (const r of [...team, ...sectors, ...(studioRoom ? [studioRoom] : []), ...(meetingRoom ? [meetingRoom] : [])]) {
+     const [x0, z0, x1, z1] = r.rect
+     const mid = Math.floor((x0 + x1) / 2)
+     partitions.push({ axis: 'z', at: r.top ? 10 : 13, from: x0, to: x1, doors: [mid - 1, mid] })
+@@ -327,5 +371,5 @@ export function projectPlan(squads: { code: string; members: { id: string; execu
+   const teamStand: [number, number][] = []
+   for (let x = 1; x < dx0; x++) if (!doors.has(x)) teamStand.push([x, 11])
+   const commons = front.filter((rect) => !sectors.some((s) => s.rect === rect))
+-  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf, commons, studio: studioRoom }
++  return { team, teamDesks: team.flatMap((r) => r.desks), teamStand, sectors, directors, partitions, sectorOf, commons, studio: studioRoom, meeting: meetingRoom }
+ }
+diff --git a/src/renderer/src/world/office.ts b/src/renderer/src/world/office.ts
+index da74f99..b484dc1 100644
+--- a/src/renderer/src/world/office.ts
++++ b/src/renderer/src/world/office.ts
+@@ -2,7 +2,8 @@ import * as THREE from 'three'
+ import * as F from './furniture'
+ import { box, mat } from './kit'
+ import { mergeStatic } from './merge'
+-import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, H, LOUNGE, PARTITIONS, W, WALL_H, ZONES, type Partition, type Zone } from './layout'
++import { BOSS_DESK, BOSS_SEAT, DESKS, ELEVATOR, GROUND_MEETING, H, LOUNGE, PARTITIONS, SPIKE_TERREO, W, WALL_H, ZONES, type Partition, type Zone } from './layout'
++import { meetingRoom } from './upper-floor'
+ import { Grid } from './pathfinding'
+ import { beacon, coffeeCorner, costBoard, routinesBoard, type Beacon, type CoffeeCorner, type CostBoard, type RoutinesBoard } from './props'
+ import { arcadePainter, LoopScreen, Screen } from './screens'
+@@ -139,42 +140,50 @@ export function buildOffice(): GroundFloor {
+   // ---------- corridor ----------
+   place(F.plant('tall', '#e9edf2'), 10.5, 0.5)
+   grid.block(10, 0)
+-  place(F.art('mountains', 1.0, 0.75), 0.04, 9.9, Math.PI / 2, 1.6)
++  if (SPIKE_TERREO !== 'copa') place(F.art('mountains', 1.0, 0.75), 0.04, 9.9, Math.PI / 2, 1.6)
+ 
+   // ---------- café: counter and fridge on the side wall, tables, the spending board ----------
++  // SPIKE S-4 option B: the copa's top half is the meeting room, so the kitchen slides 4 tiles toward the front
++  const copa = SPIKE_TERREO === 'copa'
++  const k = copa ? 4 : 0
+   const counter = F.kitchenCounter(4)
+-  place(counter, 0.35, 16, Math.PI / 2)
+-  grid.blockRect(0, 14, 1, 4)
+-  place(F.wallCabinets(4), 0.2, 16, Math.PI / 2)
++  place(counter, 0.35, 16 + k, Math.PI / 2)
++  grid.blockRect(0, 14 + k, 1, 4)
++  place(F.wallCabinets(4), 0.2, 16 + k, Math.PI / 2)
+   const coffee = coffeeCorner()
+-  place(coffee.group, 0.4, 14.6, Math.PI / 2, 0.91)
+-  place(F.microwave(), 0.4, 15.6, Math.PI / 2, 0.91)
+-  place(F.mug('#e17055'), 0.5, 16.3, 0, 0.91)
+-  place(F.mug('#74b9ff'), 0.45, 16.5, 0, 0.91)
+-  place(F.fridge(), 0.4, 18.6, Math.PI / 2)
+-  grid.blockRect(0, 18, 1, 1)
+-  place(F.barTable(), 4.5, 15.5)
+-  grid.block(4, 15)
+-  for (const [x, z, c] of [[3.7, 15.5, '#d97757'], [5.3, 15.5, '#2f8f83'], [4.5, 14.7, '#6c5ce7']] as const) place(F.stool(c), x, z)
+-  place(F.roundTable(0.55), 4.5, 20)
+-  grid.block(4, 19)
+-  grid.block(4, 20)
+-  for (const [x, z, r] of [[3.5, 20, Math.PI / 2], [5.5, 20, -Math.PI / 2], [4.5, 21, Math.PI]] as const) place(F.simpleChair('#f4a259'), x, z, r)
++  place(coffee.group, 0.4, 14.6 + k, Math.PI / 2, 0.91)
++  place(F.microwave(), 0.4, 15.6 + k, Math.PI / 2, 0.91)
++  place(F.mug('#e17055'), 0.5, 16.3 + k, 0, 0.91)
++  place(F.mug('#74b9ff'), 0.45, 16.5 + k, 0, 0.91)
++  place(F.fridge(), 0.4, copa ? 22.6 : 18.6, Math.PI / 2)
++  grid.blockRect(0, copa ? 22 : 18, 1, 1)
++  const bar = copa ? { x: 6.5, z: 18.5 } : { x: 4.5, z: 15.5 }
++  place(F.barTable(), bar.x, bar.z)
++  grid.block(Math.floor(bar.x), Math.floor(bar.z))
++  for (const [x, z, c] of [[bar.x - 0.8, bar.z, '#d97757'], [bar.x + 0.8, bar.z, '#2f8f83'], [bar.x, bar.z - 0.8, '#6c5ce7']] as const) place(F.stool(c), x, z)
++  const rt = copa ? 21 : 20
++  place(F.roundTable(0.55), 4.5, rt)
++  grid.block(4, rt - 1)
++  grid.block(4, rt)
++  for (const [x, z, r] of [[3.5, rt, Math.PI / 2], [5.5, rt, -Math.PI / 2], [4.5, rt + 1, Math.PI]] as const) place(F.simpleChair('#f4a259'), x, z, r)
+   // the skeleton stands here by the boss office (added by the game)
+-  grid.block(2, 12)
++  if (copa) grid.block(7, 21)
++  else grid.block(2, 12)
+   place(F.plant('tall'), 0.5, 11.5)
+   grid.block(0, 11)
+   place(F.plant('fern'), 8.5, 23.5)
+   grid.block(8, 23)
+   place(F.plant('bush'), 0.5, 23.5)
+   grid.block(0, 23)
+-  place(F.plant('flower', '#f5f3ee'), 8.5, 11.5)
+-  grid.block(8, 11)
+-  // the spending board on the side wall with the alarm above it
++  if (!copa) {
++    place(F.plant('flower', '#f5f3ee'), 8.5, 11.5)
++    grid.block(8, 11)
++  }
++  // the spending board on the side wall with the alarm above it (option B: moved to the corridor's side wall)
+   const money = costBoard('Escritório inteiro', 2.2)
+-  place(money.group, 0.06, 21.3, Math.PI / 2, 1.0)
++  place(money.group, 0.06, copa ? 10 : 21.3, Math.PI / 2, 1.0)
+   const alarm = beacon()
+-  place(alarm.group, 0.04, 19.4, Math.PI / 2, 1.85)
++  place(alarm.group, 0.04, copa ? 10 : 19.4, Math.PI / 2, copa ? 2.35 : 1.85)
+ 
+   // ---------- lounge (one big room: living area, games, chill corner) ----------
+   const { sofaA, tableA, armchairs, foosball, circle, circleBags, sofaC, tableC, bagsC, pingPong } = LOUNGE
+@@ -213,7 +222,9 @@ export function buildOffice(): GroundFloor {
+   place(F.plant('tall'), 20.5, 15.5)
+   grid.block(20, 15)
+ 
+-  // chill corner with the arcades
++  // chill corner with the arcades (SPIKE S-4 option A: gone, the meeting room takes it; arcades and ping-pong squeeze in)
++  const loungeEnd = SPIKE_TERREO === 'lounge'
++  if (!loungeEnd) {
+   place(F.rug(6, 5, rugTexture(6, 5, '#f3e4c4', '#c98b5e', '#d97757')), tableC.x, tableC.z)
+   place(F.sofa(3, '#4a8fe0'), sofaC.x, sofaC.z, 0)
+   grid.blockRect(25, 16, 3, 1)
+@@ -239,6 +250,18 @@ export function buildOffice(): GroundFloor {
+   grid.block(24, 16)
+   place(F.plant('tall'), 28.5, 15.5)
+   grid.block(28, 15)
++  } else {
++    const arcadeScreen = new LoopScreen(24, 20, arcadePainter, 8)
++    loops.push(arcadeScreen)
++    place(F.arcade(arcadeScreen.texture), 23.5, 15.5)
++    grid.block(23, 15)
++    const arcade2 = new LoopScreen(24, 20, arcadePainter, 7)
++    loops.push(arcade2)
++    place(F.arcade(arcade2.texture), 22.5, 15.5)
++    grid.block(22, 15)
++    place(F.pingPong(), pingPong.x, pingPong.z, 0)
++    grid.blockRect(22, 19, 1, 2)
++  }
+ 
+   // plants along the front edge
+   for (const [x, kind] of [
+@@ -247,10 +270,14 @@ export function buildOffice(): GroundFloor {
+     [23, 'bush'],
+     [31, 'fern'],
+   ] as const) {
++    if (GROUND_MEETING && x >= GROUND_MEETING[0] && x < GROUND_MEETING[2] && 23 >= GROUND_MEETING[1]) continue
+     place(F.plant(kind), x + 0.5, 23.5)
+     grid.block(x, 23)
+   }
+ 
++  // ---------- SPIKE S-4: ground floor meeting room ----------
++  if (GROUND_MEETING) meetingRoom(GROUND_MEETING, place, grid, loops, '#d97757', group, SPIKE_TERREO === 'copa' ? 'east' : 'corridor')
++
+   // every box that never moves becomes one mesh per material (AO-30)
+   mergeStatic(group)
+ 
+diff --git a/src/renderer/src/world/upper-floor.ts b/src/renderer/src/world/upper-floor.ts
+index 85ab2a1..c980217 100644
+--- a/src/renderer/src/world/upper-floor.ts
++++ b/src/renderer/src/world/upper-floor.ts
+@@ -44,7 +44,7 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
+   }
+ 
+   // planks in the Diretoria, carpet in the rooms (under their rugs), hall planks in the corridor
+-  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
++  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : []), ...(plan.meeting ? [plan.meeting] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
+   buildPartitions(group, grid, plan.partitions)
+ 
+   // ---------- Diretoria ----------
+@@ -112,6 +112,8 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
+ 
+   // ---------- Estúdio criativo ----------
+   const studioBoard = plan.studio ? studioRoom(plan.studio, place, grid, loops, brand.color, group) : undefined
++  // SPIKE S-4: Sala de reunião
++  if (plan.meeting) meetingRoom(plan.meeting.rect, place, grid, loops, brand.color, group, 'corridor')
+ 
+   // the company's spending board on the side wall, the alarm above it
+   const money = costBoard(brand.name, 2.2)
+@@ -196,6 +198,77 @@ function studioRoom(r: SectorRoom, place: (o: THREE.Object3D, x: number, z: numb
+   return anchor
+ }
+ 
++/**
++ * SPIKE S-4: the Sala de reunião. Rug, sign over the door with a light, long table with 6 chairs,
++ * a wall TV (timer later) and a whiteboard. `door` tells which side people come in from:
++ * 'corridor' = the z0 edge (front rooms upstairs, lounge end downstairs), 'east' = the x1 edge (copa half).
++ * Returns the tag anchor and the seats.
++ */
++export function meetingRoom(rect: [number, number, number, number], place: (o: THREE.Object3D, x: number, z: number, rot?: number, y?: number) => THREE.Object3D, grid: Grid, loops: LoopScreen[], accent: string, group: THREE.Group, door: 'corridor' | 'east'): { anchor: THREE.Object3D; seats: { x: number; z: number; look: [number, number] }[] } {
++  const [x0, z0, x1, z1] = rect
++  const cx = (x0 + x1) / 2
++  const cz = (z0 + z1) / 2
++  const w = x1 - x0
++  const d = z1 - z0
++  place(F.rug(w - 1, d - 1, rugTexture(w - 1, d - 1, '#e9eef0', '#8aa1ab', accent)), cx, cz)
++  const seats: { x: number; z: number; look: [number, number] }[] = []
++  // table runs along the room's long side
++  const alongZ = d >= w
++  const tl = 3
++  if (alongZ) {
++    const tz = cz + 0.5
++    place(F.meetingTable(tl, 1.6), cx, tz, Math.PI / 2)
++    grid.blockRect(Math.floor(cx) - 1, Math.floor(tz - tl / 2), 2, tl)
++    for (const dz of [-1, 0, 1]) {
++      for (const side of [-1, 1]) {
++        const sx = cx + side * 1.35
++        const sz = tz + dz
++        place(F.simpleChair(side < 0 ? '#4f6d7a' : accent), sx, sz, side < 0 ? Math.PI / 2 : -Math.PI / 2)
++        seats.push({ x: sx, z: sz, look: [cx, sz] })
++      }
++    }
++  } else {
++    const tz = cz + 0.3
++    place(F.meetingTable(tl, 1.6), cx, tz)
++    grid.blockRect(Math.floor(cx - tl / 2), Math.floor(tz) - 1, tl, 2)
++    for (const dx of [-1, 0, 1]) {
++      for (const side of [-1, 1]) {
++        const sx = cx + dx
++        const sz = tz + side * 1.35
++        place(F.simpleChair(side < 0 ? '#4f6d7a' : accent), sx, sz, side < 0 ? 0 : Math.PI)
++        seats.push({ x: sx, z: sz, look: [sx, tz] })
++      }
++    }
++  }
++  const tvScreen = new LoopScreen(48, 26, dashboardPainter, 11)
++  loops.push(tvScreen)
++  const anchor = new THREE.Object3D()
++  if (door === 'corridor') {
++    // sign over the door, TV on the corridor wall to the left of it, whiteboard to the right
++    place(sign(MEETING_ROOM_LABEL, '#2f5d62', '#ffffff'), cx, z0 + 0.06, 0, 1.62)
++    place(F.tv(tvScreen.texture), x0 + 1.5, z0 + 0.06, 0, 1.55)
++    place(F.whiteboard(1.8, 1.0), x1 - 1.6, z0 + 0.06, 0, 1.75)
++    anchor.position.set(cx, 2.1, z0 + 0.3)
++    place(F.plant('tall'), x1 - 0.5, z1 - 0.5)
++    grid.block(x1 - 1, z1 - 1)
++    place(F.plant('fern'), x0 + 0.5, z1 - 0.5)
++    grid.block(x0, z1 - 1)
++  } else {
++    // copa half: the back wall at x = 0 holds the TV, the room's top edge the whiteboard and the sign sits on the door side
++    place(sign(MEETING_ROOM_LABEL, '#2f5d62', '#ffffff'), x1 - 0.06, cz, -Math.PI / 2, 1.62)
++    place(F.tv(tvScreen.texture), x0 + 0.06, cz, Math.PI / 2, 1.55)
++    place(F.whiteboard(1.8, 1.0), x0 + 2.5, z0 + 0.06, 0, 1.75)
++    anchor.position.set(x1 - 0.3, 2.1, cz)
++    place(F.plant('tall'), x1 - 0.5, z0 + 0.5)
++    grid.block(x1 - 1, z0)
++    place(F.plant('fern'), x0 + 0.5, z1 - 0.5)
++    grid.block(x0, z1 - 1)
++  }
++  group.add(anchor)
++  return { anchor, seats }
++}
++const MEETING_ROOM_LABEL = 'Sala de reunião'
++
+ type Common = 'lounge' | 'cafe' | 'games' | 'quiet'
+ const COMMONS: Common[] = ['lounge', 'cafe', 'games', 'quiet']
+ 
+@@ -277,7 +350,7 @@ function commons(kind: Common, rect: [number, number, number, number], place: (o
+ }
+ 
+ /** A flat name plate (facing +z) for walls and doors. */
+-function sign(text: string, bg: string, fg: string, width = 2.2): THREE.Group {
++export function sign(text: string, bg: string, fg: string, width = 2.2): THREE.Group {
+   const g = new THREE.Group()
+   const c = document.createElement('canvas')
+   c.width = Math.round(116 * width)

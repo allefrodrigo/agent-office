@@ -1,0 +1,20 @@
+{
+  "model": "ggml-base.bin",
+  "chunks": 50,
+  "chunkSeconds": 20,
+  "startupMs": 228,
+  "latencyMs": {
+    "p50": 276,
+    "p95": 578,
+    "min": 107,
+    "max": 964,
+    "mean": 308
+  },
+  "realTimeFactor": 0.014,
+  "rssMB": {
+    "idle": 309,
+    "peak": 362
+  },
+  "footprintMB": 349,
+  "segmentsReturned": 314
+}
