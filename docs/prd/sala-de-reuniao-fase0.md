@@ -1,7 +1,7 @@
 # Sala de reunião — resultado da fase 0 (spikes)
 
 - **Status:** aprovado pelo usuário, 2026-11-07
-- **Spec:** `sala-de-reuniao.md` · **Plano:** `sala-de-reuniao-plano.md` (na branch do Turing)
+- **Spec:** [sala-de-reuniao.md](sala-de-reuniao.md) · **Plano:** [sala-de-reuniao-plano.md](sala-de-reuniao-plano.md)
 - **ADRs:** [0011](../adr/0011-audio-do-sistema-no-macos.md) (áudio do sistema), [0012](../adr/0012-whisper-server-local-com-token.md) (whisper-server com token)
 - **Código dos spikes:** `spikes/` (descartável) e a branch `spike/s4-planta`
 - **Máquina:** Apple M5, macOS 27.0.1, Electron 44.5.1, whisper.cpp 1.9.4

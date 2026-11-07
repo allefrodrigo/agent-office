@@ -1,6 +1,6 @@
 # Sala de reunião — tickets das fases 1 a 4 (rascunho para o quadro)
 
-Fonte: `sala-de-reuniao-plano.md` (branch do Turing) com as mudanças de [sala-de-reuniao-fase0.md](sala-de-reuniao-fase0.md). Cada linha vira um ticket com a tag `reuniao` e a tag da fase. A descrição de cada ticket aponta para a seção do plano com o mesmo id e copia os arquivos e os testes de lá. Estimativa em dias.
+Fonte: [sala-de-reuniao-plano.md](sala-de-reuniao-plano.md) com as mudanças de [sala-de-reuniao-fase0.md](sala-de-reuniao-fase0.md). Cada linha vira um ticket com a tag `reuniao` e a tag da fase. A descrição de cada ticket aponta para a seção do plano com o mesmo id e copia os arquivos e os testes de lá. Estimativa em dias.
 
 Regras de todo ticket: `npm run typecheck`, `lint`, `test` e `contrast` verdes; lógica nova pura em `src/shared` com teste no vitest; IPC validado em `validate.ts`; logs sem conteúdo falado ou digitado.
 
