@@ -1,8 +1,10 @@
 import { labelOf, PRIORITIES, STATUSES, ticketBrief, TYPES } from '@shared/tickets'
 import type { AgentSummary, OfficePermissionMode, Ticket, TicketPatch, TicketPriority, TicketType } from '@shared/types'
 import { h, icon, timeAgo } from '../dom'
+import { MicButton } from '../voice'
 import { STATUS_LABEL } from '../hud'
 import { renderMarkdown } from '../markdown'
+import { linkMeetingRefs } from '../meetings/board-link'
 import { brainFields, cleanError, field, LAST_CWD, worktreeToggle } from '../modals'
 import { DELEGATE_MODES, isBusy, select } from './helpers'
 import { BoardColumns } from './columns'
@@ -302,10 +304,16 @@ export abstract class BoardDetail extends BoardColumns {
       this.descDraft = t.description
       this.renderDetail()
     }
+    let shown: HTMLElement = h('div', { class: 'field-hint' }, 'Sem contexto. O agente vai ter que descobrir sozinho o que você quer.')
+    if (t.description.trim()) {
+      shown = renderMarkdown(t.description)
+      // RN-18: reuniao:<id>#s<n> becomes "Kickoff do checkout, 14:52", which opens the meeting room there
+      linkMeetingRefs(shown, () => this.close())
+    }
     return h(
       'div',
       { class: 'tdesc' },
-      t.description.trim() ? renderMarkdown(t.description) : h('div', { class: 'field-hint' }, 'Sem contexto. O agente vai ter que descobrir sozinho o que você quer.'),
+      shown,
       h('button', { class: 'btn btn-small tdesc-btn', onclick: edit }, icon('edit', 13), t.description.trim() ? 'Editar' : 'Escrever'),
     )
   }
@@ -397,7 +405,7 @@ export abstract class BoardDetail extends BoardColumns {
         'div',
         { class: 'tcomment-new' },
         this.commentBox,
-        h('button', { class: 'btn btn-small', title: 'Comentar (⌘/Ctrl + Enter)', onclick: () => void send() }, icon('send', 13), 'Comentar'),
+        h('div', { class: 'tcomment-send' }, new MicButton(this.commentBox, { size: 13, small: true }).el, h('button', { class: 'btn btn-small', title: 'Comentar (⌘/Ctrl + Enter)', onclick: () => void send() }, icon('send', 13), 'Comentar')),
       ),
     )
   }

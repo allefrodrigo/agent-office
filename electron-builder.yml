@@ -22,12 +22,23 @@ publish:
 artifactName: Agent-Office-${version}-${arch}.${ext}
 mac:
   category: public.app-category.developer-tools
-  # Modo voz: what macOS shows when the voice button asks for the microphone.
+  # What macOS shows when the voice button or the meeting room asks for the microphone.
+  # Sala de reunião: what macOS shows when the meeting asks for the system audio (ADR 0011).
+  # The helper below runs as a child of the app, so the prompt names Agent Office and reads this text.
   extendInfo:
-    NSMicrophoneUsageDescription: O Agent Office usa o microfone só quando você aperta o botão de voz, para transcrever o que você fala.
-  # One build per CPU, not universal: nothing native ships in the package (the SDK's
-  # per-CPU Claude binary is left out above), so x64 builds fine on an arm64 Mac, and
-  # each download stays half the size of a universal one. The zip feeds the auto-update.
+    NSMicrophoneUsageDescription: O Agent Office usa o microfone só quando você aperta o botão de voz ou grava uma reunião na sala de reunião, para transcrever o que é falado no seu Mac.
+    NSAudioCaptureUsageDescription: O Agent Office grava o áudio do sistema só durante uma reunião na sala de reunião, para transcrever o que os participantes falam. A transcrição é feita e fica no seu Mac.
+  # System audio helper (src/main/meetings/system-audio.ts), built by `npm run native`
+  # (dist:mac runs it first). It lands in Contents/Resources/bin; the signing pass walks the
+  # whole bundle and signs every Mach-O it finds with the app's identity, hardened runtime
+  # and entitlementsInherit, so it needs no `binaries` entry.
+  extraResources:
+    - from: resources/bin/system-audio-tap
+      to: bin/system-audio-tap
+  # One build per CPU, not universal: the only native piece is the small helper above (a
+  # universal binary of ~230 KB; the SDK's per-CPU Claude binary is left out above), so x64
+  # builds fine on an arm64 Mac, and each download stays half the size of a universal one.
+  # The zip feeds the auto-update.
   target:
     - target: dmg
       arch: [arm64, x64]

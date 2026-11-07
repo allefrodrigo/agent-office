@@ -1,4 +1,8 @@
 import { dialog, ipcMain } from 'electron'
+import { totalmem } from 'node:os'
+import { basename } from 'node:path'
+import type { WhisperModelsInfo } from '@shared/types'
+import { listWhisperModels } from '../creative/tools'
 import { cleanTemplate, loadTemplates, upsertTemplate } from '../templates'
 import { cleanSettings } from '../validate'
 import { id, type IpcContext } from './context'
@@ -45,6 +49,11 @@ export function registerSettingsIpc(ctx: IpcContext): void {
     store.settings = { ...store.settings, templates: store.settings.templates.filter((t) => t.id !== templateId) }
     broadcast({ type: 'settings', settings: store.settings })
   })
+  // Configurações → Reuniões: only file names leave main, never the folders they sit in.
+  ipcMain.handle('office:meetingWhisperModels', (): WhisperModelsInfo => ({
+    models: [...new Set(listWhisperModels().map((p) => basename(p)))],
+    totalMemGb: Math.round((totalmem() / 1024 ** 3) * 10) / 10,
+  }))
   ipcMain.handle('office:saveSettings', (_e, patch: unknown) => {
     const before = JSON.stringify(store.settings.projects)
     const days = store.settings.ticketAutoCloseDays

@@ -1,6 +1,7 @@
 import type { LogEntry } from '@shared/types'
 import type { State } from '../../state'
 import { h, icon } from '../dom'
+import { MicButton } from '../voice'
 import { escapeAction, type EscapeAction } from './escape'
 import { BADGE_OPEN_KEY, type LogFilter, type PanelActions, type PendingFile } from './helpers'
 
@@ -109,6 +110,7 @@ export abstract class PanelBase {
         h('button', { class: 'btn btn-icon', title: 'Anexar arquivos (ou arraste, ou cole uma imagem)', onclick: () => this.picker.click() }, icon('clip', 16)),
         this.input,
         this.stopBtn,
+        new MicButton(this.input).el,
         h('button', { class: 'btn btn-primary btn-icon', title: 'Enviar (Enter)', onclick: () => this.send() }, icon('send', 16)),
       ),
       this.picker,

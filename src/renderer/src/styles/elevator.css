@@ -2,14 +2,27 @@
 
 .floors {
   position: fixed;
-  bottom: 100px;
-  right: 16px;
+  bottom: 16px;
+  left: 16px;
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 6px;
   border-radius: 12px;
   min-width: 168px;
+  /* below the brand and the limits card on the left */
+  max-height: min(62vh, calc(100vh - 220px));
+}
+
+/* the floors scroll here; the head and "Novo andar" stay put */
+.floors-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .floors-head {

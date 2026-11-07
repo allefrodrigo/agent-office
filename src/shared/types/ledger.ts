@@ -53,6 +53,8 @@ export interface LedgerAgent {
   lastAt: number
   /** When it left the office; missing = still there. */
   dismissedAt?: number
+  /** Not an agent: a spend category (CostBook.recordCategory), e.g. 'reunioes'; `name` is its label. */
+  category?: string
 }
 
 /** A session starting on an account or moving to another one when a plan limit hit. */

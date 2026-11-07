@@ -8,6 +8,27 @@ const MARK_TTL_MS = 120 * 86_400_000
 const MAX_SWITCHES = 5000
 
 /**
+ * Spend that is not an agent's: one-off Claude calls the office makes itself (runClaude).
+ * Each category books like an agent named after it, so the reports list it with no extra code.
+ */
+export const LEDGER_CATEGORIES = { reunioes: 'Reuniões' } as const
+export type LedgerCategory = keyof typeof LEDGER_CATEGORIES
+/** The book's agent id for a category. */
+export const categoryId = (c: LedgerCategory): string => `categoria:${c}`
+
+/** One call booked under a category. Calls run without a saved session, so the SDK's totals are the call's own. */
+export interface CategoryCharge {
+  /** Folder the call belongs to (the floor). */
+  cwd: string
+  costUsd: number
+  /** Account.id the call ran on; missing = 'main'. */
+  account?: string
+  modelUsage?: Record<string, ModelUsage>
+  turns?: number
+  durationMs?: number
+}
+
+/**
  * The last cumulative numbers seen for a session. The SDK reports running totals
  * per query() call, and a resumed session starts from the total its transcript saved,
  * so each result counts only what grew since its mark.
@@ -178,12 +199,47 @@ export class CostBook extends EventEmitter {
     }
     // Zeroed results (a crash, a startup error) add no cost and keep the mark as it was.
 
-    const turns = r.num_turns || 0
-    const durationMs = r.duration_ms || 0
+    this.add(agent.cwd, agent.id, account, cost, r.num_turns || 0, r.duration_ms || 0, models, at)
+    this.remember(agent, at)
+    this.store.save()
+    this.emit('today', this.today())
+    return cost
+  }
+
+  /**
+   * Books a Claude call the office made itself (a meeting's minutes, say) under a category.
+   * Returns the USD it added. A call that cost nothing still counts as a result.
+   */
+  recordCategory(category: LedgerCategory, c: CategoryCharge, at = Date.now()): number {
+    const cost = Number.isFinite(c.costUsd) && c.costUsd > 0 ? c.costUsd : 0
+    const models: Record<string, LedgerModel> = {}
+    for (const [name, u] of Object.entries(c.modelUsage ?? {})) {
+      const m = modelMark(u)
+      if (m.costUsd > 0 || m.inputTokens > 0 || m.outputTokens > 0) models[name] = m
+    }
+    const id = categoryId(category)
+    this.add(c.cwd, id, c.account, cost, c.turns || 0, c.durationMs || 0, models, at)
+    const known = this.book.agents[id]
+    this.book.agents[id] = { id, name: LEDGER_CATEGORIES[category], cwd: c.cwd, category, firstAt: known?.firstAt ?? at, lastAt: at }
+    this.store.save()
+    this.emit('today', this.today())
+    return cost
+  }
+
+  private add(
+    cwd: string,
+    agentId: string,
+    account: string | undefined,
+    cost: number,
+    turns: number,
+    durationMs: number,
+    models: Record<string, LedgerModel>,
+    at: number,
+  ): void {
     const accountId = account || 'main'
-    const day = this.dayFor(agent.cwd, localDay(at))
+    const day = this.dayFor(cwd, localDay(at))
     addTotals(day, cost, turns, durationMs)
-    const ag = (day.agents[agent.id] ??= { ...zeroTotals(), models: {}, accounts: {} })
+    const ag = (day.agents[agentId] ??= { ...zeroTotals(), models: {}, accounts: {} })
     addTotals(ag, cost, turns, durationMs)
     if (cost > 0) ag.accounts[accountId] = (ag.accounts[accountId] ?? 0) + cost
     addTotals((day.accounts[accountId] ??= zeroTotals()), cost, turns, durationMs)
@@ -196,10 +252,6 @@ export class CostBook extends EventEmitter {
       m.cacheReadTokens += d.cacheReadTokens
       m.cacheWriteTokens += d.cacheWriteTokens
     }
-    this.remember(agent, at)
-    this.store.save()
-    this.emit('today', this.today())
-    return cost
   }
 
   /** A run started on an account, or moved to another one mid-session. */

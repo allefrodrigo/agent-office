@@ -115,6 +115,12 @@ const BG = {
   mundo: WORLD,
   'mundo + versão': stack(WORLD, css('.brand-version')),
   'card + andar atual': stack(CARD, css('.floor-btn.on')),
+  // Sala de reunião (RN-12): fundo opaco; de dia o mundo atrás é claro, de noite escuro.
+  'ata (dia)': stack(WHITE, css('.mt-ata')),
+  'ata (noite)': stack(WORLD, css('.mt-ata')),
+  'conversa (dia)': stack(WHITE, css('.mt-chat')),
+  'conversa (noite)': stack(WORLD, css('.mt-chat')),
+  'detalhe do ticket': stack(WHITE, css('.tdetail')),
 }
 
 /** [what, text selector, background name or [selector, prop] over a named background]. */
@@ -173,6 +179,24 @@ const PAIRS = [
   ['Elevador: número atual', '.floor-btn.on .floor-num', ['.floor-btn.on .floor-num', 'card']],
   ['Elevador: novo andar', '.floor-btn.floor-add', 'card'],
   ['Elevador: andar com pedido', '.floor-btn.pulse', 'card'],
+  ...['dia', 'noite'].flatMap((t) => [
+    [`Ata (${t}): seu texto`, '.mt-block-user', `ata (${t})`],
+    [`Ata (${t}): texto da IA`, '.mt-block-ai', `ata (${t})`],
+    [`Ata (${t}): legenda sua`, '.mt-legend-user', `ata (${t})`],
+    [`Ata (${t}): legenda da IA`, '.mt-legend-ai', `ata (${t})`],
+    [`Ata (${t}): título dos itens`, '.mt-actions-title', `ata (${t})`],
+    [`Ata (${t}): dono e prazo`, '.mt-action-meta', `ata (${t})`],
+    [`Ata (${t}): ticket criado`, '.mt-ticket-chip', ['.mt-ticket-chip', `ata (${t})`]],
+    [`Ata (${t}): gerando`, '.mt-ata-progress', ['.mt-ata-progress', `ata (${t})`]],
+    [`Ata (${t}): aviso`, '.mt-ata-warn', ['.mt-ata-warn', `ata (${t})`]],
+    [`Ata (${t}): vazia`, '.mt-ata-empty', `ata (${t})`],
+    [`Conversa (${t}): pergunta`, '.mt-msg-user', ['.mt-msg-user', `conversa (${t})`]],
+    [`Conversa (${t}): resposta`, '.mt-msg-assistant', `conversa (${t})`],
+    [`Conversa (${t}): citação`, '.mt-cite-link', ['.mt-cite-link', `conversa (${t})`]],
+    [`Conversa (${t}): escopo`, '.mt-scope-btn', ['.mt-scope', `conversa (${t})`]],
+    [`Conversa (${t}): vazia`, '.mt-chat-empty', `conversa (${t})`],
+  ]),
+  ['Quadro: link da reunião', '.tmeeting-link', ['.tmeeting-link', 'detalhe do ticket']],
 ]
 
 export function measure() {

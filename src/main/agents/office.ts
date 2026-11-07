@@ -8,7 +8,8 @@ import { buildMessage } from '../attachments'
 import { findSquad, readProgress, squadDir, type SquadDefinition } from '../squads'
 import { createWorktree } from '../git'
 import { endSubagent } from '../subagent-log'
-import { type Agent } from './types'
+import { runShell, shellContext, shellLogText, shellStatus } from '../shell-mode'
+import { type Agent, type Prompt } from './types'
 import { AgentBase } from './base'
 
 /** Office agents: hire, summon, squads, messages, interrupt, fire. */
@@ -283,7 +284,9 @@ export abstract class AgentOffice extends AgentBase {
   sendMessage(id: string, text: string, display?: string, attachments: AttachmentInput[] = []): void {
     const agent = this.agents.get(id)
     if (!agent || agent.summary.source !== 'office' || agent.demo) return
-    const { content, infos } = attachments.length ? buildMessage(text, attachments) : { content: text, infos: [] }
+    const built = attachments.length ? buildMessage(text, attachments) : { content: text as Prompt, infos: [] }
+    const { infos } = built
+    const content = this.withShellNotes(agent, built.content)
     this.addLog(agent, 'user', display ?? text, undefined, undefined, infos.length ? infos : undefined)
     // A new instruction replaces any undelivered result.
     this.dropResults(id)
@@ -294,6 +297,43 @@ export abstract class AgentOffice extends AgentBase {
     } else {
       this.run(agent, content)
     }
+  }
+
+  /**
+   * Modo "!": roda o comando do player na pasta do agente, sem o modelo. A saída fica no
+   * log e segue junto da próxima mensagem. Não inicia turno nem gasta tokens.
+   */
+  async runCommand(id: string, command: string): Promise<void> {
+    const agent = this.agents.get(id)
+    if (!agent || agent.summary.source !== 'office' || agent.demo) return
+    if (agent.shell) {
+      this.addLog(agent, 'error', 'Já tem um comando seu rodando aqui. Espere terminar ou aperte Esc para interromper.')
+      return
+    }
+    const cwd = agent.summary.worktree?.path ?? agent.summary.cwd
+    this.addLog(agent, 'user', `! ${command}`)
+    this.addLog(agent, 'tool', command, 'Bash')
+    // Parado, o agente aparece trabalhando enquanto o comando roda: assim o Esc interrompe.
+    const before = this.busy(agent) ? null : { status: agent.summary.status, activity: agent.summary.activity }
+    const activity = 'Rodando seu comando'
+    if (before) this.setStatus(agent, 'working', activity)
+    const r = await runShell(command, cwd, (child) => (agent.shell = child))
+    agent.shell = undefined
+    if (this.agents.get(id) !== agent) return // dispensado enquanto rodava
+    if (before && agent.summary.status === 'working' && agent.summary.activity === activity) this.setStatus(agent, before.status, before.activity)
+    this.addLog(agent, 'tool_result', shellLogText(r), undefined, r.code !== 0)
+    if (r.spawnError) return
+    ;(agent.shellNotes ??= []).push(shellContext(command, r))
+    this.addLog(agent, 'system', `${shellStatus(r)} A saída segue junto da sua próxima mensagem para ${agent.summary.name}.`)
+  }
+
+  /** Puts pending "!" outputs in front of a message, once. */
+  private withShellNotes(agent: Agent, content: Prompt): Prompt {
+    const notes = agent.shellNotes
+    if (!notes?.length) return content
+    agent.shellNotes = undefined
+    const head = `Comandos que eu rodei no terminal (modo "!"), com a saída:\n\n${notes.join('\n\n')}`
+    return typeof content === 'string' ? `${head}\n\n${content}` : [{ type: 'text', text: head }, ...content]
   }
 
   compact(id: string): void {
@@ -328,6 +368,7 @@ export abstract class AgentOffice extends AgentBase {
     agent.compacting = false
     agent.summary.sessionId = randomUUID()
     agent.summary.context = undefined
+    agent.shellNotes = undefined
     agent.summary.lastTurnAt = undefined
     this.addLog(agent, 'system', note)
     this.setStatus(agent, 'idle', 'Memória limpa, esperando instruções')
@@ -346,6 +387,10 @@ export abstract class AgentOffice extends AgentBase {
 
   async interrupt(id: string): Promise<void> {
     const agent = this.agents.get(id)
+    if (agent?.shell) {
+      agent.shell.kill('SIGTERM')
+      return
+    }
     if (!agent?.query) return
     this.cancelAgentRequests(id)
     await agent.query.interrupt().catch(() => undefined)
@@ -361,6 +406,7 @@ export abstract class AgentOffice extends AgentBase {
     agent.query?.close()
     agent.watcher?.close()
     agent.subFlush?.cancel()
+    agent.shell?.kill('SIGTERM')
     this.agents.delete(id)
     // Its spend stays in the cost book; reports show it as dismissed.
     this.book?.dismissed(id)

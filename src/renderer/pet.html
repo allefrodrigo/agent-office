@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: office-media:; media-src 'self' office-media:; connect-src 'self' ws://localhost:*; frame-src https://www.youtube-nocookie.com; object-src 'none'; base-uri 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Agent Office · modo compacto</title>
+  </head>
+  <body>
+    <div id="app" class="pet-app">
+      <canvas id="pet-stage"></canvas>
+      
+      <div id="ui"></div>
+    </div>
+    <script type="module" src="./src/pet/main.ts"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Account, ProjectFloor, Settings } from '@shared/types'
 import { DEFAULT_VIDEO, QUALITY_PRESETS } from '@shared/video'
+import { DEFAULT_MEETING_SETTINGS } from '@shared/meetings'
 import {
   assigneeSchema,
   attachmentsSchema,
@@ -61,6 +62,7 @@ const settings = (): Settings => ({
   coldConfirm: true,
   templates: [],
   video: { ...DEFAULT_VIDEO },
+  meetings: { ...DEFAULT_MEETING_SETTINGS },
 })
 
 describe('parse', () => {
@@ -182,9 +184,9 @@ describe('cleanProjects', () => {
     const [p] = cleanProjects([{ id: 'p1', name: 'Loja', cwd: dir, accounts: ['main'] }], previous)
     expect(p.accounts).toEqual(['a-1'])
   })
-  it('para no limite de andares e aceita lixo sem lançar', () => {
-    const many = Array.from({ length: 10 }, () => ({ cwd: mkdtempSync(join(dir, 'f-')) }))
-    expect(cleanProjects(many, [])).toHaveLength(6)
+  it('aceita muitos andares e lixo sem lançar', () => {
+    const many = Array.from({ length: 12 }, () => ({ cwd: mkdtempSync(join(dir, 'f-')) }))
+    expect(cleanProjects(many, [])).toHaveLength(12)
     expect(cleanProjects('lixo', [])).toEqual([])
     expect(cleanProjects([null, 3], [])).toEqual([])
   })
@@ -245,6 +247,18 @@ describe('cleanSettings', () => {
     expect(out).toEqual(settings())
     expect('evil' in out).toBe(false)
     expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+  })
+  it('reuniões: modelos e receitas próprios sobrevivem ao salvar; os quebrados saem', () => {
+    const tpl = { id: 'comite', name: 'Comitê', sections: [{ title: 'Pauta', hint: '' }], instruction: '' }
+    const out = cleanSettings({ meetings: { templates: [tpl, { hack: 1 }], extra: true } }, settings())
+    expect(out.meetings).toEqual({ ...DEFAULT_MEETING_SETTINGS, templates: [tpl], recipes: [] })
+    expect(cleanSettings({ playerName: 'Ana' }, { ...settings(), meetings: { ...DEFAULT_MEETING_SETTINGS, templates: [tpl] } }).meetings.templates).toEqual([tpl])
+  })
+  it('reuniões: o formulário manda só os ajustes, e as listas ficam', () => {
+    const tpl = { id: 'comite', name: 'Comitê', sections: [{ title: 'Pauta', hint: '' }], instruction: '' }
+    const current = { ...settings(), meetings: { ...DEFAULT_MEETING_SETTINGS, templates: [tpl] } }
+    const out = cleanSettings({ meetings: { lang: 'en', autoStopMin: 500, keepAudio: 'sim' } }, current)
+    expect(out.meetings).toEqual({ ...DEFAULT_MEETING_SETTINGS, templates: [tpl], lang: 'en', autoStopMin: 120 })
   })
   it('aplica campos válidos', () => {
     const out = cleanSettings(

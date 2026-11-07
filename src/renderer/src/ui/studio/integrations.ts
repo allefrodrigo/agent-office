@@ -10,8 +10,18 @@ let loginUrl = ''
 
 /** The last status read, or a fresh read. */
 export async function readStatus(force = false): Promise<CreativeStatus> {
-  if (!cached || force) cached = await window.office.creativeStatus()
-  return cached
+  if (!cached || force) remember(await window.office.creativeStatus())
+  return cached!
+}
+
+const statusListeners = new Set<(s: CreativeStatus) => void>()
+/** Runs with every status read from now on (the floors draw their studio room while Codex is ready). */
+export function onStatus(fn: (s: CreativeStatus) => void): void {
+  statusListeners.add(fn)
+}
+function remember(s: CreativeStatus): void {
+  cached = s
+  for (const fn of statusListeners) fn(s)
 }
 
 export const lastStatus = () => cached
@@ -33,7 +43,8 @@ export function integrationsView(opts: { toast(t: string, k?: 'info' | 'ok' | 'e
   let logging = false
 
   const set = (s: CreativeStatus) => {
-    status = cached = s
+    remember(s)
+    status = s
     render()
     opts.onChange?.(s)
   }

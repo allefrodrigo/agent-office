@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path'
 import { isDir } from '../squads'
 import { cleanLook } from '../templates'
 import { repoRoot } from '../git'
+import { bangCommand } from '../shell-mode'
 import { worktreeFlagSchema, attachmentsSchema, cleanBrain, cleanHire, messageSchema, parse, pathSchema, permissionDecisionSchema, permissionModeSchema, subagentLogArgsSchema } from '../validate'
 import { id, type IpcContext } from './context'
 
@@ -28,14 +29,14 @@ export function registerAgentsIpc(ctx: IpcContext): void {
     const p = pathSchema.safeParse(cwd)
     return p.success && isAbsolute(p.data) && isDir(p.data) && !!(await repoRoot(p.data))
   })
-  ipcMain.handle('office:send', (_e, raw: unknown, text: unknown, attachments: unknown) =>
-    manager.sendMessage(
-      id(raw),
-      parse(messageSchema, text, 'Mensagem grande demais. Mande em partes ou anexe como arquivo.'),
-      undefined,
-      parse(attachmentsSchema.optional(), attachments, 'Anexos inválidos.') ?? [],
-    ),
-  )
+  ipcMain.handle('office:send', (_e, raw: unknown, text: unknown, attachments: unknown) => {
+    const message = parse(messageSchema, text, 'Mensagem grande demais. Mande em partes ou anexe como arquivo.')
+    const files = parse(attachmentsSchema.optional(), attachments, 'Anexos inválidos.') ?? []
+    // "! comando" sem anexos roda no shell, como no CLI; só vale para o que o player digitou.
+    const command = files.length ? null : bangCommand(message)
+    if (command) return void manager.runCommand(id(raw), command)
+    return manager.sendMessage(id(raw), message, undefined, files)
+  })
   ipcMain.handle('office:interrupt', (_e, raw: unknown) => manager.interrupt(id(raw)))
   ipcMain.handle('office:compact', (_e, raw: unknown) => manager.compact(id(raw)))
   ipcMain.handle('office:clearContext', (_e, raw: unknown) => manager.clearContext(id(raw)))

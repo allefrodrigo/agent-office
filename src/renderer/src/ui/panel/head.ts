@@ -49,7 +49,7 @@ export abstract class PanelHead extends PanelSearch {
       ? 'Sessão do terminal: responda por lá. Permissões chegam aqui.'
       : a.status === 'working' || a.status === 'starting'
         ? 'Mande uma instrução (entra na fila do agente)…'
-        : 'Mande uma nova tarefa…'
+        : 'Mande uma nova tarefa… (comece com ! para rodar um comando no terminal)'
   }
 
   /** Esc on a busy agent: confirm first, so a stray Esc does not stop the work. */

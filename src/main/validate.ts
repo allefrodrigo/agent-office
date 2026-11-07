@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import { basename, isAbsolute } from 'node:path'
+import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { ATTACH_LIMITS } from '@shared/attachments'
 import { HAIR_STYLES } from '@shared/describe'
-import { canAddFloor, floorNameFor, MAX_CREATIVE_FLOORS, MAX_PROJECT_FLOORS } from '@shared/projects'
+import { canAddFloor, floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
 import { EFFORT_LEVELS, ROUTINE_LIMITS } from '@shared/types'
 import type { VideoSettings } from '@shared/video'
+import { AUDIO_CHUNK_MAX_BYTES, AUTOSTOP_MIN_RANGE, RETENTION_DAYS_RANGE, WHISPER_MODEL_FILE } from '@shared/meetings'
+import { ATA_LIMITS, blockSchema } from '@shared/meetings-ata'
+import { MEETING_ID_RE as TEMPLATE_ID_RE } from '@shared/meeting-templates'
+import { FLOOR_RE, MEETING_ID_RE } from './meetings/store'
+import { loadMeetingRecipes, loadMeetingTemplates, type Floors } from './meetings/templates'
 import type {
   Account,
   AgentBrain,
@@ -16,6 +21,7 @@ import type {
   DelegateTarget,
   EffortLevel,
   HireRequest,
+  MeetingSettings,
   LedgerQuery,
   OfficePermissionMode,
   PermissionDecision,
@@ -188,16 +194,26 @@ export function cleanProjects(raw: unknown, previous: ProjectFloor[]): ProjectFl
     const p = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>
     const cwd = typeof p.cwd === 'string' ? p.cwd : ''
     if (!isAbsolute(cwd) || !isDir(cwd) || out.some((o) => o.cwd === cwd)) continue
-    if (!canAddFloor(out, p.kind === 'creative' ? 'creative' : 'project')) continue
+    if (!canAddFloor(out)) break
     const id = typeof p.id === 'string' && /^[\w-]{1,40}$/.test(p.id) && !out.some((o) => o.id === p.id) ? p.id : `p-${randomUUID().slice(0, 8)}`
     const name = (typeof p.name === 'string' ? p.name.trim().slice(0, 32) : '') || floorNameFor(cwd)
     // A floor's accounts change only through setAccountPool: the settings form may hold an old copy.
     const accounts = previous.find((o) => o.id === id)?.accounts
-    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p), ...(p.worktrees === false ? { worktrees: false as const } : {}), ...(p.kind === 'creative' ? { kind: 'creative' as const } : {}) })
-    if (out.length === MAX_PROJECT_FLOORS + MAX_CREATIVE_FLOORS) break
+    // The studio folder: an existing folder, or one inside the project the studio makes on first use.
+    // A form that dropped the field keeps the one saved.
+    const asked = typeof p.studioDir === 'string' ? p.studioDir : previous.find((o) => o.id === id)?.studioDir
+    const studioDir = asked && isAbsolute(asked) && asked.length < 1024 && (isDir(asked) || insideFolder(cwd, asked)) ? asked : undefined
+    // Agents reading transcripts is opt-in per floor; a form that dropped the field keeps the one saved.
+    const transcripts = typeof p.meetingsTranscripts === 'boolean' ? p.meetingsTranscripts : previous.find((o) => o.id === id)?.meetingsTranscripts === true
+    out.push({ id, name, cwd, ...(accounts?.length ? { accounts } : {}), ...cleanBrand(p), ...(p.worktrees === false ? { worktrees: false as const } : {}), ...(studioDir ? { studioDir } : {}), ...(transcripts ? { meetingsTranscripts: true } : {}), ...(p.kind === 'creative' ? { kind: 'creative' as const } : {}) })
   }
-  // creative floors are the roof: always the top of the elevator
-  return [...out.filter((p) => p.kind !== 'creative'), ...out.filter((p) => p.kind === 'creative')]
+  return mergeCreativeFloors(out)
+}
+
+/** `child` sits inside `root` (or is it), after resolving `..`. */
+function insideFolder(root: string, child: string): boolean {
+  const rel = relative(resolve(root), resolve(child))
+  return !rel.startsWith('..') && !isAbsolute(rel)
 }
 
 /** Days as 'YYYY-MM-DD' and an absolute folder; anything else is dropped. */
@@ -334,6 +350,42 @@ export function cleanVideo(raw: unknown, current: VideoSettings): VideoSettings 
   return next
 }
 
+/** A whole number pulled into [min, max]; anything that is not a finite number is refused. */
+const clampedInt = (min: number, max: number) => z.number().transform((n) => Math.min(max, Math.max(min, Math.round(n))))
+
+// One schema per plain field of Configurações → Reuniões; the lists go through their own loaders.
+const meetingFields = {
+  lang: z.enum(['pt', 'en', 'auto']),
+  whisperModel: z.union([z.literal(''), z.string().regex(WHISPER_MODEL_FILE)]),
+  defaultSources: z.enum(['mic+system', 'mic']),
+  autoAta: z.boolean(),
+  ataModel: z.enum(['sonnet', 'opus']),
+  doNotDisturb: z.boolean(),
+  autoStopMin: clampedInt(AUTOSTOP_MIN_RANGE.min, AUTOSTOP_MIN_RANGE.max),
+  keepAudio: z.boolean(),
+  retentionDays: clampedInt(RETENTION_DAYS_RANGE.min, RETENTION_DAYS_RANGE.max),
+  agentsReadAtas: z.boolean(),
+} satisfies { [K in Exclude<keyof MeetingSettings, 'templates' | 'recipes'>]-?: z.ZodType<MeetingSettings[K], unknown> }
+
+/**
+ * Configurações → Reuniões from the renderer (or an old office.json) laid over `current`.
+ * Unknown keys are dropped; a wrong type keeps the current value; numbers out of range are
+ * clamped. Each list goes item by item (a broken one is dropped, a gone floor turns global).
+ */
+export function cleanMeetings(raw: unknown, current: MeetingSettings, projects: Floors): MeetingSettings {
+  const patch = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
+  const next: MeetingSettings = { ...current, templates: [...current.templates], recipes: [...current.recipes] }
+  const put = next as unknown as Record<string, unknown>
+  for (const [key, schema] of Object.entries(meetingFields)) {
+    if (!Object.hasOwn(patch, key)) continue
+    const r = (schema as z.ZodType<unknown, unknown>).safeParse(patch[key])
+    if (r.success) put[key] = r.data
+  }
+  if (Array.isArray(patch.templates)) next.templates = loadMeetingTemplates(patch.templates, projects)
+  if (Array.isArray(patch.recipes)) next.recipes = loadMeetingRecipes(patch.recipes, projects)
+  return next
+}
+
 /**
  * A settings patch from the renderer applied to the current settings. Unknown keys are
  * dropped; a field with the wrong type or out of range keeps its current value.
@@ -351,6 +403,7 @@ export function cleanSettings(raw: unknown, current: Settings): Settings {
   if (Object.hasOwn(patch, 'defaultAccounts')) next.defaultAccounts = cleanAccountIds(patch.defaultAccounts, next.accounts)
   if (Object.hasOwn(patch, 'projects')) next.projects = cleanProjects(patch.projects, current.projects)
   if (Object.hasOwn(patch, 'video')) next.video = cleanVideo(patch.video, current.video)
+  if (Object.hasOwn(patch, 'meetings')) next.meetings = cleanMeetings(patch.meetings, current.meetings, next.projects)
   return next
 }
 
@@ -443,3 +496,79 @@ export function cleanRoutineDraft(raw: unknown, ctx: { settings: Pick<Settings, 
   if (!d.cwd || !isAbsolute(d.cwd) || !isDir(d.cwd)) throw new Error('Escolha a pasta (ou o andar) onde a rotina roda.')
   return { ...out, cwd: d.cwd }
 }
+
+// ---------- sala de reunião (RN-06) ----------
+// Every channel of ipc/meetings.ts takes one object, strict: an unknown field is refused.
+
+/** Limits of what the meeting room sends; the handlers trust nothing beyond these. */
+export const MEETING_IPC_LIMITS = {
+  title: 200,
+  attendees: 50,
+  attendee: 120,
+  notes: 200_000,
+  question: 4000,
+  historyTurns: 40,
+  historyText: 8000,
+}
+
+/** '2026-11-07-1430-kickoff-do-checkout', as MeetingStore makes it. */
+export const meetingIdSchema = z.string().max(80).regex(MEETING_ID_RE)
+/** ProjectFloor.id or 'terreo': a folder name, never a path. */
+export const meetingFloorSchema = z.string().regex(FLOOR_RE)
+export const trackSchema = z.enum(['eu', 'outros', 'sala'])
+const templateIdSchema = z.string().regex(TEMPLATE_ID_RE)
+const blockIdSchema = z.string().regex(/^[\w-]{1,64}$/)
+const meetingRef = z.strictObject({ id: meetingIdSchema })
+
+export const meetingListSchema = z.strictObject({ floor: meetingFloorSchema })
+export const meetingGetSchema = meetingRef
+export const meetingCreateSchema = z.strictObject({
+  floor: meetingFloorSchema,
+  title: z.string().max(MEETING_IPC_LIMITS.title).optional(),
+  template: templateIdSchema.optional(),
+  attendees: z.array(z.string().max(MEETING_IPC_LIMITS.attendee)).max(MEETING_IPC_LIMITS.attendees).optional(),
+  sources: z.strictObject({ mic: z.boolean(), system: z.boolean() }).optional(),
+})
+/** Start, pause, resume, stop, delete, recover: just the meeting. */
+export const meetingControlSchema = meetingRef
+
+/** PCM bytes as the renderer sends them (Int16Array from the worklet; Uint8Array or ArrayBuffer also do). */
+const pcmSchema = z.custom<Int16Array | Uint8Array | ArrayBuffer>((v) => {
+  const n = v instanceof ArrayBuffer ? v.byteLength : v instanceof Int16Array || v instanceof Uint8Array ? v.byteLength : -1
+  return n >= 2 && n <= AUDIO_CHUNK_MAX_BYTES && n % 2 === 0
+})
+export const meetingAudioSchema = z.strictObject({
+  id: meetingIdSchema,
+  track: trackSchema,
+  seq: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+  pcm: pcmSchema,
+})
+export const meetingNotesSchema = z.strictObject({ id: meetingIdSchema, text: z.string().max(MEETING_IPC_LIMITS.notes) })
+export const meetingEnhanceSchema = z.strictObject({ id: meetingIdSchema, template: templateIdSchema.optional() })
+
+/** A block of the edited ata: the Claude block plus its id; `ticket` is the main's (kept from disk, never taken from the page). */
+export const ataBlockSchema = blockSchema.extend({ id: blockIdSchema, ticket: z.string().max(40).optional() }).strict()
+export const meetingBlocksSchema = z.strictObject({ id: meetingIdSchema, blocks: z.array(ataBlockSchema).max(ATA_LIMITS.blocks) })
+
+const chatTurnSchema = z.strictObject({ role: z.enum(['user', 'assistant']), text: z.string().max(MEETING_IPC_LIMITS.historyText) })
+export const meetingAskSchema = z
+  .strictObject({
+    scope: z.enum(['meeting', 'floor']),
+    id: meetingIdSchema.optional(),
+    floor: meetingFloorSchema,
+    question: z.string().trim().min(1).max(MEETING_IPC_LIMITS.question),
+    history: z.array(chatTurnSchema).max(MEETING_IPC_LIMITS.historyTurns).optional(),
+  })
+  .refine((a) => a.scope === 'floor' || !!a.id)
+
+export const meetingTicketSchema = z.strictObject({
+  id: meetingIdSchema,
+  blockId: blockIdSchema,
+  draft: ticketDraftSchema,
+  agentId: idSchema.optional(),
+  floor: meetingFloorSchema.optional(),
+})
+export const meetingTemplatesSchema = z.strictObject({ floor: meetingFloorSchema.optional() })
+/** The item itself goes through cleanMeetingTemplate / cleanMeetingRecipe (fields, limits, floor). */
+export const meetingSaveTemplateSchema = z.strictObject({ kind: z.enum(['template', 'recipe']), item: z.record(z.string(), z.unknown()) })
+export const meetingAgentSchema = z.strictObject({ id: meetingIdSchema, agentId: idSchema, question: z.string().trim().min(1).max(MEETING_IPC_LIMITS.question) })

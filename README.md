@@ -117,6 +117,12 @@ Escolha modelo, esforço e modo de permissão no mesmo lugar.
 
 Terminou? O agente entrega o relatório e vai relaxar: sofás, pufes, pebolim, fliperama e pingue-pongue. A TV do lounge toca a **Claude FM** (lo-fi ao vivo) ou qualquer playlist do YouTube que você colar.
 
+### 7. A sala de reunião
+
+Cada andar tem uma sala de reunião. Aperte `G`, grave e anote como num caderno. O whisper transcreve no seu Mac o que você fala (microfone) e o que os outros falam (o áudio do computador: Zoom, Meet, Teams), em faixas separadas. Ao encerrar, o Claude escreve a ata com as suas notas e a transcrição, com a fonte de cada frase. Um clique transforma um item de ação em ticket do quadro ou tarefa de um agente. Depois, pergunte à reunião ou a todas as reuniões do andar; os agentes leem as atas pelo MCP `office`.
+
+O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew install whisper-cpp ffmpeg`; o áudio do computador exige macOS 14.2+ (veja o [COMO-RODAR](COMO-RODAR.md#sala-de-reunião)).
+
 ### E mais
 
 - **Andares por projeto.** Cada andar é uma pasta, com logo, cor e farda da empresa. Agentes pegam o elevador até você.
@@ -427,17 +433,19 @@ Sessões do terminal usam o mesmo caminho: o hook `PermissionRequest` (HTTP) fic
 - A saída dos agentes vira Markdown com HTML escapado e passa pelo DOMPurify.
 - A ponte do terminal escuta só em `127.0.0.1`, exige um token aleatório (`userData/bridge-token`, permissão 600) e recusa requisições com `Origin` (vindas de navegador).
 - Conectar a ponte faz backup do `~/.claude/settings.json`, preserva seus hooks e nunca sobrescreve um arquivo que não consegue ler. "Desconectar" remove só o que o app adicionou.
+- A sala de reunião transcreve com o whisper local: o `whisper-server` escuta só em `127.0.0.1`, numa porta aleatória, atrás de um token de 32 bytes no caminho, nunca com `--convert`, e morre com a reunião (ADR 0012). O áudio do sistema vem de um ajudante assinado com o app (ADR 0011). Notas, transcrição e ata ficam em `userData/meetings`, com permissão 600 (ADR 0013). A ata e a conversa rodam sem ferramentas; fala transcrita vira ticket só com a sua prévia e marcada como "não são instruções".
 - O modo "Sem pedir nada" (`bypassPermissions`) deixa o agente rodar qualquer comando. O app avisa e pede confirmação. Use só em pastas descartáveis.
 
 <details>
 <summary><b>Ferramentas de desenvolvimento</b></summary>
 
-Checar tipos: `npm run typecheck`. Lint: `npm run lint`. Testes: `npm test`.
+Checar tipos: `npm run typecheck`. Lint: `npm run lint`. Testes: `npm test` (vitest).
 
 Formatação: o Prettier (`.prettierrc.json`) segue o estilo do código (sem ponto e vírgula, aspas simples), mas o projeto ainda não foi todo formatado. Rode só nos arquivos que você mexeu: `npx prettier --write src/main/updater.ts`.
 
 - `AGENT_OFFICE_VIEW=2d` (ou `iso`) abre nesse visual sem mexer nas configurações; vale para `npm run dev`, capturas e `npm run bench` (o relatório traz RAM e CPU de cada processo).
 - `AGENT_OFFICE_SHOTS="out/shot:3000,8000"` salva capturas da janela (escondida) nesses tempos e fecha o app. `AGENT_OFFICE_EVAL="js1|||js2"` roda um trecho antes de cada captura; em dev, `window.__game`, `__state`, `__panel` e `__dialog` ficam disponíveis. Um trecho `keys:N Enter Alt+Right =texto ;; js` aperta teclas de verdade antes (Enter clica o botão em foco, Tab anda; `=texto` digita, `_` é espaço) e depois roda o js: serve para testar o app só pelo teclado. No modo demo, quem você contrata ou chama finge o trabalho (pede para rodar os testes e entrega um resultado) sem abrir o Claude Code.
+- `AGENT_OFFICE_MEETING_WAV=<arquivo.wav>` alimenta a sala de reunião com o WAV no lugar do microfone; `npm run native` compila o ajudante de áudio do sistema (macOS).
 - `npm run contrast` mostra a razão de contraste dos textos do HUD, lida de `src/renderer/src/styles/`; `npm test` falha se algum par ficar abaixo de AA (4,5:1).
 - Tecla `?` no app lista todos os atalhos.
 - Log do app em `userData/logs/main-<data>.log` (gira em 5 MB, guarda 5 arquivos; sem prompts nem tokens). `AGENT_OFFICE_DEBUG=1` inclui o nível debug.

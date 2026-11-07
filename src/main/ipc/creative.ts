@@ -2,6 +2,7 @@ import { app, dialog, ipcMain } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import type { CodexUsage } from '@shared/creative'
+import { studioRoot } from '@shared/projects'
 import type { ProjectFloor } from '@shared/types'
 import { cleanJob } from '../creative/flow'
 import { runNode } from '../creative/nodes'
@@ -16,11 +17,12 @@ import type { IpcContext } from './context'
 /** Estúdio criativo: Codex setup, the floor's flow file, and running one node at a time. */
 export function registerCreativeIpc(ctx: IpcContext): void {
   const { store, broadcast, win, accounts } = ctx
-  const floors = () => store.settings.projects.filter((p) => p.kind === 'creative')
+  // Every floor has its studio; it works in the floor's studio folder.
+  const floors = () => store.settings.projects
   const floorOf = (raw: unknown): ProjectFloor => {
     const fid = parse(idSchema, raw, 'Esse andar não existe mais.')
     const f = floors().find((p) => p.id === fid)
-    if (!f) throw new Error('Esse andar criativo não existe mais.')
+    if (!f) throw new Error('Esse andar não existe mais.')
     return f
   }
   const jobs = new Map<string, AbortController>()
@@ -95,7 +97,9 @@ export function registerCreativeIpc(ctx: IpcContext): void {
     const started = Date.now()
     try {
       const claudeEnv = accountEnv(accounts.pick({ cwd: floor.cwd, accounts: floor.accounts }))
-      const r = await runNode(job, { root: floor.cwd, signal: ctrl.signal, progress, claudeEnv })
+      const root = studioRoot(floor)
+      mkdirSync(root, { recursive: true })
+      const r = await runNode(job, { root, signal: ctrl.signal, progress, claudeEnv })
       if (job.kind === 'generate-image' || job.kind === 'edit-image' || job.kind === 'carousel' || job.params.engine === 'codex') void refreshUsage()
       log.info(`Estúdio: ${job.kind} em ${Math.round((Date.now() - started) / 1000)} s (${floor.name})`)
       return r

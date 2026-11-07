@@ -14,7 +14,7 @@ import { parseJson, writeFileAtomic, writeJsonAtomic } from './fs-safe'
  * stats.json stays out: it is rebuilt from the transcripts and can be large.
  */
 
-export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json'] as const
+export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json', 'meetings.json'] as const
 export type DataFile = (typeof DATA_FILES)[number]
 
 export const KEEP_DAILY = 14
@@ -43,6 +43,7 @@ export const DATA_SHAPES: Record<DataFile, (v: unknown) => boolean> = {
   'tickets.json': (v) => isObj(v) && (v.seq === undefined || (typeof v.seq === 'number' && Number.isFinite(v.seq))) && isList(v.tickets),
   'tickets-closed.json': (v) => isObj(v) && isList(v.tickets),
   'routines.json': (v) => isObj(v) && isList(v.routines),
+  'meetings.json': (v) => isObj(v) && isList(v.meetings),
 }
 
 /** The `valid` option of loadJson for a data file. */

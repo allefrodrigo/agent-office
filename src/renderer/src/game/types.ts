@@ -6,7 +6,11 @@ import type { Tag, BubbleKind } from '../world/overlays'
 import type { UpperFloor } from '../world/upper-floor'
 import type { ScreenMode } from '../world/screens'
 
-export type Goal = 'desk' | 'boss' | 'hang' | 'leave' | 'chat'
+/**
+ * Where an actor heads. 'meeting': it needs you, but you are in a meeting with "Não perturbe"
+ * on (RN-17), so it waits at its desk instead of walking into the meeting room.
+ */
+export type Goal = 'desk' | 'boss' | 'hang' | 'leave' | 'chat' | 'meeting'
 
 export interface Actor {
   id: string
@@ -43,6 +47,10 @@ export interface Upper {
   scene: UpperFloor
   /** "Contratar squad" on the Diretoria board; null when the project has no squads. */
   boardTag: Tag | null
+  /** "Abrir estúdio criativo" over the studio screen, while Codex is ready. */
+  studioTag: Tag | null
+  /** "🎙 Sala de reunião" over the meeting room's door. */
+  meetingTag: Tag | null
   /** One "Passo 3/6 · Texto" line over each Diretoria desk. */
   stepTags: Tag[]
   /** Over the alarm, while an account of this floor is at its limit. */
@@ -105,6 +113,8 @@ export interface GameHooks {
   onRunSquad(project: ProjectFloor): void
   /** The studio tag on a creative floor's board. */
   onStudio(project: ProjectFloor): void
+  /** The meeting room tag: open the Sala de reunião of a floor (ProjectFloor.id or 'terreo'). */
+  onMeeting(floor: string): void
   /** The player (and the camera) arrived on another floor. */
   onFloor(floor: number): void
   /** Player clicked the lounge TV: Claude FM on/off. */

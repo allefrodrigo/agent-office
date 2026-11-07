@@ -221,6 +221,7 @@ Object.assign(JOBS, {
     'chao/chao-deck',
     'Outdoor deck boards running left to right, 8 rows across the image, small gaps between boards.',
   ),
+  'chao/chao-reuniao': tileJob('chao/chao-reuniao', 'Low-pile carpet tiles, exactly 2 x 2 square tiles across the image, a faint woven grid and thin darker seams.'),
   'chao/parede-fundo': {
     prompt: `ONE pixel-art texture strip for a cozy 16-bit office RPG: the back wall of an office seen straight from the front, filling the WHOLE image edge to edge (image proportion 64 wide x 88 tall), repeating seamlessly left to right. Top three fifths: light lilac painted wall (#aaa6d6-ish) with a subtle texture; then a thin light trim; bottom two fifths: darker lilac wainscot panels (#8f8ac2-ish); at the very bottom a purple baseboard (#5f5a8c-ish). Crisp square pixels, 2-3 tone shading, no anti-aliasing, no objects, no text, no frame.`,
   },

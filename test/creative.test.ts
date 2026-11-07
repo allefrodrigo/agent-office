@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -6,6 +6,7 @@ import { accepts, starterFlow, type Flow } from '@shared/creative'
 import { inputsOf, isFresh, makesCycle, missingInputs, signature, topoOrder, upstreamOrder } from '@shared/flow-graph'
 import { cleanFlow, cleanJob, loadFlow, saveFlow } from '../src/main/creative/flow'
 import { cleanProjects } from '../src/main/validate'
+import { mergeCreativeFloors, studioRoot } from '@shared/projects'
 
 const dir = mkdtempSync(join(tmpdir(), 'ao-creative-'))
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
@@ -95,12 +96,25 @@ describe('flow file', () => {
   })
 })
 
-describe('creative floors', () => {
-  it('keep their kind through the settings', () => {
+describe('estúdio em todo andar', () => {
+  it('um andar criativo antigo sem projeto vira andar comum e guarda a pasta como estúdio', () => {
     const [p] = cleanProjects([{ id: 'p-1', name: 'Estúdio', cwd: dir, kind: 'creative' }], [])
-    expect(p.kind).toBe('creative')
+    expect(p.kind).toBeUndefined()
+    expect(p.studioDir).toBe(dir)
+    expect(studioRoot(p)).toBe(dir)
     const [q] = cleanProjects([{ id: 'p-1', name: 'X', cwd: dir, kind: 'evil' }], [])
     expect(q.kind).toBeUndefined()
+  })
+  it('sem pasta própria, o estúdio fica em <projeto>/social-media', () => {
+    expect(studioRoot({ cwd: '/w/loja/' })).toBe('/w/loja/social-media')
+  })
+  it('a pasta do estúdio fica dentro do projeto ou é uma pasta que existe', () => {
+    const [ok] = cleanProjects([{ id: 'p-1', cwd: dir, studioDir: join(dir, 'social-media') }], [])
+    expect(ok.studioDir).toBe(join(dir, 'social-media'))
+    const [bad] = cleanProjects([{ id: 'p-1', cwd: dir, studioDir: '/nao/existe/estudio' }], [])
+    expect(bad.studioDir).toBeUndefined()
+    const [out] = cleanProjects([{ id: 'p-1', cwd: dir, studioDir: join(dir, '..', 'fora-' + Date.now()) }], [])
+    expect(out.studioDir).toBeUndefined()
   })
 })
 
@@ -116,11 +130,23 @@ describe('flow templates', () => {
   })
 })
 
-describe('the roof', () => {
-  it('creative floors go to the top of the elevator', () => {
-    const other = mkdtempSync(join(tmpdir(), 'ao-proj-'))
-    const out = cleanProjects([{ id: 'c', name: 'Estúdio', cwd: dir, kind: 'creative' }, { id: 'p', name: 'Projeto', cwd: other }], [])
-    expect(out.map((p) => p.id)).toEqual(['p', 'c'])
-    rmSync(other, { recursive: true, force: true })
+describe('andares criativos de antes', () => {
+  it('juntam-se ao andar do projeto que os contém, como a pasta do estúdio', () => {
+    const social = join(dir, 'social-media')
+    mkdirSync(social, { recursive: true })
+    const out = cleanProjects([{ id: 'c', name: 'Loja Criativo', cwd: social, kind: 'creative' }, { id: 'p', name: 'Loja', cwd: dir }], [])
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ id: 'p', name: 'Loja', studioDir: social })
+  })
+  it('a migração do arquivo de configurações faz o mesmo', () => {
+    const out = mergeCreativeFloors([
+      { id: 'p', name: 'Loja', cwd: '/w/loja' },
+      { id: 'c', name: 'Loja Criativo', cwd: '/w/loja/social-media', kind: 'creative' },
+      { id: 'd', name: 'Solto', cwd: '/docs/criativo', kind: 'creative' },
+    ])
+    expect(out).toEqual([
+      { id: 'p', name: 'Loja', cwd: '/w/loja', studioDir: '/w/loja/social-media' },
+      { id: 'd', name: 'Solto', cwd: '/docs/criativo', studioDir: '/docs/criativo' },
+    ])
   })
 })

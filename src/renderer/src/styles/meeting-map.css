@@ -1,0 +1,47 @@
+/* ---------- Sala de reunião no mapa (RN-15, RN-17) ---------- */
+
+/* the floor's buttons at the top: "Abrir estúdio criativo" (with Codex) and "Reunião" */
+.floor-launch {
+  position: fixed;
+  left: 50%;
+  top: 18px;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+
+.floor-launch .studio-launch {
+  position: static;
+  transform: none;
+}
+
+.meeting-launch {
+  border-color: rgba(91, 156, 240, 0.45);
+}
+
+.floor-launch .meeting-launch svg {
+  color: var(--blue);
+}
+
+/* the room's tag: the dot turns red and pulses while a meeting records */
+.dot-meeting-live {
+  background: #ff4d5e;
+  box-shadow: 0 0 0 2px rgba(255, 77, 94, 0.35);
+  animation: meeting-live 1s ease-in-out infinite alternate;
+}
+
+@keyframes meeting-live {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-meeting-live {
+    animation: none;
+  }
+}

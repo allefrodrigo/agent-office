@@ -1,11 +1,25 @@
 import * as THREE from 'three'
 import { box } from '../world/kit'
-import type { GroundFloor, Office } from '../world/office'
+import type { GroundFloor } from '../world/office'
 import { pxTag } from '../world/pixel-tag'
+import type { UpperFloor } from '../world/upper-floor'
 
 // The 2D view sees only the tops and the fronts (+z) of things, so a board or a TV hung on
 // the side wall (x = 0) would show edge-on. In 2D they move to where the camera sees them:
 // the back wall, or a stand facing the viewer. Their tags and clicks move along.
+
+/** Height of the room tags on a corridor wall in 2D: above its signs, TVs and whiteboards. */
+const TAG_OVER_WALL_Y = 2.85
+
+/**
+ * In 2D a tag at sign height covers the wall: the studio's tag hid its own sign and the
+ * meeting room's whiteboard next door. The tags of the front rooms float above the wall.
+ */
+function raiseTag(anchor: THREE.Object3D | undefined): void {
+  if (!anchor) return
+  anchor.position.y = TAG_OVER_WALL_Y
+  anchor.updateMatrixWorld(true)
+}
 
 function put(obj: THREE.Object3D, x: number, y: number, z: number): void {
   obj.position.set(x, y, z)
@@ -45,12 +59,14 @@ export function adaptGround(office: GroundFloor): void {
   for (const x of [-0.8, 0.8]) box(money, 0.08, 1.0, 0.08, '#2d3142', x, -1.0, -0.02, false)
   put(office.alarm.group, 2.45, 1.92, 20.72)
   for (let x = 0; x <= 2; x++) office.grid.block(x, 20)
+  raiseTag(office.meetingAnchor)
 }
 
-/** Project floors: the spending board and the alarm go from the side wall to the back wall of the first room. */
-export function adaptUpper(floor: Office, rooftop: boolean): void {
+/** Project floors: the spending board and the alarm go to the back wall of the first room; the room tags rise over the wall. */
+export function adaptUpper(floor: UpperFloor): void {
   clearDesks(floor.group)
-  if (rooftop) return
   put(floor.money.group, 2.6, 1.0, 0.06)
   put(floor.alarm.group, 3.95, 1.85, 0.04)
+  raiseTag(floor.studioBoard)
+  raiseTag(floor.meetingAnchor)
 }

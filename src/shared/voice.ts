@@ -1,4 +1,4 @@
-// Modo voz, first step: the button at the bottom left records, whisper-cli turns it into text on this machine.
+// Modo voz: the mic beside each Send button records, whisper-cli turns it into text on this machine.
 
 /** What the voice button heard. */
 export interface Dictation {
@@ -61,4 +61,20 @@ export function parseWhisper(stdout: string, stderr = ''): { text: string; lang?
     .trim()
   const lang = /auto-detected language:\s*([a-z]{2,3})\b/i.exec(stderr)?.[1]?.toLowerCase()
   return lang ? { text, lang } : { text }
+}
+
+/**
+ * What a text box holds after a dictation lands in it: the text replaces the selection (or
+ * goes at the caret), with a space before it when it would glue onto a word.
+ * Returns the new value and where the caret goes.
+ */
+export function insertDictation(value: string, start: number, end: number, text: string): { value: string; caret: number } {
+  const a = Math.max(0, Math.min(start, value.length))
+  const b = Math.max(a, Math.min(end, value.length))
+  const before = value.slice(0, a)
+  const after = value.slice(b)
+  const lead = before && !/\s$/.test(before) ? ' ' : ''
+  const trail = after && !/^[\s.,;:!?)]/.test(after) ? ' ' : ''
+  const inserted = lead + text.trim() + trail
+  return { value: before + inserted + after, caret: a + inserted.length }
 }

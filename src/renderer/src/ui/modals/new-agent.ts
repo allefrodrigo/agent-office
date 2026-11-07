@@ -4,6 +4,7 @@ import type { AgentBrain, OfficePermissionMode, ProjectFloor } from '@shared/typ
 import type { State } from '../../state'
 import { accountField } from '../accounts'
 import { h, icon } from '../dom'
+import { MicButton } from '../voice'
 import { templatesTab } from '../templates'
 import { cleanError, field, LAST_CWD, modal } from './common'
 import { brainFields, meterField, MODES } from './brain'
@@ -154,6 +155,8 @@ export function openNewAgent(
     const go = h('button', { class: 'btn btn-primary' })
     const nameField = field('Nome', name)
     const taskField = field('Tarefa', task)
+    // dictate the task: the mic sits beside the button that sends it
+    const taskMic = new MicButton(task)
     const tabHint = h('div', { class: 'field-hint' })
     const send = state.platform === 'darwin' ? '⌘↩' : 'Ctrl+Enter'
 
@@ -186,6 +189,7 @@ export function openNewAgent(
       templatesBtn.classList.toggle('on', byTemplate)
       nameField.classList.toggle('hidden', !hire)
       taskField.classList.toggle('hidden', !hire)
+      taskMic.el.classList.toggle('hidden', !hire)
       // a template brings its own brain and freedom
       for (const f of [modelField, effortField, modeField]) f.classList.toggle('hidden', byTemplate)
       templates.el.classList.toggle('hidden', !byTemplate)
@@ -258,7 +262,7 @@ export function openNewAgent(
         modeField,
         tabHint,
       ],
-      [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), go],
+      [h('button', { class: 'btn', onclick: () => finish(null) }, 'Cancelar'), taskMic.el, go],
       () => finish(null),
     )
     el.addEventListener('keydown', (e) => {

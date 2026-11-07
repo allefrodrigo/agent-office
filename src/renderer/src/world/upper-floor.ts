@@ -1,9 +1,9 @@
 import * as THREE from 'three'
 import { brandSign, type Brand } from './brand'
 import * as F from './furniture'
-import { beacon, costBoard, routinesBoard } from './props'
+import { beacon, costBoard, routinesBoard, sign } from './props'
+import { meetingRoom, type MeetingRoomView } from './meeting-room'
 import { workstation } from './workstation'
-import { box, panel } from './kit'
 import { mergeStatic } from './merge'
 import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
 import { buildPartitions, buildShell, CALM_BEACON, type Office } from './office'
@@ -11,13 +11,18 @@ import { setNightLights } from './night'
 import { Grid } from './pathfinding'
 import { arcadePainter, dashboardPainter, LoopScreen, Screen } from './screens'
 import { rugTexture } from './textures'
-import { px } from './pixel-tag'
 
 /** A project floor. deskScreens holds the team desks first, then the sector desks (DeskSlot.index). */
 export interface UpperFloor extends Office {
   plan: ProjectPlan
   /** Big screen in the Diretoria: clicking it hires a squad. */
   board: THREE.Object3D
+  /** The Estúdio criativo's screen: clicking it opens the studio. Only while Codex is ready. */
+  studioBoard?: THREE.Object3D
+  /** Over the Sala de reunião's door: where its tag goes. */
+  meetingAnchor?: THREE.Object3D
+  /** The Sala de reunião: its sign and TV light up during a meeting (RN-17). */
+  meeting?: MeetingRoomView
 }
 
 const RUGS: [string, string, string][] = [
@@ -42,7 +47,7 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   }
 
   // planks in the Diretoria, carpet in the rooms (under their rugs), hall planks in the corridor
-  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
+  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...(plan.meeting ? [{ id: 'meeting' as const, label: '', rect: plan.meeting.rect }] : []), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
   buildPartitions(group, grid, plan.partitions)
 
   // ---------- Diretoria ----------
@@ -108,6 +113,11 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   // ---------- common areas in the front rooms no sector took ----------
   plan.commons.forEach((rect, i) => commons(COMMONS[i % COMMONS.length], rect, place, grid, loops, brand.color))
 
+  // ---------- Estúdio criativo ----------
+  const studioBoard = plan.studio ? studioRoom(plan.studio, place, grid, loops, brand.color, group) : undefined
+  // ---------- Sala de reunião ----------
+  const meeting = plan.meeting ? meetingRoom(plan.meeting, place, grid, loops, brand.color, group) : undefined
+
   // the company's spending board on the side wall, the alarm above it
   const money = costBoard(brand.name, 2.2)
   place(money.group, 0.06, 5, Math.PI / 2, 1.0)
@@ -126,6 +136,9 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
     deskScreens,
     plan,
     board,
+    studioBoard,
+    meetingAnchor: meeting?.anchor,
+    meeting,
     money,
     alarm,
     routines,
@@ -152,6 +165,42 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
       setNightLights(group, on)
     },
   }
+}
+
+/**
+ * The Estúdio criativo of a floor (a front room, 8 x 11): its screen by the door with the
+ * studio's tag above, a review table with laptops, art and references on the walls.
+ * Returns the anchor of the tag.
+ */
+function studioRoom(r: SectorRoom, place: (o: THREE.Object3D, x: number, z: number, rot?: number, y?: number) => THREE.Object3D, grid: Grid, loops: LoopScreen[], accent: string, group: THREE.Group): THREE.Object3D {
+  const [x0, z0, x1, z1] = r.rect
+  const cx = (x0 + x1) / 2
+  const cz = (z0 + z1) / 2 + 0.5
+  const block = (x: number, z: number, w = 1, h = 1) => grid.blockRect(Math.floor(x), Math.floor(z), w, h)
+  place(F.rug(x1 - x0 - 1, z1 - z0 - 1, rugTexture(x1 - x0 - 1, z1 - z0 - 1, '#efe6f7', '#9b85c9', accent)), cx, (z0 + z1) / 2)
+  place(sign(r.name, '#4b3a78', '#ffffff'), cx, z0 + 0.06, 0, 1.62)
+  // the studio's screen on the corridor wall, left of the door, facing the room
+  const screen = new LoopScreen(48, 26, dashboardPainter, 9)
+  loops.push(screen)
+  place(F.tv(screen.texture), x0 + 1.4, z0 + 0.06, 0, 1.55)
+  const anchor = new THREE.Object3D()
+  anchor.position.set(x0 + 1.4, 2.0, z0 + 0.3)
+  group.add(anchor)
+  place(F.art('sunset', 1.0, 0.75), x1 - 1.4, z0 + 0.06, 0, 1.75)
+  // the review table: laptops facing each other, chairs around
+  place(F.roundTable(0.8), cx, cz)
+  block(cx - 1, cz - 1, 2, 2)
+  place(F.laptop('#d9d2f2'), cx - 0.25, cz - 0.15, Math.PI, 0.77)
+  place(F.laptop(), cx + 0.25, cz + 0.2, 0, 0.77)
+  for (const [dx, dz, rot, c] of [[-1.5, 0, Math.PI / 2, '#9b7bf0'], [1.5, 0, -Math.PI / 2, '#f4a259'], [0, 1.5, Math.PI, accent]] as const) place(F.simpleChair(c), cx + dx, cz + dz, rot)
+  // references on the shelf, a cozy corner by the window side
+  place(F.bookshelf(2, 1.7, 9), x0 + 1.2, z1 - 0.4, Math.PI)
+  block(x0, z1 - 1, 2)
+  place(F.beanBag('#a29bfe'), x1 - 1.2, z1 - 1.3, Math.PI)
+  block(x1 - 2, z1 - 2)
+  place(F.plant('tall'), x1 - 0.5, z0 + 1.5)
+  block(x1 - 1, z0 + 1)
+  return anchor
 }
 
 type Common = 'lounge' | 'cafe' | 'games' | 'quiet'
@@ -232,28 +281,4 @@ function commons(kind: Common, rect: [number, number, number, number], place: (o
       place(F.plant('flower', '#f5f3ee'), x1 - 0.5, z0 + 1.5)
       block(x1 - 1, z0 + 1)
   }
-}
-
-/** A flat name plate (facing +z) for walls and doors. */
-function sign(text: string, bg: string, fg: string, width = 2.2): THREE.Group {
-  const g = new THREE.Group()
-  const c = document.createElement('canvas')
-  c.width = Math.round(116 * width)
-  c.height = 48
-  const ctx = c.getContext('2d')!
-  ctx.fillStyle = bg
-  ctx.fillRect(0, 0, c.width, c.height)
-  ctx.fillStyle = fg
-  ctx.font = 'bold 26px -apple-system, "Segoe UI", sans-serif'
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  let label = text
-  while (ctx.measureText(label).width > c.width - 24 && label.length > 4) label = label.slice(0, -2) + '…'
-  ctx.fillText(label === text ? text : label, c.width / 2, c.height / 2 + 1)
-  const tex = new THREE.CanvasTexture(c)
-  tex.colorSpace = THREE.SRGBColorSpace
-  const h = (width * c.height) / c.width
-  box(g, width + 0.08, h + 0.08, 0.04, '#5f5a8c', 0, -0.04, 0, false)
-  panel(g, width, h, tex, 0, h / 2, 0.025)
-  return px(g, 'roomSign')
 }

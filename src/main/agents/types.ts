@@ -1,3 +1,4 @@
+import { type ChildProcess } from 'node:child_process'
 import { type FSWatcher } from 'node:fs'
 import { type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentSummary, LogEntry, PermissionDecision, PermissionRequest } from '@shared/types'
@@ -83,6 +84,10 @@ export interface Agent {
   bgCommands?: Map<string, string>
   /** What the running CLI loaded (its init message). */
   init?: AgentInit
+  /** A "!" command the player is running in this agent's folder. */
+  shell?: ChildProcess
+  /** "!" commands and their output, sent along with the player's next message. */
+  shellNotes?: string[]
 }
 
 /** A background task of an office agent's CLI. */

@@ -29,3 +29,6 @@ coverage/
 /arte-2d/**/*.[jJ][pP][eE][gG]
 /arte-2d/**/*.[wW][eE][bB][pP]
 /arte-2d/folhas/*.json
+
+# Ajudante de áudio do sistema (npm run native): binário gerado de native/system-audio
+/resources/bin/

@@ -3,8 +3,8 @@
 .toasts {
   position: fixed;
   left: 18px;
-  /* above the voice button and its card (--voice-h, set by voice.ts) */
-  bottom: calc(var(--voice-h, 48px) + 26px);
+  /* above the elevator panel (--floors-h, set by the HUD) */
+  bottom: calc(var(--floors-h, 48px) + 26px);
   display: flex;
   flex-direction: column;
   gap: 8px;

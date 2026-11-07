@@ -39,6 +39,8 @@ export interface HudActions {
   backstage(tab?: 'bg' | 'mcp' | 'skills' | 'wt'): void
   /** Sair do Agent Office: asks, waits for the agents or interrupts them. */
   quit(): void
+  /** Modo mini: the office hides and the agents go live on the bottom of the screen. */
+  mini(): void
 }
 
 const COMPACT_KEY = 'roster-compact'
@@ -158,6 +160,7 @@ export class Hud {
       h('button', { class: 'dock-btn', title: 'Bastidores: segundo plano, MCP e skills (B)', onclick: () => actions.backstage() }, icon('rack')),
       h('button', { class: 'dock-btn', 'data-tour': 'resume', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
       h('button', { class: 'dock-btn', 'data-tour': 'home', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
+      h('button', { class: 'dock-btn', title: 'Modo mini: os agentes na base da tela (M)', onclick: () => actions.mini() }, icon('bot')),
       radio.button,
       this.gearBtn,
       h('button', { class: 'dock-btn dock-quit', title: 'Sair do Agent Office', 'aria-label': 'Sair do Agent Office', onclick: () => actions.quit() }, icon('power')),
@@ -170,7 +173,7 @@ export class Hud {
       this.nightBtn,
     )
     this.floorsEl = h('div', { class: 'floors card', 'data-tour': 'floors' })
-    // The roster ends above the elevator panel, which grows with every floor.
+    // Toasts and the radio card stack above the elevator panel, which grows with every floor.
     new ResizeObserver(() => document.documentElement.style.setProperty('--floors-h', `${this.floorsEl.offsetHeight}px`)).observe(this.floorsEl)
     this.infoCard = new InfoCard(state, actions, (t, k) => this.toast(t, k))
     const side = h('div', { class: 'hud-side' + (mac ? ' hud-side-mac' : '') }, this.infoCard.info)
@@ -273,16 +276,20 @@ export class Hud {
           'button',
           { class: `floor-btn${n === this.floor ? ' on' : ''}${badge && act.waiting ? ' pulse' : ''}`, title: n === this.floor ? `Você está no ${name}` : `Ir para ${name} pelo elevador`, onclick: () => this.actions.goFloor(n) },
           h('span', { class: 'floor-num' }, n === 0 ? 'T' : String(n)),
-          h('span', { class: 'floor-name' }, n > 0 && this.state.settings.projects[n - 1]?.kind === 'creative' ? `🎨 ${name}` : name),
+          h('span', { class: 'floor-name' }, name),
           badge,
         )
       })
       .reverse()
-    const add =
-      canAddFloor(this.state.settings.projects, 'project') || canAddFloor(this.state.settings.projects, 'creative')
-        ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto (quem você contrata ou chama lá trabalha na pasta dele) ou o andar criativo, com o estúdio de imagens e posts', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Novo andar'))
-        : null
-    this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), ...rows, ...(add ? [add] : []))
+    const add = canAddFloor(this.state.settings.projects)
+      ? h('button', { class: 'floor-btn floor-add', title: 'Um andar para um projeto: quem você contrata ou chama lá trabalha na pasta dele. Com o ChatGPT (Codex) conectado, todo andar tem seu estúdio criativo.', onclick: () => this.actions.newFloor() }, h('span', { class: 'floor-num' }, icon('plus', 12)), h('span', { class: 'floor-name' }, 'Novo andar'))
+      : null
+    // Many floors scroll inside the panel; the one you are on stays in view.
+    const list = h('div', { class: 'floors-list' }, ...rows)
+    const keep = this.floorsEl.querySelector('.floors-list')?.scrollTop ?? 0
+    this.floorsEl.replaceChildren(h('div', { class: 'floors-head' }, 'Elevador'), list, ...(add ? [add] : []))
+    list.scrollTop = keep
+    list.querySelector('.floor-btn.on')?.scrollIntoView({ block: 'nearest' })
   }
 
   /** Redraws the limits and load card (also when usage or system numbers arrive). */

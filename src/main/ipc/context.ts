@@ -9,6 +9,7 @@ import type { Caffeine } from '../caffeine'
 import type { TicketDesk } from '../delegate'
 import type { CostBook } from '../ledger'
 import type { MacJobs } from '../mac-jobs'
+import type { MeetingStore } from '../meetings/store'
 import type { QuitFlow } from '../quit'
 import type { RoutineScheduler } from '../routines'
 import type { StatsReader } from '../stats'
@@ -28,6 +29,8 @@ export interface IpcContext {
   book: CostBook
   desk: TicketDesk
   routines: RoutineScheduler
+  /** Sala de reunião: the index and each meeting's folder. */
+  meetings: MeetingStore
   /** Café corner: keeps the screen awake. */
   caffeine: Caffeine
   /** Leaving on purpose: asks, waits or interrupts. */

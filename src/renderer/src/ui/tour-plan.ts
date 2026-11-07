@@ -88,9 +88,9 @@ export function tourSteps(platform: string): TourStep[] {
     {
       id: 'floors',
       title: 'Elevador e andares',
-      text: 'Cada andar é uma pasta de projeto, e quem você chama lá trabalha nela. Clique num andar para subir.',
+      text: 'Cada andar é uma pasta de projeto, e quem você chama lá trabalha nela. Clique num andar para subir: com o Codex conectado, todo andar tem um estúdio criativo.',
       targets: [{ hud: 'floors' }],
-      place: 'left',
+      place: 'right',
     },
     {
       id: 'limits',

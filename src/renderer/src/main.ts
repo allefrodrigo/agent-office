@@ -8,7 +8,6 @@ import { AgentPanel } from './ui/panel'
 import { Dialog } from './ui/dialog'
 import { Hud } from './ui/hud'
 import { Radio } from './ui/radio'
-import { VoiceButton } from './ui/voice'
 import type { DataNotice, ProjectFloor } from '@shared/types'
 import { DEFAULT_VIDEO, effectiveVideo, frameInterval } from '@shared/video'
 import { openAccounts } from './ui/accounts'
@@ -30,10 +29,16 @@ import { mountQuitBanner } from './ui/quit'
 import { cleanError, confirmDialog, openNewAgent, openNewFloor, openResume, openRunSquad, openSettings } from './ui/modals'
 import { osText } from './ui/os-text'
 import { openStudio } from './ui/studio'
-import { setLoginUrl } from './ui/studio/integrations'
+import { creativeReady } from '@shared/creative'
+import { onStatus, readStatus, setLoginUrl } from './ui/studio/integrations'
 import { studioProgress } from './ui/studio/session'
 import { setCodexUsage } from './ui/studio/usage'
 import { h, icon } from './ui/dom'
+import { openMeetingRoom } from './meetings/open'
+import { mountMeetingRoom } from './ui/meetings'
+import { OPEN_AGENT_EVENT } from './ui/meetings/office'
+import { meetingLive, onMeetingLive, setMeetingLive } from './meetings/live'
+import { doNotDisturb, waitingSummary } from '@shared/meeting-map'
 
 /** localStorage: '1' when the office lights are off (modo noturno). */
 const NIGHT_KEY = 'office.night'
@@ -65,6 +70,10 @@ async function boot(): Promise<void> {
   document.body.classList.add(`platform-${state.platform}`)
   // Empty from the start, so screen readers read what goes in later (AO-38).
   mountLiveRegions(document.body)
+
+  // "Não perturbe" (RN-17): requests and deliveries that arrived during the meeting, for the summary at the end.
+  const held = new Set<string>()
+  const quiet = () => doNotDisturb(meetingLive(), state.settings.meetings)
 
   // Cards the player closed with "later" stay closed until they walk away and back.
   const dismissed = new Set<string>()
@@ -158,19 +167,16 @@ async function boot(): Promise<void> {
       game.focusAgent(a.id)
     })
 
-  /** A project folder becomes a floor; the player rides up to it. A creative floor opens its studio. */
+  /** A project folder becomes a floor; the player rides up to it. */
   const newFloor = async () => {
     const floor = await openNewFloor(ui, state, toast)
     if (!floor) return
     game.setProjects(state.settings.projects, state.squads)
     game.goFloor(state.settings.projects.findIndex((p) => p.id === floor.id) + 1)
-    if (floor.kind === 'creative') {
-      toast(`Andar ${floor.name} pronto. O estúdio salva tudo em ${floor.cwd}.`, 'ok')
-      studio(floor)
-    } else toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
+    toast(`Andar ${floor.name} pronto. Quem você contratar ou chamar aqui trabalha em ${floor.cwd}.`, 'ok')
   }
 
-  /** Estúdio criativo of a creative floor, full screen. */
+  /** Estúdio criativo of a floor, full screen. */
   const studio = (floor: ProjectFloor) =>
     void openStudio(ui, state, floor, {
       toast,
@@ -179,14 +185,20 @@ async function boot(): Promise<void> {
         game.focusAgent(id)
       },
     })
-  // On a creative floor, a button at the top opens its studio.
+  // Every floor has its studio while Codex is ready: a button at the top opens it.
+  let codexReady = false
   const studioLaunch = h('button', { class: 'studio-launch', hidden: true }, icon('spark', 16), 'Abrir estúdio criativo', h('small', {}, 'E'))
   studioLaunch.addEventListener('click', () => {
     const p = game.currentProject
-    if (p?.kind === 'creative') studio(p)
+    if (p && codexReady) studio(p)
   })
-  ui.append(studioLaunch)
-  const syncLaunch = () => (studioLaunch.hidden = game.currentProject?.kind !== 'creative')
+  // Every floor has its Sala de reunião: "Reunião" (or M) opens the one of the floor on screen.
+  const meetingLaunch = h('button', { class: 'studio-launch meeting-launch' }, icon('mic', 16), 'Reunião', h('small', {}, 'G'))
+  meetingLaunch.addEventListener('click', () => openMeetingRoom(game.currentFloorId))
+  ui.append(h('div', { class: 'floor-launch' }, studioLaunch, meetingLaunch))
+  // The Sala de reunião screen opens on openMeetingRoom (map label, M, this button) and follows the recording.
+  mountMeetingRoom(ui, state, { toast })
+  const syncLaunch = () => (studioLaunch.hidden = !codexReady || !game.currentProject)
 
   const radio = new Radio(document.getElementById('overlay')!)
 
@@ -202,7 +214,8 @@ async function boot(): Promise<void> {
         for (const r of state.itemsFor(nearId).results) dismissed.delete(r.id)
       }
       nearId = id
-      if (!id || dialog.isOpen) return
+      // "Não perturbe" (RN-17): during a meeting the card waits in the inbox
+      if (!id || dialog.isOpen || quiet()) return
       const items = state.itemsFor(id)
       const first = items.permissions[0] ?? items.results[0]
       if (first && !dismissed.has(first.id)) openItem(id, first.id)
@@ -211,6 +224,7 @@ async function boot(): Promise<void> {
     onComputer: () => void newAgent('summon'),
     onRunSquad: (project) => hireSquad(project),
     onStudio: (project) => studio(project),
+    onMeeting: (floor) => openMeetingRoom(floor),
     onFloor: (n) => {
       hud.setFloors(game.floors, n)
       syncLaunch()
@@ -249,6 +263,7 @@ async function boot(): Promise<void> {
     accounts: () => openAccounts(ui, state, toast),
     reports: () => openReports(ui, state, { project: game.currentProject, toast }),
     quit: () => void window.office.quitApp().catch((err) => toast(cleanError(err), 'err')),
+    mini: () => void window.office.petEnter(),
     backstage: (tab) =>
       openBackstage(ui, state, {
         tab,
@@ -281,8 +296,6 @@ async function boot(): Promise<void> {
   }, radio)
 
   radio.attach({ corners: () => game.tvCorners(), setOn: (on) => game.setTvOn(on) })
-  // Modo voz (teste): bottom left, speech to text with the studio's whisper.
-  new VoiceButton(ui)
 
   const panel = new AgentPanel(ui, state, {
     goTo: (id) => game.goToAgent(id),
@@ -327,6 +340,14 @@ async function boot(): Promise<void> {
     toast,
   })
 
+  // The meeting room's "Abrir com um agente" (RN-21) opens the agent's panel, like the board does.
+  window.addEventListener(OPEN_AGENT_EVENT, (e) => {
+    const id = (e as CustomEvent<{ agentId: string }>).detail?.agentId
+    if (!id || !state.agents.has(id)) return
+    panel.open(id)
+    game.focusAgent(id)
+  })
+
   // T opens the board, like a shortcut in any kanban; N opens "Novo agente"; R the reports; I the inbox.
   window.addEventListener('keydown', (e) => {
     const a = document.activeElement
@@ -334,8 +355,10 @@ async function boot(): Promise<void> {
     if (e.key.toLowerCase() === 't' && !e.metaKey && !e.ctrlKey && !board.isOpen) board.open()
     if (e.key.toLowerCase() === 'r' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openReports(ui, state, { project: game.currentProject, toast })
     if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.openBackstage()
-    if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && game.currentProject?.kind === 'creative') studio(game.currentProject)
+    if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && codexReady && game.currentProject) studio(game.currentProject)
     if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) setNight(!game.engine.night)
+    if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openMeetingRoom(game.currentFloorId)
+    if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) void window.office.petEnter()
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()
@@ -394,6 +417,24 @@ async function boot(): Promise<void> {
 
   hud.setFloors(game.floors, game.currentFloor)
   syncLaunch()
+
+  // The meeting recording (meetings/live.ts, fed by the meeting room screen): avatar, sign, TV.
+  onMeetingLive((live) => {
+    game.setMeeting(live)
+    if (live) return
+    // ended: what is still waiting in the inbox
+    const waiting = [...held].filter((id) => state.permissions.has(id) || state.results.has(id)).length
+    held.clear()
+    const summary = waitingSummary(waiting)
+    if (summary) toast(`${summary}. I abre a caixa de entrada.`, 'info')
+  })
+  // Codex signed in (now, or later from the studio's integrations): the floors get their studio room.
+  onStatus((st) => {
+    codexReady = creativeReady(st)
+    game.setStudios(codexReady)
+    syncLaunch()
+  })
+  void readStatus().catch(() => undefined)
   mountUpdateNotice(ui)
 
   // Configurações → Vídeo (AO-32): shadows and effects apply live; on battery, Economia if asked.
@@ -452,6 +493,8 @@ async function boot(): Promise<void> {
     if (e.type === 'creative:usage') return setCodexUsage(e.usage)
     if (e.type === 'agent:chat') return game.chat(e.fromId, e.toId, e.text)
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
+    // "Abrir a sala" no ícone da barra de menus (RN-08)
+    if (e.type === 'meeting:open') return openMeetingRoom(e.floor)
     // Clique na notificação do sistema: o cartão abre na hora, sem esperar a caminhada.
     if (e.type === 'notice:open') {
       dismissed.delete(e.itemId)
@@ -479,18 +522,21 @@ async function boot(): Promise<void> {
     }
     if (e.type === 'permission:new') {
       const a = state.agents.get(e.request.agentId)
-      if (a) toast(`${a.name} está indo até a sua sala.`, 'info')
+      const hold = quiet()
+      if (hold) held.add(e.request.id)
+      else if (a) toast(`${a.name} está indo até a sua sala.`, 'info')
       // Interrupts the screen reader: the agent is stopped until the player decides.
       if (a) {
         const r = e.request
         const what = r.kind === 'question' ? 'tem uma pergunta' : r.kind === 'plan' ? 'trouxe um plano' : 'pede sua permissão'
         const detail = r.kind === 'tool' && r.detail ? ` ${r.detail.split('\n')[0].slice(0, 100)}.` : ''
         const how = r.kind === 'question' ? 'Abra o cartão para responder.' : `Enter no cartão permite, ${state.platform === 'darwin' ? 'Command' : 'Control'} Backspace nega. I abre a caixa de entrada.`
-        announce(`${a.name} ${what}: ${r.title.replace(/[.?!:]*$/, '')}.${detail} ${how}`, 'assertive')
+        announce(`${a.name} ${what}: ${r.title.replace(/[.?!:]*$/, '')}.${detail} ${how}`, hold ? 'polite' : 'assertive')
       }
     } else if (e.type === 'result:new') {
       const a = state.agents.get(e.result.agentId)
-      if (a) toast(e.result.isError ? `${a.name} teve um problema.` : `${a.name} terminou e vai te entregar o resultado.`, e.result.isError ? 'err' : 'ok')
+      if (quiet()) held.add(e.result.id)
+      else if (a) toast(e.result.isError ? `${a.name} teve um problema.` : `${a.name} terminou e vai te entregar o resultado.`, e.result.isError ? 'err' : 'ok')
     }
   })
 
@@ -561,6 +607,8 @@ async function boot(): Promise<void> {
       __dialog: dialog,
       __board: board,
       __tour: tour,
+      // RN-17: AGENT_OFFICE_EVAL="__setMeetingLive({ floor: 'terreo', startedAt: Date.now() - 754000 })"
+      __setMeetingLive: setMeetingLive,
       // AO-28: floors, agents and the skull in a loop, reading GPU memory (dev and headless runs only)
       __leakTest: async () => (await import('./dev/leak-test')).leakTest(game, state),
     })

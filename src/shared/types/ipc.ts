@@ -14,6 +14,26 @@ import type { FlowTab, LibraryItem } from '../creative-library'
 import type { BrandKit, RefItem } from '../social'
 import type { ViewMode } from '../video'
 import type { Dictation } from '../voice'
+import type {
+  Meeting,
+  MeetingAskInput,
+  MeetingAskResult,
+  MeetingAudioChunk,
+  MeetingCreateInput,
+  MeetingDetail,
+  MeetingDoctorInfo,
+  MeetingEnhanceResult,
+  MeetingEvent,
+  MeetingRecipe,
+  MeetingSettings,
+  MeetingStartResult,
+  MeetingTemplate,
+  MeetingTemplatesInfo,
+  MeetingTicketInput,
+  MeetingTicketResult,
+  AtaBlock,
+  WhisperModelsInfo,
+} from './meetings'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
@@ -129,6 +149,8 @@ export type OfficeEvent =
   | { type: 'stats'; stats: ClaudeStats }
   /** The player clicked a system notification: open the card of that request or result now. */
   | { type: 'notice:open'; agentId: string; itemId: string }
+  /** Modo mini: where the floor and the Dock are, in the pet window's own coordinates. */
+  | { type: 'pet:geometry'; geometry: PetGeometry }
   /** A data file was found corrupt after startup (the closed tickets load on first use). */
   | { type: 'data:notice'; notice: DataNotice }
   | { type: 'update'; update: UpdateStatus }
@@ -149,6 +171,16 @@ export type OfficeEvent =
   | { type: 'creative:login-url'; url: string }
   /** Codex plan limits were read again (after a Codex run or on request). */
   | { type: 'creative:usage'; usage: CodexUsage }
+  /**
+   * Sala de reunião: meeting:upsert (the index entry changed), meeting:segment (a new line of the
+   * transcript), meeting:progress (whisper queue, or stage 'ata' with the step of the ata) and
+   * meeting:warning (system audio, echo, delay, idle, autostop, ata, audio).
+   */
+  | MeetingEvent
+  /** A meeting and its folder were deleted. */
+  | { type: 'meeting:removed'; meetingId: string }
+  /** The menu bar icon's "Abrir a sala" (RN-08): open the meeting room of that floor now. */
+  | { type: 'meeting:open'; floor: string; meetingId: string }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -236,7 +268,10 @@ export interface OfficeAPI {
   pickFolder(defaultPath?: string): Promise<string | null>
   installBridge(): Promise<BridgeStatus>
   uninstallBridge(): Promise<BridgeStatus>
-  saveSettings(patch: Partial<Settings>): Promise<Settings>
+  /** `meetings` may carry only some keys: the lists (templates, recipes) stay when left out. */
+  saveSettings(patch: Partial<Omit<Settings, 'meetings'>> & { meetings?: Partial<MeetingSettings> }): Promise<Settings>
+  /** Configurações → Reuniões: whisper models found on this machine (file names) and its memory. */
+  meetingWhisperModels(): Promise<WhisperModelsInfo>
   /** Creates (unknown id) or replaces a template; returns it as stored. */
   saveTemplate(t: AgentTemplate): Promise<AgentTemplate>
   deleteTemplate(id: string): Promise<void>
@@ -391,7 +426,70 @@ export interface OfficeAPI {
   // ---------- Modo voz ----------
   /** macOS asks for the microphone once; false when it was refused in System Settings. True elsewhere. */
   micAccess(): Promise<boolean>
+  /** Dev only: the bytes of AGENT_OFFICE_MEETING_WAV, which the meeting capture plays instead of the mic; null when unset. */
+  devMeetingWav(): Promise<Uint8Array | null>
   /** A recording of the voice button (webm/opus) as text, by whisper-cli on this machine. */
   transcribe(audio: Uint8Array): Promise<Dictation>
+  // ---------- Sala de reunião ----------
+  /** The floor's meetings, newest first. */
+  meetings(floor: string): Promise<Meeting[]>
+  /** One meeting: index entry, notes, ata (blocks and Markdown), transcript and conversation. */
+  meeting(id: string): Promise<MeetingDetail>
+  /** A new meeting (status 'recording', not capturing yet); what is left out comes from Configurações → Reuniões. */
+  meetingCreate(input: MeetingCreateInput): Promise<Meeting>
+  /** Starts the whisper and the system audio; the page then sends the mic with meetingAudio. */
+  meetingStart(id: string): Promise<MeetingStartResult>
+  /** A PCM chunk (16 kHz mono s16le, ≤ 64 KB). false = ignored (paused, repeated seq); rejects for a wrong track or a meeting not recording. */
+  meetingAudio(chunk: MeetingAudioChunk): Promise<boolean>
+  meetingPause(id: string): Promise<Meeting>
+  meetingResume(id: string): Promise<Meeting>
+  /** Resolves once the transcript is finished (status 'ready'); the ata starts by itself when autoAta is on. */
+  meetingStop(id: string): Promise<Meeting>
+  /** An interrupted meeting: transcribes the audio left on disk, then goes on as a normal stop. */
+  meetingRecover(id: string): Promise<Meeting>
+  /** Saves notes.md (up to 200 000 characters). */
+  meetingNotes(id: string, text: string): Promise<void>
+  /** Writes or rewrites the ata with a template (default: the meeting's). Never rejects for a Claude failure: `error` says why. */
+  meetingEnhance(id: string, template?: string): Promise<MeetingEnhanceResult>
+  /** Saves the edited ata (edited blocks come as origin 'user'); ticket keys are kept from disk. */
+  meetingBlocks(id: string, blocks: AtaBlock[]): Promise<MeetingEnhanceResult>
+  /** Asks this meeting or the whole floor; the answer cites [r:<id>#s<n>]. */
+  meetingAsk(input: MeetingAskInput): Promise<MeetingAskResult>
+  /** Creates a ticket from an ata item (tag reuniao, floor folder, marked quote) and delegates it when agentId comes. */
+  meetingTicket(input: MeetingTicketInput): Promise<MeetingTicketResult>
+  /** Deletes the meeting's folder and index entry (not while it records). */
+  meetingDelete(id: string): Promise<void>
+  /** Ata templates and chat recipes that apply on the floor (built-in plus custom). */
+  meetingTemplates(floor?: string): Promise<MeetingTemplatesInfo>
+  /** Saves a custom template or recipe (same id replaces); returns it clean. */
+  meetingSaveTemplate(kind: 'template', item: MeetingTemplate): Promise<MeetingTemplate>
+  meetingSaveTemplate(kind: 'recipe', item: MeetingRecipe): Promise<MeetingRecipe>
+  /** What the machine has: whisper-cli, whisper-server, model, ffmpeg, system audio, microphone. */
+  meetingDoctor(): Promise<MeetingDoctorInfo>
+  /** "Abrir com um agente": sends the question and the meeting id to an agent of the floor (it reads with meeting_get). */
+  meetingAgent(id: string, agentId: string, question: string): Promise<{ agentId: string }>
+  // ---------- Modo mini ----------
+  /** Hides the office window and shows the agents on the bottom of the screen. */
+  petEnter(): Promise<void>
+  /** Closes the bottom strip and shows the office window again. */
+  petLeave(): Promise<void>
+  /** Pet window: catch the mouse (over an agent or a card) or let it through to what is behind. */
+  petInteractive(on: boolean): void
+  /** Pet window: take the keyboard (the panel or a card opened). */
+  petFocus(): void
+  /** Pet window: the last measure of the floor and the Dock (null before the first one). */
+  petGeometry(): Promise<PetGeometry | null>
   onEvent(cb: (e: OfficeEvent) => void): () => void
+}
+
+/** Modo mini, in the pet window's CSS pixels (y grows down). */
+export interface PetGeometry {
+  width: number
+  height: number
+  /** Where the feet of an agent on the ground are. */
+  floor: number
+  /** The macOS Dock at the bottom, a platform they jump onto; null without one. */
+  dock: { left: number; right: number; top: number } | null
+  /** False when the Dock's width is an estimate (no Accessibility access). */
+  exact: boolean
 }

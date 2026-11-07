@@ -102,6 +102,7 @@ export class Game extends GameInput {
     this.boardsIn -= dt
     if (this.boardsIn <= 0) this.syncBoards()
     this.showFloor()
+    this.tickMeeting()
     this.updateSkull()
     this.updateRoutines(dt)
     this.effects.update(dt)

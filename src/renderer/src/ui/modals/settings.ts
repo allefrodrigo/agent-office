@@ -9,11 +9,13 @@ import { h, icon } from '../dom'
 import { portrait } from '../portrait'
 import { updateSettingsBox } from '../updates'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
+import { AUTOSTOP_MIN_RANGE, DEFAULT_MEETING_SETTINGS, LOW_MEMORY_GB, RETENTION_DAYS_RANGE } from '@shared/meetings'
+import type { MeetingSettings } from '@shared/types'
 import { cleanError, field, modal } from './common'
 import { brainFields, meterField, MODES } from './brain'
 import { brandFields } from './brand'
 
-// Configurações: player, defaults, floors, accounts, data, video and the terminal bridge.
+// Configurações: player, defaults, floors, accounts, data, video, meetings and the terminal bridge.
 
 /** `section: 'bridge'` opens scrolled to the terminal sessions box (the dock's gear does it when the bridge fails). */
 export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge'; tour?: () => void } = {}): void {
@@ -74,6 +76,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const coldAsk = check(s.coldConfirm)
   const updates = updateSettingsBox(root, s.updateChannel)
   const video = videoFields(state)
+  const meetings = meetingFields(state, toast)
 
   const b = state.bridge
   const bridgeStatus = h(
@@ -109,7 +112,8 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
           })
         : [h('div', { class: 'field-hint' }, 'Nenhum andar: o escritório fica só no térreo.')]),
     )
-    addFloor.classList.toggle('hidden', !canAddFloor(floors, 'project'))
+    addFloor.classList.toggle('hidden', !canAddFloor(floors))
+    meetings.renderFloors(floors, (i, patch) => (floors[i] = { ...floors[i], ...patch }))
   }
   addFloor.addEventListener('click', async () => {
     const p = await window.office.pickFolder()
@@ -148,6 +152,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       coldConfirm: coldAsk.checked,
       updateChannel: updates.value(),
       video: video.value(),
+      meetings: meetings.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
     close()
@@ -175,6 +180,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       meterField('Esforço padrão', brain.meter),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
       video.el,
+      meetings.el,
       h(
         'div',
         { class: 'bridge-box' },
@@ -347,6 +353,115 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
     ...(now.length ? [h('div', { class: 'field-hint' }, now.join(' '))] : []),
   )
   return { el, value }
+}
+
+type MeetingFields = Omit<MeetingSettings, 'templates' | 'recipes'>
+
+/**
+ * Configurações → Reuniões (RN-13), in the mold of Vídeo. The model list comes from main (file
+ * names only); the per-floor transcript switch edits the floors being saved with the form.
+ */
+function meetingFields(
+  state: State,
+  toast: (t: string, k?: 'info' | 'ok' | 'err') => void,
+): { el: HTMLElement; value: () => MeetingFields; renderFloors: (floors: ProjectFloor[], set: (i: number, patch: Partial<ProjectFloor>) => void) => void } {
+  const m: MeetingSettings = { ...DEFAULT_MEETING_SETTINGS, ...state.settings.meetings }
+  const select = (options: [string, string][], current: string) => {
+    const el = h('select', { class: 'input' }, ...options.map(([value, label]) => h('option', { value }, label))) as HTMLSelectElement
+    el.value = current
+    return el
+  }
+  const toggle = (on: boolean) => {
+    const c = h('input', { type: 'checkbox' }) as HTMLInputElement
+    c.checked = on
+    return c
+  }
+  const number = (value: number, range: { min: number; max: number }, step: number) =>
+    h('input', { class: 'input', type: 'number', min: range.min, max: range.max, step, value }) as HTMLInputElement
+
+  const lang = select([['pt', 'Português'], ['en', 'Inglês'], ['auto', 'Detectar sozinho']], m.lang)
+  const model = h('select', { class: 'input' }) as HTMLSelectElement
+  const modelHint = h('span', { class: 'field-hint' }, 'Procurando os modelos instalados…')
+  const sources = select([['mic+system', 'Microfone + áudio do computador'], ['mic', 'Só o microfone']], m.defaultSources)
+  const ataModel = select([['sonnet', 'Sonnet (padrão)'], ['opus', 'Opus (mais caprichado, mais caro)']], m.ataModel)
+  const autoStop = number(m.autoStopMin, AUTOSTOP_MIN_RANGE, 5)
+  const retention = number(m.retentionDays, RETENTION_DAYS_RANGE, 30)
+  const autoAta = toggle(m.autoAta)
+  const dnd = toggle(m.doNotDisturb)
+  const keepAudio = toggle(m.keepAudio)
+  const readAtas = toggle(m.agentsReadAtas)
+
+  // '' = the best one found; a saved model that is gone stays listed so saving does not drop it.
+  const fillModels = (found: string[]) => {
+    const names = m.whisperModel && !found.includes(m.whisperModel) ? [...found, m.whisperModel] : found
+    model.replaceChildren(
+      h('option', { value: '' }, found.length ? `O melhor achado (${found[0]})` : 'O melhor achado'),
+      ...names.map((n) => h('option', { value: n }, found.includes(n) ? n : `${n} (não achado)`)),
+    )
+    model.value = m.whisperModel
+  }
+  fillModels([])
+  window.office
+    .meetingWhisperModels()
+    .then(({ models, totalMemGb }) => {
+      fillModels(models)
+      const lines = [
+        models.length
+          ? `${models.length === 1 ? '1 modelo achado' : `${models.length} modelos achados`}. Para instalar outro, baixe o ggml-<nome>.bin para ~/.cache/whisper.`
+          : 'Nenhum modelo achado. Baixe o ggml-small.bin para ~/.cache/whisper (huggingface.co/ggerganov/whisper.cpp).',
+      ]
+      if (totalMemGb > 0 && totalMemGb <= LOW_MEMORY_GB) lines.push(`Este computador tem ${totalMemGb} GB de memória: prefira o modelo base (ggml-base.bin).`)
+      modelHint.textContent = lines.join(' ')
+    })
+    .catch((err) => {
+      modelHint.textContent = 'Não consegui listar os modelos do whisper.'
+      toast(cleanError(err), 'err')
+    })
+
+  const floorBox = h('div', { class: 'meeting-floors' })
+  const renderFloors = (floors: ProjectFloor[], set: (i: number, patch: Partial<ProjectFloor>) => void) => {
+    floorBox.replaceChildren(
+      ...floors.map((p, i) => {
+        const c = toggle(p.meetingsTranscripts === true)
+        c.addEventListener('change', () => set(i, { meetingsTranscripts: c.checked }))
+        return h('label', { class: 'check' }, c, `${p.name.trim() || floorNameFor(p.cwd)}: agentes podem ler as transcrições`)
+      }),
+    )
+  }
+
+  const int = (input: HTMLInputElement, range: { min: number; max: number }, fallback: number) => {
+    const n = numberField(input.value)
+    return n === undefined ? fallback : Math.min(range.max, Math.max(range.min, Math.round(n)))
+  }
+  const value = (): MeetingFields => ({
+    lang: lang.value as MeetingSettings['lang'],
+    whisperModel: model.value,
+    defaultSources: sources.value as MeetingSettings['defaultSources'],
+    autoAta: autoAta.checked,
+    ataModel: ataModel.value as MeetingSettings['ataModel'],
+    doNotDisturb: dnd.checked,
+    autoStopMin: int(autoStop, AUTOSTOP_MIN_RANGE, m.autoStopMin),
+    keepAudio: keepAudio.checked,
+    retentionDays: int(retention, RETENTION_DAYS_RANGE, m.retentionDays),
+    agentsReadAtas: readAtas.checked,
+  })
+
+  const el = h(
+    'div',
+    { class: 'bridge-box' },
+    h('div', { class: 'bridge-title' }, icon('mic', 16), 'Reuniões'),
+    h('div', { class: 'field-hint' }, 'A transcrição roda no seu computador com o whisper. Só o texto (notas, transcrição e ata) vai para o Claude, quando você gera a ata ou pergunta.'),
+    h('div', { class: 'field-row' }, field('Idioma das reuniões', lang), field('Fontes padrão', sources)),
+    field('Modelo do whisper', model, modelHint),
+    h('div', { class: 'field-row' }, field('Modelo do Claude para a ata', ataModel), field('Encerrar sozinho após (minutos sem fala)', autoStop, `De ${AUTOSTOP_MIN_RANGE.min} a ${AUTOSTOP_MIN_RANGE.max}.`)),
+    field('Apagar reuniões com mais de (dias)', retention, '0 = nunca apagar.'),
+    h('label', { class: 'check' }, autoAta, 'Gerar a ata ao encerrar'),
+    h('label', { class: 'check' }, dnd, 'Não perturbe durante a reunião: pedidos e entregas vão para a caixa de entrada'),
+    h('label', { class: 'check' }, keepAudio, 'Guardar o áudio depois de transcrever'),
+    h('label', { class: 'check' }, readAtas, 'Agentes podem ler as atas'),
+    floorBox,
+  )
+  return { el, value, renderFloors }
 }
 
 /** A number typed in a settings field, or undefined when the field is empty or not a number. */

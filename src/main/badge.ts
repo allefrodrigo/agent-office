@@ -31,6 +31,8 @@ const GLYPHS: Record<string, string[]> = {
   '8': ['###', '#.#', '###', '#.#', '###'],
   '9': ['###', '#.#', '###', '..#', '##.'],
   '+': ['...', '.#.', '###', '.#.', '...'],
+  // reunião gravando sem pendências (RN-08): um ponto branco no disco
+  '●': ['...', '###', '###', '###', '...'],
 }
 
 const FILL = [0xe5, 0x48, 0x4d] as const
@@ -89,6 +91,30 @@ export function badgePixels(label: string, size: 16 | 32): Uint8Array {
       })
     })
   })
+  return px
+}
+
+/**
+ * RGBA pixels of a small soft-edged disc centred in a size×size square (the meeting's menu bar
+ * icon, RN-08). The disc takes `ratio` of the side, leaving the margin macOS expects around tray icons.
+ */
+export function dotPixels(size: number, rgb: readonly [number, number, number], ratio = 0.6): Uint8Array {
+  const px = new Uint8Array(size * size * 4)
+  const c = size / 2
+  const r = (size * ratio) / 2
+  const SS = 4
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      let inside = 0
+      for (let sy = 0; sy < SS; sy++) {
+        for (let sx = 0; sx < SS; sx++) {
+          if (Math.hypot(x + (sx + 0.5) / SS - c, y + (sy + 0.5) / SS - c) <= r) inside++
+        }
+      }
+      if (!inside) continue
+      px.set([rgb[0], rgb[1], rgb[2], Math.round((inside / (SS * SS)) * 255)], (y * size + x) * 4)
+    }
+  }
   return px
 }
 

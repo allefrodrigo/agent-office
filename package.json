@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.3.8-beta.2",
+  "version": "0.3.9",
   "private": true,
   "description": "Escritório isométrico onde agentes do Claude Code trabalham, pedem permissão e entregam resultados.",
   "main": "./out/main/index.js",
@@ -19,7 +19,8 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc -p tsconfig.test.json",
-    "dist:mac": "electron-vite build && node scripts/dist-mac.mjs",
+    "dist:mac": "electron-vite build && node scripts/build-system-audio.mjs && node scripts/dist-mac.mjs",
+    "native": "node scripts/build-system-audio.mjs",
     "dist:win": "electron-vite build && electron-builder --win",
     "dist:linux": "electron-vite build && electron-builder --linux",
     "demo": "node scripts/demo.mjs",
@@ -33,7 +34,9 @@
     "contrast": "node scripts/contrast.mjs",
     "pixel": "node scripts/pixel-assets.mjs",
     "pixel:gerar": "node scripts/pixel-gen.mjs",
-    "format": "prettier --write"
+    "format": "prettier --write",
+    "pet": "node scripts/pet-art.mjs processar",
+    "pet:gerar": "node scripts/pet-art.mjs gerar"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.292",

@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import type { AgentSummary } from '@shared/types'
+import type { MeetingLive } from '../meetings/live'
 import type { State } from '../state'
 import { Avatar, type Uniform } from '../world/avatar'
 import { Engine } from '../world/engine'
@@ -28,6 +29,8 @@ export abstract class GameBase {
   /** Project floors, 1º andar first. */
   protected uppers: Upper[] = []
   protected uppersKey = ''
+  /** Codex is ready: the floors have their Estúdio criativo room. */
+  protected studios = false
   protected members = new Map<string, Member>()
   protected pcTag: Tag
   /** Over the ground floor alarm. */
@@ -38,6 +41,15 @@ export abstract class GameBase {
   protected routinesTag: Tag
   /** Over the copa's espresso machine: the café corner. */
   protected coffeeTag: Tag
+  /** "🎙 Sala de reunião" over the ground floor's meeting room. */
+  protected meetingTag: Tag
+  /** The meeting recording now (RN-17), or null. */
+  protected meeting: MeetingLive | null = null
+  /**
+   * The player is at (or on the way to) a meeting room seat: the meeting's floor id, the seat,
+   * and where to go back to when it ends.
+   */
+  protected playerMeeting: { floor: string; seat: { x: number; z: number }; back: { floor: number; x: number; z: number; seated: boolean } } | null = null
   /** Seconds until the boards and alarms are checked again (limits expire on their own). */
   protected boardsIn = 0
   readonly overlays: Overlays
@@ -87,6 +99,7 @@ export abstract class GameBase {
         team: [21, 5.5],
         cafe: [4.5, 23.4],
         lounge: [17.5, 23.4],
+        meeting: [28, 23.4],
       }
       const [x, zz] = pos[z.id] ?? [(z.rect[0] + z.rect[2]) / 2, (z.rect[1] + z.rect[3]) / 2]
       this.overlays.label(z.label, x, zz)
@@ -138,6 +151,7 @@ export abstract class GameBase {
     this.coffeeTag = this.overlays.add(new Tag(this.office.coffee.anchor, 'Café', false, () => hooks.onCoffee()))
     this.coffeeTag.el.classList.add('tag-coffee')
     this.coffeeTag.setDot('coffee-off')
+    this.meetingTag = this.meetingTagFor(this.office.meetingAnchor, 'terreo')
   }
 
   /** Orchestrators of a floor by Diretoria desk. */
@@ -233,6 +247,14 @@ export abstract class GameBase {
     return tag
   }
 
+  /** "🎙 Sala de reunião" over a meeting room's door; a click opens that floor's room. */
+  protected meetingTagFor(anchor: THREE.Object3D, floor: string): Tag {
+    const tag = this.overlays.add(new Tag(anchor, '🎙 Sala de reunião', false, () => this.hooks.onMeeting(floor)))
+    tag.el.classList.add('tag-meeting')
+    tag.setDot('term')
+    return tag
+  }
+
   /** Its dot is the board's LED, its balloon the next routine in words. */
   protected routinesTagFor(board: { anchor: THREE.Object3D }): Tag {
     const tag = this.overlays.add(new Tag(board.anchor, 'Rotinas', false, () => this.hooks.onRoutines()))
@@ -253,5 +275,6 @@ export abstract class GameBase {
   protected abstract goHang(actor: Actor, instant: boolean): void
   protected abstract bubble(actor: Actor, a: AgentSummary): void
   protected abstract memberGone(m: Member): void
+  protected abstract syncMeetingRooms(): void
   abstract focusAgent(agentId: string): void
 }

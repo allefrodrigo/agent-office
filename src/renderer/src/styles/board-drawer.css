@@ -333,3 +333,9 @@
   flex: 1 1 150px;
   width: auto;
 }
+
+.tcomment-send {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}

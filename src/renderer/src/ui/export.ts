@@ -33,11 +33,11 @@ export async function copyReport(state: State, agentId: string, toast: Toast): P
   }
 }
 
-/** Salva um Markdown já pronto (relatório por projeto). */
-export async function saveMarkdown(fileName: string, md: string, toast: Toast): Promise<void> {
+/** Salva um Markdown já pronto (relatório por projeto, ata da reunião). `what` abre o aviso: "Ata salva em…". */
+export async function saveMarkdown(fileName: string, md: string, toast: Toast, what = 'Relatório salvo'): Promise<void> {
   try {
     const path = await window.office.saveMarkdown(fileName, md)
-    if (path) toast(`Relatório salvo em ${path}`, 'ok')
+    if (path) toast(`${what} em ${path}`, 'ok')
   } catch (err) {
     toast(cleanError(err), 'err')
   }

@@ -3,6 +3,7 @@ import { accountPool } from '@shared/accounts'
 import type { State } from '../state'
 import { asDialog, FocusReturn, isTyping, labelDialog } from './a11y'
 import { formatCost, formatDuration, h, icon } from './dom'
+import { MicButton } from './voice'
 import { renderMarkdown } from './markdown'
 import { cleanError } from './modals/common'
 import { sendChecked } from './panel/economy'
@@ -599,7 +600,7 @@ export class Dialog {
         ),
         textEl,
         office
-          ? h('div', { class: 'reader-compose' }, input, sendBtn)
+          ? h('div', { class: 'reader-compose' }, input, new MicButton(input).el, sendBtn)
           : h('div', { class: 'reader-compose reader-compose-off' }, 'Sessão do terminal: responda por lá.'),
         h(
           'div',

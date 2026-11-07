@@ -91,6 +91,7 @@
     "chao/chao-lounge": { "w": 64, "h": 64, "tiles": [2, 2], "prio": 1, "label": "piso de madeira clara do lounge (textura contínua)" },
     "chao/chao-copa": { "w": 64, "h": 64, "tiles": [2, 2], "prio": 1, "label": "piso de ladrilho xadrez creme e terracota da copa (textura contínua)" },
     "chao/chao-deck": { "w": 64, "h": 64, "tiles": [2, 2], "prio": 2, "label": "deck de madeira de terraço, tábuas na horizontal (textura contínua)" },
+    "chao/chao-reuniao": { "w": 64, "h": 64, "tiles": [2, 2], "prio": 2, "label": "carpete verde-petróleo acinzentado da sala de reunião, placas quadradas com trama discreta (textura contínua)" },
     "chao/parede-fundo": { "w": 64, "h": 88, "tiles": [2, 0], "prio": 1, "label": "faixa da parede do fundo vista de frente: lilás claro em cima, lambri lilás mais escuro embaixo e rodapé roxo (contínua na horizontal)" }
   }
 }

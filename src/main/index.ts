@@ -1,12 +1,13 @@
-import { app, BrowserWindow, dialog, nativeImage, Notification, powerMonitor, session, type NativeImage } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, Notification, powerMonitor, session, type NativeImage } from 'electron'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { permissionNotice, realPathOf } from '@shared/permission-notice'
 import type { Actor, AgentBrain, OfficeEvent, PermissionRequest } from '@shared/types'
 import { Accounts } from './accounts'
 import { AgentManager } from './agents'
-import { badgeDescription, badgeLabel, badgePixels, encodePng } from './badge'
+import { badgePixels, encodePng } from './badge'
+import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
 import { prepareStress, startDemo, startRoutineDemo, startStress } from './demo'
@@ -18,6 +19,7 @@ import { dropInheritedClaudeEnv, loadShellPath, stressDataDirError } from './env
 import { isDir, loadSquads, squadInfo } from './squads'
 import { MacJobs } from './mac-jobs'
 import { RoutineScheduler, RoutineStore } from './routines'
+import { MeetingStore } from './meetings/store'
 import { Store } from './store'
 import { SystemMonitor } from './system'
 import { StatsReader } from './stats'
@@ -25,9 +27,11 @@ import { UsageMonitor } from './usage'
 import { TicketBoard } from './tickets'
 import { pruneWorktrees } from './git'
 import { Caffeine } from './caffeine'
-import { QuitFlow } from './quit'
+import { QuitFlow, runQuitHooks } from './quit'
 import { Updater } from './updater'
-import { captureShots, forceCrash, runBench, seedAgents } from './dev-hooks'
+import { captureShots, forceCrash, registerMeetingWavHook, runBench, seedAgents } from './dev-hooks'
+import { installMediaPermissions } from './meetings/capture'
+import { meetingLive, onMeetingLiveChange } from './meetings/tray'
 import type { IpcContext } from './ipc/context'
 import { registerAccountsIpc } from './ipc/accounts'
 import { registerAgentsIpc } from './ipc/agents'
@@ -44,15 +48,22 @@ import { registerWorktreesIpc } from './ipc/worktrees'
 import { registerCreativeIpc } from './ipc/creative'
 import { registerVoiceIpc } from './ipc/voice'
 import { registerCreativeLibraryIpc } from './ipc/creative-library'
+import { registerMeetingsIpc } from './ipc/meetings'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
+import { stopAllWhisper } from './meetings/whisper'
+import { PetMode } from './pet'
 
 const here = fileURLToPath(new URL('.', import.meta.url))
 let win: BrowserWindow | null = null
+/** Modo mini: the agents on the bottom of the screen; set once the app is ready. */
+let pet: PetMode | null = null
+/** Where dialogs and cards go: the pet window while it is on (the office window is hidden then). */
+const front = (): BrowserWindow | null => pet?.window ?? win
 
 /** Set once the app is ready: closing the last window on Windows asks first, like ⌘Q. */
 let quitFlow: QuitFlow | null = null
 
-function createWindow(): BrowserWindow {
+function createWindow(hidden = false): BrowserWindow {
   // Screenshot and bench runs (dev only) render in a hidden window so they never steal focus.
   const headless = !!process.env.AGENT_OFFICE_SHOTS || !!process.env.AGENT_OFFICE_BENCH
   const w = new BrowserWindow({
@@ -75,7 +86,7 @@ function createWindow(): BrowserWindow {
     },
     paintWhenInitiallyHidden: true,
   })
-  if (!headless) w.once('ready-to-show', () => w.show())
+  if (!headless && !hidden) w.once('ready-to-show', () => w.show())
   // Windows: stop blinking the taskbar button once the user looks at the office.
   if (process.platform === 'win32') w.on('focus', () => w.flashFrame(false))
   // Off macOS closing the window quits the app: with agents working, ask first.
@@ -87,6 +98,11 @@ function createWindow(): BrowserWindow {
   guardWindow(w, loadPage)
   loadPage(w)
   return w
+}
+
+/** The page the window shows: the dev server, or index.html in the bundle. Only it gets the microphone. */
+function appPageUrl(): string {
+  return process.env.ELECTRON_RENDERER_URL || pathToFileURL(join(here, '../renderer/index.html')).href
 }
 
 function loadPage(w: BrowserWindow): void {
@@ -123,6 +139,13 @@ function dropNotice(itemId: string): void {
 
 /** Window forward and the card of the item open right away, without waiting for the walk. */
 function openFromNotice(target: NoticeTarget): void {
+  // Modo mini: the card opens over the agent on the bottom of the screen.
+  const strip = pet?.window
+  if (strip) {
+    pet!.focus()
+    strip.webContents.send('office:event', { type: 'notice:open', ...target } satisfies OfficeEvent)
+    return
+  }
   if (!win || win.isDestroyed()) {
     // Window closed (macOS): it opens again and the card comes when the agent arrives.
     win = createWindow()
@@ -141,7 +164,7 @@ function canNotify(store: Store): boolean {
 function notify(store: Store, title: string, body: string, target?: NoticeTarget): void {
   if (!canNotify(store)) return
   const n = new Notification({ title, body, silent: false })
-  n.on('click', () => (target ? openFromNotice(target) : (win?.show(), win?.focus())))
+  n.on('click', () => (target ? openFromNotice(target) : pet?.on ? pet.focus() : (win?.show(), win?.focus())))
   if (target) keepNotice(target.itemId, n)
   n.show()
 }
@@ -208,6 +231,8 @@ installFatalHandlers()
 log.info(`Agent Office ${app.getVersion()} iniciando (${process.platform} ${process.arch}, Electron ${process.versions.electron})`)
 
 app.whenReady().then(async () => {
+  // Before any page loads: microphone only for our own page, everything else denied (sala de reunião).
+  installMediaPermissions(session.defaultSession, appPageUrl())
   await loadShellPath()
   const store = new Store()
   const manager = new AgentManager(store)
@@ -215,13 +240,17 @@ app.whenReady().then(async () => {
   manager.book = book
   const board = new TicketBoard(app.getPath('userData'))
   const routineStore = new RoutineStore(app.getPath('userData'))
+  const meetingStore = new MeetingStore(app.getPath('userData'))
+  // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
+  meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
   onFatalFlush(() => {
     store.flush()
     board.flush()
     routineStore.flush()
+    meetingStore.flush()
   })
-  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects)
+  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore)
   const desk = new TicketDesk(board, manager, () => store.settings)
   // Old tickets in "Feito" close by themselves: now, then every hour.
   board.autoClose(store.settings.ticketAutoCloseDays)
@@ -232,6 +261,8 @@ app.whenReady().then(async () => {
   const broadcast = (e: OfficeEvent) => {
     // A crashed page reloads by itself and gets the state again; sending now only makes noise (AO-27).
     if (win && !win.isDestroyed() && !win.webContents.isCrashed()) win.webContents.send('office:event', e)
+    const strip = pet?.window
+    if (strip && !strip.webContents.isCrashed()) strip.webContents.send('office:event', e)
   }
 
   // Windows has no app badge: the taskbar shows an overlay icon instead.
@@ -242,18 +273,22 @@ app.whenReady().then(async () => {
     if (!img) {
       img = nativeImage.createFromBuffer(encodePng(16, 16, badgePixels(label, 16)))
       img.addRepresentation({ scaleFactor: 2, buffer: encodePng(32, 32, badgePixels(label, 32)) })
-      overlays.set(label, img) // at most 10 labels: 1…9 and 9+
+      overlays.set(label, img) // at most 11 labels: 1…9, 9+ and ● (meeting recording)
     }
     return img
   }
 
+  // RN-08: a meeting recording adds a red dot — '● 3' on the Dock, the dot on the taskbar overlay.
   const updateBadge = () => {
     const count = manager.pendingRequests().length + manager.pendingResults().length
-    if (process.platform === 'darwin') app.dock?.setBadge(count ? String(count) : '')
+    const recording = meetingLive()
+    if (process.platform === 'darwin') app.dock?.setBadge(dockBadge(count, recording))
     else if (process.platform === 'win32') {
-      if (win && !win.isDestroyed()) win.setOverlayIcon(count > 0 ? overlayFor(badgeLabel(count)) : null, badgeDescription(count))
+      const overlay = taskbarOverlay(count, recording)
+      if (win && !win.isDestroyed()) win.setOverlayIcon(overlay ? overlayFor(overlay.label) : null, overlay?.description ?? '')
     } else app.setBadgeCount(count)
   }
+  onMeetingLiveChange(updateBadge)
 
   // Windows: blink the taskbar button when something new waits for the user and the
   // window is not focused (macOS keeps its Dock bounce).
@@ -386,6 +421,7 @@ app.whenReady().then(async () => {
       store.flush()
       board.flush()
       routineStore.flush()
+      meetingStore.flush()
     },
     broadcast,
   })
@@ -403,7 +439,7 @@ app.whenReady().then(async () => {
   })
   caffeine.start()
   const quit = new QuitFlow({
-    win: () => win,
+    win: front,
     working: () => busyAgents().filter((a) => a.source === 'office'),
     pending: () => manager.pendingRequests().length,
     interrupt: (id) => manager.interrupt(id),
@@ -419,11 +455,12 @@ app.whenReady().then(async () => {
     store.flush()
     board.flush()
     routineStore.flush()
+    meetingStore.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
     dataDir: app.getPath('userData'),
-    win: () => win,
+    win: front,
     broadcast,
     flush: flushAll,
     stopAll: () => stopAll(),
@@ -432,6 +469,7 @@ app.whenReady().then(async () => {
       store.lock()
       board.lock()
       routineStore.lock()
+      meetingStore.lock()
     },
   })
 
@@ -441,13 +479,14 @@ app.whenReady().then(async () => {
   // ---------- IPC ----------
   // One file per area in ipc/; every argument from the renderer passes through validate.ts first.
   const ipc: IpcContext = {
-    win: () => win,
+    win: front,
     store,
     manager,
     board,
     book,
     desk,
     routines,
+    meetings: meetingStore,
     macJobs,
     caffeine,
     quit,
@@ -479,7 +518,10 @@ app.whenReady().then(async () => {
   registerBackstageIpc(ipc)
   registerCreativeIpc(ipc)
   registerCreativeLibraryIpc(ipc)
+  registerMeetingsIpc(ipc)
   registerVoiceIpc()
+  // Dev only: AGENT_OFFICE_MEETING_WAV feeds the meeting capture from a WAV instead of the mic.
+  registerMeetingWavHook(app.isPackaged ? undefined : process.env.AGENT_OFFICE_MEETING_WAV)
   handleMediaScheme()
 
   // YouTube refuses embeds without a web Referer (error 153), and file:// sends none.
@@ -488,10 +530,33 @@ app.whenReady().then(async () => {
   })
 
   if (process.platform === 'darwin' && !app.isPackaged) app.dock?.setIcon(join(here, '../../resources/icon.png'))
+  // Modo mini: its own transparent window; the office window waits hidden.
+  const strip = new PetMode({
+    dataDir: app.getPath('userData'),
+    preload: join(here, '../preload/index.cjs'),
+    load: (w) => {
+      if (process.env.ELECTRON_RENDERER_URL) void w.loadURL(`${process.env.ELECTRON_RENDERER_URL}/pet.html`)
+      else void w.loadFile(join(here, '../renderer/pet.html'))
+    },
+    office: () => (win && !win.isDestroyed() ? win : null),
+    reopenOffice: () => (win = createWindow()),
+  })
+  pet = strip
+  ipcMain.handle('office:petEnter', () => strip.enter())
+  ipcMain.handle('office:petLeave', () => void strip.leave())
+  ipcMain.handle('office:petGeometry', () => strip.current())
+  ipcMain.on('office:petInteractive', (e, on: unknown) => {
+    if (e.sender === strip.window?.webContents) strip.setInteractive(on === true)
+  })
+  ipcMain.on('office:petFocus', (e) => {
+    if (e.sender === strip.window?.webContents) strip.focus()
+  })
   // Stress floors go in before the window asks for the state.
   const stress = process.env.AGENT_OFFICE_DEMO === 'stress' && prepareStress(store)
   if (stress) squads = readSquads()
-  win = createWindow()
+  const startCompact = strip.remembered && !process.env.AGENT_OFFICE_SHOTS && !process.env.AGENT_OFFICE_BENCH
+  win = createWindow(startCompact)
+  if (startCompact) strip.enter()
   // Results restored from office.json show in the taskbar overlay right away.
   if (process.platform === 'win32') win.once('ready-to-show', updateBadge)
   // Back from logging in on the terminal: check the logins again.
@@ -515,10 +580,14 @@ app.whenReady().then(async () => {
   if (process.env.AGENT_OFFICE_CRASH && !app.isPackaged) forceCrash(win, process.env.AGENT_OFFICE_CRASH)
 
   app.on('activate', () => {
+    // The Dock icon in the modo mini brings the whole office back.
+    if (strip.on) return void strip.leave()
     if (BrowserWindow.getAllWindows().length === 0) win = createWindow()
   })
   const stopAll = () => {
     log.info('Saindo')
+    // Child processes registered with onQuit (the meeting room's audio helper).
+    runQuitHooks()
     caffeine.stop()
     updater.stop()
     bridge.stop()
@@ -530,9 +599,11 @@ app.whenReady().then(async () => {
     book.stop()
     routines.stop()
     macJobs.stop()
+    void stopAllWhisper()
     store.flush()
     board.flush()
     routineStore.flush()
+    meetingStore.flush()
   }
   app.on('before-quit', (e) => {
     // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.

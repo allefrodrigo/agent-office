@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { autoStop, bandEdges, NO_SPEECH_MS, parseWhisper, SILENCE_STOP_MS } from '../src/shared/voice'
+import { autoStop, bandEdges, insertDictation, NO_SPEECH_MS, parseWhisper, SILENCE_STOP_MS } from '../src/shared/voice'
 
 const LOG = 'whisper_init_from_file_with_params_no_state: loading model\nwhisper_full_with_state: auto-detected language: pt (p = 0.989128)\nwhisper_print_timings:    total time =   532.68 ms\n'
 
@@ -48,5 +48,20 @@ describe('bandEdges', () => {
   it('com bins largos, as faixas graves não se sobrepõem', () => {
     const e = bandEdges(48_000, 256, 12)
     expect(new Set(e).size).toBe(e.length)
+  })
+})
+
+describe('insertDictation', () => {
+  it('caixa vazia: só o texto, cursor no fim', () => {
+    expect(insertDictation('', 0, 0, ' Roda os testes. ')).toEqual({ value: 'Roda os testes.', caret: 15 })
+  })
+  it('depois de uma palavra, põe um espaço antes', () => {
+    expect(insertDictation('Oi', 2, 2, 'tudo bem')).toEqual({ value: 'Oi tudo bem', caret: 11 })
+  })
+  it('no meio do texto, separa dos dois lados', () => {
+    expect(insertDictation('abrefecha', 4, 4, 'e')).toEqual({ value: 'abre e fecha', caret: 7 })
+  })
+  it('troca a seleção e não gruda antes da pontuação', () => {
+    expect(insertDictation('Faça X.', 5, 6, 'o deploy')).toEqual({ value: 'Faça o deploy.', caret: 13 })
   })
 })

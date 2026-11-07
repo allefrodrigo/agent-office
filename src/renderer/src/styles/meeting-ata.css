@@ -1,0 +1,558 @@
+/*
+ * Sala de reunião: a ata (RN-12), os itens de ação (RN-18) e a conversa (RN-19, RN-21). Os
+ * fundos são opacos: o contraste não depende do dia ou da noite do escritório atrás da tela.
+ * Seu texto em destaque, o da IA em cinza; os dois passam AA (node scripts/contrast.mjs).
+ */
+
+/* As janelas da sala abrem por cima da tela da sala. */
+.backdrop-meeting {
+  z-index: 90;
+}
+
+.mt-ata,
+.mt-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: 14px 16px;
+  border-radius: 12px;
+  user-select: text;
+}
+
+.mt-ata {
+  background: #1d1e30;
+  color: var(--text);
+}
+
+.mt-chat {
+  background: #1d1e30;
+  color: var(--text);
+  overflow: hidden;
+}
+
+.mt-ata-head,
+.mt-chat-head,
+.mt-actions-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.mt-ata-title,
+.mt-chat-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.mt-template-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.mt-template {
+  height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 12px;
+  width: auto;
+}
+
+.mt-ata-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(91, 156, 240, 0.12);
+  color: #b9d4ff;
+  font-size: 12.5px;
+}
+
+.mt-spin {
+  width: 12px;
+  height: 12px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.mt-ata-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(245, 165, 36, 0.12);
+  color: var(--amber-text);
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.mt-ata-warn .icon {
+  flex: none;
+  margin-top: 1px;
+}
+
+.mt-ata-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.mt-ata-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ---------- blocos: a origem pela cor e pela borda ---------- */
+
+.mt-block {
+  margin: 0;
+  padding: 3px 0 3px 10px;
+  border-left: 2px solid transparent;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.mt-block-user {
+  color: #f4f3fb;
+  border-left-color: var(--accent);
+}
+
+.mt-block-ai {
+  color: #a9a7c2;
+  border-left-color: rgba(255, 255, 255, 0.14);
+  border-left-style: dashed;
+}
+
+.mt-kind-heading {
+  margin-top: 10px;
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.mt-kind-bullet .mt-block-text::before {
+  content: '•';
+  margin-right: 6px;
+}
+
+.mt-kind-bullet .mt-block-text .md,
+.mt-kind-bullet .mt-block-text .md > p {
+  display: inline;
+}
+
+.mt-block-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.mt-block-text {
+  flex: 1;
+  min-width: 0;
+  border-radius: 6px;
+  padding: 1px 4px;
+  margin-left: -4px;
+}
+
+.mt-block-text[role='button'] {
+  cursor: text;
+}
+
+.mt-block-text[role='button']:hover,
+.mt-block-text[role='button']:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+  outline: none;
+}
+
+.mt-block-edit {
+  width: 100%;
+  font-size: 13.5px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.mt-cite {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+}
+
+.mt-ata-retry {
+  display: flex;
+}
+
+.mt-ata-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 11.5px;
+}
+
+.mt-legend-user {
+  color: #f4f3fb;
+}
+
+.mt-legend-ai {
+  color: #a9a7c2;
+}
+
+/* ---------- itens de ação ---------- */
+
+.mt-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mt-actions-title {
+  flex: 1;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+.mt-action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mt-action {
+  display: flex;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border-left-width: 2px;
+  border-left-style: solid;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mt-action.mt-block-ai {
+  border-left-style: dashed;
+}
+
+.mt-action-box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 3px;
+  border: 1.5px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--green);
+}
+
+.mt-action-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mt-action-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.mt-action-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mt-action-btns {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.mt-ticket-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(62, 207, 142, 0.12);
+  color: var(--green-text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+/* ---------- prévias (Criar ticket, Criar todos) ---------- */
+
+.mt-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.mt-quote {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 12.5px;
+}
+
+.mt-quote-label {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.mt-all-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mt-all-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mt-all-row > input[type='checkbox'] {
+  margin-top: 10px;
+}
+
+.mt-all-row.off .mt-all-main {
+  opacity: 0.55;
+}
+
+.mt-all-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.mt-all-status {
+  font-size: 11.5px;
+  color: var(--green-text);
+}
+
+.mt-all-status:empty {
+  display: none;
+}
+
+.mt-all-status.err {
+  color: var(--red-text);
+}
+
+/* ---------- conversa ---------- */
+
+.mt-scope {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.mt-scope-btn {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mt-scope-btn[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.mt-chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.mt-chat-empty {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.mt-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 92%;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.mt-msg-user {
+  align-self: flex-end;
+  padding: 6px 10px;
+  border-radius: 10px;
+  background: #2c2e48;
+  color: var(--text);
+}
+
+.mt-msg-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.mt-msg-assistant {
+  align-self: flex-start;
+  color: var(--text);
+}
+
+.mt-msg-wait {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.mt-msg-scope {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.mt-cite-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin: 0 2px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(91, 156, 240, 0.14);
+  color: #b9d4ff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+
+.mt-cite-link:hover,
+.mt-cite-link:focus-visible {
+  background: rgba(91, 156, 240, 0.26);
+  outline: none;
+}
+
+.mt-chat-new {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.mt-chat-input {
+  flex: 1;
+  resize: none;
+  font-size: 13px;
+}
+
+.mt-recipes {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--card-solid);
+  box-shadow: var(--shadow);
+}
+
+.mt-recipe {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.mt-recipe.on,
+.mt-recipe:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.mt-recipe span {
+  color: var(--muted);
+}
+
+/* ---------- link da reunião no quadro (RN-18) ---------- */
+
+.tmeeting-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: rgba(91, 156, 240, 0.14);
+  color: #b9d4ff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tmeeting-link:hover,
+.tmeeting-link:focus-visible {
+  background: rgba(91, 156, 240, 0.26);
+  outline: none;
+}
+
+.tmeeting-link[disabled] {
+  background: transparent;
+  color: var(--muted);
+  text-decoration: line-through;
+  cursor: default;
+}

@@ -1,14 +1,38 @@
 import type { ProjectFloor } from './types'
 
-/** Project floors are capped so the elevator panel stays short. */
-export const MAX_PROJECT_FLOORS = 6
-/** Creative floors (Estúdio criativo) count apart: a full building still gets its studio. */
-export const MAX_CREATIVE_FLOORS = 2
+/** A sanity cap, not a design limit: every floor builds its own scene. */
+export const MAX_FLOORS = 60
 
-/** Room left for another floor of this kind. */
-export function canAddFloor(projects: ProjectFloor[], kind: 'project' | 'creative'): boolean {
-  const n = projects.filter((p) => (p.kind === 'creative') === (kind === 'creative')).length
-  return n < (kind === 'creative' ? MAX_CREATIVE_FLOORS : MAX_PROJECT_FLOORS)
+/** Room left for another floor. */
+export function canAddFloor(projects: ProjectFloor[]): boolean {
+  return projects.length < MAX_FLOORS
+}
+
+/** Folder where a floor's Estúdio criativo keeps flows, references and outputs: `<projeto>/social-media` unless set. */
+export function studioRoot(floor: Pick<ProjectFloor, 'cwd' | 'studioDir'>): string {
+  return floor.studioDir || `${floor.cwd.replace(/[\\/]+$/, '')}/social-media`
+}
+
+/**
+ * Up to 0.3.8-beta.2 the studio was a floor of its own (kind 'creative'), usually the
+ * `social-media` folder of a project that had its floor too. Now every floor has its studio:
+ * a creative floor inside a project's folder becomes that project's studio folder; one outside
+ * every project becomes a plain floor that keeps its folder as the studio.
+ */
+export function mergeCreativeFloors(projects: ProjectFloor[]): ProjectFloor[] {
+  const plain = projects.filter((p) => p.kind !== 'creative')
+  const out = plain.map((p) => ({ ...p }))
+  for (const c of projects.filter((p) => p.kind === 'creative')) {
+    const parent = projectFor(plain, c.cwd)
+    const into = parent && out.find((p) => p.id === parent.id)
+    if (into) {
+      into.studioDir ??= c.cwd
+      continue
+    }
+    const { kind: _kind, ...rest } = c
+    out.push({ ...rest, studioDir: c.cwd })
+  }
+  return out
 }
 
 const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '')
