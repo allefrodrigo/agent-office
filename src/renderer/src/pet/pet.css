@@ -1,0 +1,107 @@
+/* Modo mini: a transparent strip over the desktop. Only the agents and the cards catch the mouse. */
+
+html,
+body.pet {
+  background: transparent !important;
+}
+
+body.pet #app {
+  background: transparent;
+}
+
+#pet-stage {
+  position: fixed;
+  inset: 0;
+  display: block;
+  image-rendering: pixelated;
+}
+
+body.pet {
+  /* where the floor is (from the bottom of the window) and the x of the agent whose panel is open */
+  --pet-ground: 0px;
+  --pet-anchor: 50vw;
+  --pet-lift: 150px;
+}
+
+/* the agent panel: a floating card above the agent, never past the screen's edges */
+body.pet .panel {
+  top: auto;
+  right: auto;
+  bottom: calc(var(--pet-ground) + var(--pet-lift));
+  left: clamp(12px, calc(var(--pet-anchor) - 260px), calc(100vw - 532px));
+  width: min(520px, calc(100vw - 24px));
+  height: min(640px, calc(100vh - var(--pet-ground) - var(--pet-lift) - 16px));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+  animation: pet-rise 0.18s ease-out;
+}
+
+/* permission and result cards: above the agent too */
+body.pet .dialog {
+  left: clamp(12px, calc(var(--pet-anchor) - 300px), calc(100vw - 612px));
+  bottom: calc(var(--pet-ground) + var(--pet-lift));
+  transform: none;
+  max-height: calc(100vh - var(--pet-ground) - var(--pet-lift) - 16px);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45);
+}
+
+@keyframes pet-rise {
+  from {
+    transform: translateY(12px);
+    opacity: 0;
+  }
+}
+
+body.pet .toasts {
+  left: auto;
+  right: 16px;
+  bottom: calc(var(--pet-ground) + 64px);
+  align-items: flex-end;
+}
+
+.pet-bar {
+  position: fixed;
+  right: 14px;
+  bottom: calc(var(--pet-ground) + 10px);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(20, 20, 32, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(8px);
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+
+.pet-bar:hover,
+.pet-bar:focus-within {
+  opacity: 1;
+}
+
+.pet-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #e9e9f5;
+}
+
+.pet-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pet-btn.pet-primary {
+  background: var(--accent, #d97757);
+  color: #fff;
+}
+
+.pet-btn .badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+}

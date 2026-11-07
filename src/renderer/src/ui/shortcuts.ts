@@ -12,11 +12,12 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
       'No escritório',
       [
         ['N', 'Novo agente: conversar, dar uma tarefa ou subir um squad'],
+        ['M', 'Modo mini: os agentes vão para a base da tela'],
         ['T', 'Quadro de tickets'],
         ['R', 'Relatórios'],
         ['B', 'Bastidores: o que roda em segundo plano, MCP e skills'],
         ['I', 'Caixa de entrada: pedidos e resultados esperando você'],
-        ['M', 'Sala de reunião do andar em que você está'],
+        ['G', 'Sala de reunião do andar em que você está'],
         ['L', 'Apagar ou acender as luzes (modo noturno)'],
         ['W A S D ou ← ↑ → ↓', 'Andar pelo escritório'],
         ['F3', 'Painel de desempenho (fps, draw calls, memória)'],

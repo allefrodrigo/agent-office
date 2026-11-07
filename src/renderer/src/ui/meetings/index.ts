@@ -65,7 +65,7 @@ const TOAST_WHEN_CLOSED = new Set<MeetingWarning['kind']>([
 ])
 
 /**
- * Liga a sala ao app, uma vez no boot: abre pelo evento do mapa, da tecla M e do HUD
+ * Liga a sala ao app, uma vez no boot: abre pelo evento do mapa, da tecla G e do HUD
  * (OPEN_MEETING_EVENT) e acompanha a gravação em office:event, com a sala aberta ou não.
  */
 export function mountMeetingRoom(root: HTMLElement, state: State, opts: { toast: Toast }): void {

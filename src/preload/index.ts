@@ -150,6 +150,11 @@ const api: OfficeAPI = {
   meetingSaveTemplate: ((kind: 'template' | 'recipe', item: unknown) => ipcRenderer.invoke('office:meetingSaveTemplate', { kind, item })) as OfficeAPI['meetingSaveTemplate'],
   meetingDoctor: () => ipcRenderer.invoke('office:meetingDoctor'),
   meetingAgent: (id, agentId, question) => ipcRenderer.invoke('office:meetingAgent', { id, agentId, question }),
+  petEnter: () => ipcRenderer.invoke('office:petEnter'),
+  petLeave: () => ipcRenderer.invoke('office:petLeave'),
+  petInteractive: (on) => ipcRenderer.send('office:petInteractive', on === true),
+  petFocus: () => ipcRenderer.send('office:petFocus'),
+  petGeometry: () => ipcRenderer.invoke('office:petGeometry'),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

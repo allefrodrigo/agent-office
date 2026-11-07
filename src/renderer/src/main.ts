@@ -193,7 +193,7 @@ async function boot(): Promise<void> {
     if (p && codexReady) studio(p)
   })
   // Every floor has its Sala de reunião: "Reunião" (or M) opens the one of the floor on screen.
-  const meetingLaunch = h('button', { class: 'studio-launch meeting-launch' }, icon('mic', 16), 'Reunião', h('small', {}, 'M'))
+  const meetingLaunch = h('button', { class: 'studio-launch meeting-launch' }, icon('mic', 16), 'Reunião', h('small', {}, 'G'))
   meetingLaunch.addEventListener('click', () => openMeetingRoom(game.currentFloorId))
   ui.append(h('div', { class: 'floor-launch' }, studioLaunch, meetingLaunch))
   // The Sala de reunião screen opens on openMeetingRoom (map label, M, this button) and follows the recording.
@@ -263,6 +263,7 @@ async function boot(): Promise<void> {
     accounts: () => openAccounts(ui, state, toast),
     reports: () => openReports(ui, state, { project: game.currentProject, toast }),
     quit: () => void window.office.quitApp().catch((err) => toast(cleanError(err), 'err')),
+    mini: () => void window.office.petEnter(),
     backstage: (tab) =>
       openBackstage(ui, state, {
         tab,
@@ -356,7 +357,8 @@ async function boot(): Promise<void> {
     if (e.key.toLowerCase() === 'b' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.openBackstage()
     if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && codexReady && game.currentProject) studio(game.currentProject)
     if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) setNight(!game.engine.night)
-    if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openMeetingRoom(game.currentFloorId)
+    if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openMeetingRoom(game.currentFloorId)
+    if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) void window.office.petEnter()
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
       e.preventDefault()

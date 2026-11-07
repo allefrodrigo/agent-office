@@ -119,7 +119,7 @@ Terminou? O agente entrega o relatório e vai relaxar: sofás, pufes, pebolim, f
 
 ### 7. A sala de reunião
 
-Cada andar tem uma sala de reunião. Aperte `M`, grave e anote como num caderno. O whisper transcreve no seu Mac o que você fala (microfone) e o que os outros falam (o áudio do computador: Zoom, Meet, Teams), em faixas separadas. Ao encerrar, o Claude escreve a ata com as suas notas e a transcrição, com a fonte de cada frase. Um clique transforma um item de ação em ticket do quadro ou tarefa de um agente. Depois, pergunte à reunião ou a todas as reuniões do andar; os agentes leem as atas pelo MCP `office`.
+Cada andar tem uma sala de reunião. Aperte `G`, grave e anote como num caderno. O whisper transcreve no seu Mac o que você fala (microfone) e o que os outros falam (o áudio do computador: Zoom, Meet, Teams), em faixas separadas. Ao encerrar, o Claude escreve a ata com as suas notas e a transcrição, com a fonte de cada frase. Um clique transforma um item de ação em ticket do quadro ou tarefa de um agente. Depois, pergunte à reunião ou a todas as reuniões do andar; os agentes leem as atas pelo MCP `office`.
 
 O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew install whisper-cpp ffmpeg`; o áudio do computador exige macOS 14.2+ (veja o [COMO-RODAR](COMO-RODAR.md#sala-de-reunião)).
 

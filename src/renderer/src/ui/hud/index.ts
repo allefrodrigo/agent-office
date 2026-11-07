@@ -39,6 +39,8 @@ export interface HudActions {
   backstage(tab?: 'bg' | 'mcp' | 'skills' | 'wt'): void
   /** Sair do Agent Office: asks, waits for the agents or interrupts them. */
   quit(): void
+  /** Modo mini: the office hides and the agents go live on the bottom of the screen. */
+  mini(): void
 }
 
 const COMPACT_KEY = 'roster-compact'
@@ -158,6 +160,7 @@ export class Hud {
       h('button', { class: 'dock-btn', title: 'Bastidores: segundo plano, MCP e skills (B)', onclick: () => actions.backstage() }, icon('rack')),
       h('button', { class: 'dock-btn', 'data-tour': 'resume', title: 'Central de resume: retomar sessões recentes', onclick: () => actions.resume() }, icon('history')),
       h('button', { class: 'dock-btn', 'data-tour': 'home', title: 'Ir para minha sala', onclick: () => actions.goHome() }, icon('home')),
+      h('button', { class: 'dock-btn', title: 'Modo mini: os agentes na base da tela (M)', onclick: () => actions.mini() }, icon('bot')),
       radio.button,
       this.gearBtn,
       h('button', { class: 'dock-btn dock-quit', title: 'Sair do Agent Office', 'aria-label': 'Sair do Agent Office', onclick: () => actions.quit() }, icon('power')),

@@ -11,7 +11,7 @@ export interface OpenMeetingDetail {
 }
 
 /**
- * Abre a Sala de reunião de um andar: a etiqueta do mapa, a tecla M e o botão "Reunião" do
+ * Abre a Sala de reunião de um andar: a etiqueta do mapa, a tecla G e o botão "Reunião" do
  * HUD chamam esta função. Ela só avisa; quem abre a tela é ui/meetings. `at` leva a uma
  * reunião e a um trecho (o link "Kickoff do checkout, 14:52" do quadro); a tela que não
  * souber ir até lá abre a sala do andar.
