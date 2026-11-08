@@ -5,6 +5,7 @@ import type { AgentSummary, AgentTemplate, Look, OfficePermissionMode, ProjectFl
 import type { State } from '../state'
 import { h, icon } from './dom'
 import { brainFields, cleanError, confirmDialog, EFFORTS, field, MODELS, modal, MODES } from './modals'
+import { habboEditor } from './habbo-editor'
 import { portrait } from './portrait'
 import './templates.css'
 
@@ -85,7 +86,9 @@ export function openTemplateEditor(root: HTMLElement, state: State, initial: Par
   return new Promise((resolve) => {
     const editing = !!initial.id && state.settings.templates?.some((t) => t.id === initial.id)
     const name = h('input', { class: 'input', value: initial.name ?? '', maxlength: TEMPLATE_LIMITS.name, placeholder: 'Ex.: Revisor de PR' })
-    const look = lookEditor(initial.look ?? lookFromSeed(initial.name || String(Math.random())))
+    const startLook = initial.look ?? lookFromSeed(initial.name || String(Math.random()))
+    // the 2D view dresses agents in Habbo's wardrobe, with the avatar live beside it
+    const look = state.settings.video?.view === '2d' ? habboEditor(startLook) : lookEditor(startLook)
     const brain = brainFields({ model: initial.model ?? '', effort: initial.effort ?? '' }, true)
     const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
     mode.value = initial.permissionMode ?? state.settings.defaultPermissionMode

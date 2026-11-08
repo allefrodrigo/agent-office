@@ -353,6 +353,12 @@ export interface OfficeAPI {
   openMacJobLog(label: string): Promise<void>
   /** Version, package.json fields and this machine, for the "Sobre" window. */
   appInfo(): Promise<AppInfo>
+  /** A Habbo clothing library (.nitro bundle) for the 2D view's avatars, cached on disk by the main process. */
+  habboLibrary(name: string): Promise<Uint8Array>
+  /** A piece of Habbo furniture (.nitro bundle, by classname), its layers apart; cached on disk like the libraries. */
+  habboFurni(name: string): Promise<Uint8Array>
+  /** Puts every listed Habbo library in the disk cache, one at a time; resolves with how many it downloaded. */
+  habboPrefetch(names: string[]): Promise<number>
   /**
    * Hires an agent that downloads the newest release from GitHub and installs it.
    * One at a time: while it is in the office, a new call returns it instead.

@@ -79,7 +79,7 @@ export function workstation(index: number, screen: THREE.Texture, led: THREE.Mat
   const kb = F.keyboard()
   kb.position.set(-0.05, TOP + 0.01, 0.18)
   g.add(kb)
-  box(g, 0.06, 0.025, 0.09, '#e7eaf0', 0.36, TOP + 0.01, 0.2, false)
+  px(box(g, 0.06, 0.025, 0.09, '#e7eaf0', 0.36, TOP + 0.01, 0.2, false), 'mouse')
 
   switch (setup) {
     case 'single':

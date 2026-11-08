@@ -35,6 +35,22 @@ export interface Look {
   shirt: string
   pants: string
   shoes: string
+  /** The Habbo figure picked in the look editor of the 2D view; without it, 2D derives one from the colors above. */
+  habbo?: HabboLook
+}
+
+/** Categories of the Habbo look editor: face, hair, hat, head accessory, glasses, face accessory, shirt, coat, print, chest accessory, belt, pants, shoes. */
+export type HabboSlot = 'hd' | 'hr' | 'ha' | 'he' | 'ea' | 'fa' | 'ch' | 'cc' | 'cp' | 'ca' | 'wa' | 'lg' | 'sh'
+
+/** One clothing set of figuredata.xml and its palette colors (one or two). */
+export interface HabboPick {
+  set: number
+  colors: number[]
+}
+
+export interface HabboLook {
+  gender: 'M' | 'F'
+  parts: Partial<Record<HabboSlot, HabboPick>>
 }
 
 export interface AgentSummary {
