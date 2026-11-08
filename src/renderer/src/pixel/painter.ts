@@ -1,14 +1,16 @@
 import * as THREE from 'three'
 import type { Avatar } from '../world/avatar'
-import { H, W, WALL_H, type FloorStyle, type Zone } from '../world/layout'
+import { H, W, WALL_H } from '../world/layout'
 import type { Office } from '../world/office'
 import { pxTag } from '../world/pixel-tag'
-import { sprite, whenLoaded } from './assets'
+import { sprite } from './assets'
 import type { PixelEngine, Rect } from './engine'
-import { doorsOpen, spriteFor, type SpriteUse } from './objects'
+import { onFigureLibrary } from './figure'
+import { allLibraries } from './habbo-catalog'
+import { furniFor, onHabboImage, type FurniUse } from './habbo'
+import { drawScreen } from './habbo-computer'
 import { drawPerson, personKey } from './people'
-import { tinted } from './tint'
-import { artX, artY, bake, bounds, ellipse, gather, paint, TILE, type Piece } from './voxel'
+import { bake, boxRect, depthOf, ellipse, gather, HALF_H, HALF_W, isoX, isoY, paint, type Piece } from './voxel'
 
 /** What the painter reads from the game each frame. */
 export interface PixelWorld {
@@ -18,7 +20,7 @@ export interface PixelWorld {
   people(): Avatar[]
   /** The skeleton by the boss office, when the ground floor is on screen. */
   skeleton(): THREE.Object3D | null
-  /** The tile under the mouse, or null. */
+  /** The tile under the mouse (its corner), or null. */
   hover(): { x: number; z: number; ok: boolean } | null
   /** Game time in seconds. */
   time(): number
@@ -34,8 +36,6 @@ interface Unit {
   baked: { canvas: HTMLCanvasElement; ox: number; oy: number } | null
   /** Has parts that change (screens, LEDs, doors): they are drawn again every frame. */
   live: boolean
-  /** The mesh whose picture goes into a catalog sprite's screen. */
-  screen: THREE.Mesh | null
 }
 
 interface FloorArt {
@@ -52,22 +52,14 @@ interface Drawable {
   draw(order: number): void
 }
 
-const ZONE_FLOOR: Record<FloorStyle, string> = {
-  hall: 'chao/chao-hall',
-  boss: 'chao/chao-chefe',
-  team: 'chao/chao-time',
-  lounge: 'chao/chao-lounge',
-  cafe: 'chao/chao-copa',
-  meeting: 'chao/chao-reuniao',
-}
-
 /** Wall-mounted: hangs on the back wall (z ≈ 0) or the side wall (x ≈ 0), off the floor. */
 const onWall = (b: THREE.Box3) => (b.max.z < 0.45 || b.max.x < 0.45) && b.min.y > 0.3
 
 /**
- * Paints the floor on screen: a cached background (floor, rugs, walls), then furniture and
- * people sorted back to front, then effects. Furniture is baked into small canvases once per
- * floor; only screens, lights, doors and people are drawn again each frame.
+ * Paints the floor on screen in the Habbo isometric view: a cached background (floor slab,
+ * rugs, back walls), then furniture and people sorted back to front, then effects. Furniture
+ * with a Habbo counterpart is drawn with the Imager's picture; the rest is baked from its 3D
+ * pieces once per floor. Only screens, lights, doors and people are drawn again each frame.
  */
 export class PixelPainter {
   private cache = new WeakMap<Office, FloorArt>()
@@ -78,14 +70,16 @@ export class PixelPainter {
     private world: PixelWorld,
   ) {
     engine.painter = (ctx, view) => this.paint(ctx, view)
-    // sprites decode after the first frame: the floors are baked again with them
-    whenLoaded(() => {
-      this.cache = new WeakMap()
-      engine.dirty = true
-    })
+    // Habbo pictures arrive after the first frames: draw again with each one
+    onHabboImage(() => (engine.dirty = true))
+    onFigureLibrary(() => (engine.dirty = true))
+    // the whole wardrobe to disk in the background: any look then draws at once, offline too
+    void window.office
+      .habboPrefetch(allLibraries())
+      .catch((err) => console.warn(`[habbo] cache: ${err instanceof Error ? err.message : err}`))
   }
 
-  /** Forget the baked floors (2D layout moved something). */
+  /** Forget the baked floors. */
   reset(): void {
     this.cache = new WeakMap()
   }
@@ -98,15 +92,7 @@ export class PixelPainter {
     this.order = 0
     ctx.drawImage(art.bg, art.bgX, art.bgY)
     const hover = this.world.hover()
-    if (hover) {
-      ctx.fillStyle = hover.ok ? 'rgba(255,255,255,0.85)' : 'rgba(255,138,128,0.85)'
-      const x = artX(hover.x)
-      const y = artY(0, hover.z)
-      ctx.fillRect(x, y, TILE, 1)
-      ctx.fillRect(x, y + TILE - 1, TILE, 1)
-      ctx.fillRect(x, y, 1, TILE)
-      ctx.fillRect(x + TILE - 1, y, 1, TILE)
-    }
+    if (hover) diamond(ctx, hover.x, hover.z, hover.ok ? 'rgba(255,255,255,0.9)' : 'rgba(255,138,128,0.9)')
 
     const dynamic: Drawable[] = []
     for (const av of this.world.people()) {
@@ -119,17 +105,19 @@ export class PixelPainter {
       })
     }
     const sk = this.world.skeleton()
-    if (sk?.visible) dynamic.push({ key: sk.position.z + 0.05, draw: (order) => this.drawSkeleton(ctx, sk, order) })
+    if (sk?.visible) dynamic.push({ key: sk.position.x + sk.position.z + 0.05, draw: (order) => this.drawSkeleton(ctx, sk, order) })
     for (const fx of this.engine.scene.children)
-      if (fx.userData.fx && fx.visible) dynamic.push({ key: fx.position.z + 0.2, draw: () => this.drawFx(ctx, fx) })
+      if (fx.userData.fx && fx.visible) dynamic.push({ key: fx.position.x + fx.position.z + 0.2, draw: () => this.drawFx(ctx, fx) })
     dynamic.sort((a, b) => a.key - b.key)
 
     // merge the still furniture (sorted once) with the moving things (sorted now)
     let d = 0
+    const slack = 2 * HALF_W
     for (const u of art.units) {
       while (d < dynamic.length && dynamic[d].key <= u.key) dynamic[d++].draw(++this.order)
-      // a catalog sprite can be a little bigger than the 3D pieces: a tile of slack
-      if (u.rect.x1 < view.x0 - TILE || u.rect.x0 > view.x1 + TILE || u.rect.y1 < view.y0 - TILE || u.rect.y0 > view.y1 + TILE) continue
+      // a Habbo picture can be bigger than the 3D pieces: some slack
+      if (u.rect.x1 < view.x0 - slack || u.rect.x0 > view.x1 + slack || u.rect.y1 < view.y0 - slack || u.rect.y0 > view.y1 + slack * 2)
+        continue
       this.drawUnit(ctx, u, ++this.order)
     }
     while (d < dynamic.length) dynamic[d++].draw(++this.order)
@@ -170,7 +158,7 @@ export class PixelPainter {
       for (const c of o.children) {
         const tag = pxTag(c)
         // over everyone's heads (the rooftop pergola) or drawn on its own (the skeleton)
-        if (tag?.key === 'pergola' || tag?.key === 'skeleton' || tag?.key === 'wallCabinets') continue
+        if (tag?.key === 'pergola' || tag?.key === 'skeleton') continue
         if (tag?.key === 'shell' || tag?.key === 'slab' || tag?.key === 'rug') bgObjs.push(c)
         else if (tag || (c as THREE.Mesh).isMesh) objs.push(c)
         else walk(c)
@@ -189,42 +177,57 @@ export class PixelPainter {
         bgObjs.push(obj)
         continue
       }
-      const rect = bounds(pieces)!
       units.push({
         obj,
         box,
-        rect,
-        key: onWall(box) ? box.max.z - 100 : box.max.z + box.min.y,
+        rect: boxRect(box),
+        key: onWall(box) ? depthOf(box) - 1 : depthOf(box),
         baked: bake(pieces),
         live: pieces.some((p) => p.live),
-        screen: screenOf(pieces),
       })
     }
+    // what stands on a desk or a table comes after it: the Habbo desk's picture would hide the
+    // things on its back half (the boss's monitor) behind its top
+    for (const u of units) {
+      if (u.box.min.y < 0.3) continue
+      for (const s of units)
+        if (
+          s !== u &&
+          Math.abs(s.box.max.y - u.box.min.y) < 0.1 &&
+          s.box.min.x <= u.box.max.x &&
+          s.box.max.x >= u.box.min.x &&
+          s.box.min.z <= u.box.max.z &&
+          s.box.max.z >= u.box.min.z
+        )
+          u.key = Math.max(u.key, s.key + 0.001)
+    }
     units.sort((a, b) => a.key - b.key)
+    // ask the Imager for every picture of the floor now, not as each comes into view
+    for (const u of units) habboOf(u)
     const lights: FloorArt['lights'] = []
     const at = new THREE.Vector3()
     group.traverse((o) => {
       const light = o as THREE.PointLight
       if (!o.userData.night || !light.isPointLight) return
       light.getWorldPosition(at)
-      // the light pools on the floor below it, a little up the screen for its height
+      // the light pools on the floor below it
       lights.push({
-        x: artX(at.x),
-        y: artY(at.y * 0.4, at.z),
+        x: isoX(at.x, at.z),
+        y: isoY(at.x, at.y * 0.4, at.z),
         color: `#${light.color.getHexString()}`,
         strength: Math.min(0.55, light.intensity * 0.16),
-        radius: light.distance * TILE * 0.5,
+        radius: light.distance * HALF_W * 0.7,
       })
     })
     return { ...this.background(bgObjs), units, lights }
   }
 
-  /** Floor slab, rugs and walls in one canvas; the catalog floors and wall strip go over them. */
+  /** Floor slab, rugs and the two back walls in one canvas. */
   private background(objs: THREE.Object3D[]): { bg: HTMLCanvasElement; bgX: number; bgY: number } {
-    const x0 = Math.floor(artX(-0.6))
-    const y0 = Math.floor(artY(WALL_H + 0.4, 0))
-    const x1 = Math.ceil(artX(W + 0.6))
-    const y1 = Math.ceil(artY(-1.2, H + 0.4))
+    const x0 = Math.floor(isoX(-1, H + 1))
+    const x1 = Math.ceil(isoX(W + 1, -1))
+    const y0 = Math.floor(isoY(-1, WALL_H + 0.6, -1))
+    const y1 = Math.ceil(isoY(W + 1, -1, H + 1))
     const bg = document.createElement('canvas')
     bg.width = x1 - x0
     bg.height = y1 - y0
@@ -235,114 +238,102 @@ export class PixelPainter {
     const rest = objs.filter((o) => pxTag(o)?.key !== 'slab')
     for (const o of slab) {
       paint(ctx, gather(o))
-      this.floorTiles(ctx, o)
+      this.tileLines(ctx, o)
     }
-    const pieces: Piece[] = rest.flatMap((o) => gather(o)).sort((a, b) => a.box.max.z - b.box.max.z || a.box.max.y - b.box.max.y)
+    const pieces: Piece[] = rest.flatMap((o) => gather(o)).sort((a, b) => depthOf(a.box) - depthOf(b.box) || a.box.max.y - b.box.max.y)
     paint(ctx, pieces)
-    this.wallStrip(ctx, rest)
     return { bg, bgX: x0, bgY: y0 }
   }
 
-  /** Catalog floor textures (64 x 64, two tiles a side) over each zone of the slab. */
-  private floorTiles(ctx: CanvasRenderingContext2D, slab: THREE.Object3D): void {
-    const tag = pxTag(slab)!
+  /** Faint Habbo tile seams over the floor slab, one diamond per tile. */
+  private tileLines(ctx: CanvasRenderingContext2D, slab: THREE.Object3D): void {
     const b = new THREE.Box3().setFromObject(slab)
-    const tileAt = (style: string | undefined) => (style ? sprite(style) : null)
-    if (tag.deck) {
-      const s = tileAt('chao/chao-deck')
-      if (s)
-        for (let z = Math.round(b.min.z); z < Math.round(b.max.z); z++)
-          for (let x = Math.round(b.min.x); x < Math.round(b.max.x); x++) tile(ctx, s.img, x, z)
-      return
-    }
-    const zones = (tag.zones as Zone[] | undefined) ?? []
-    for (let z = 0; z < H; z++)
-      for (let x = 0; x < W; x++) {
-        const zone = [...zones].reverse().find((zn) => x >= zn.rect[0] && x < zn.rect[2] && z >= zn.rect[1] && z < zn.rect[3])
-        const s = tileAt(ZONE_FLOOR[zone?.id ?? 'hall'])
-        if (s) tile(ctx, s.img, x, z)
-      }
-  }
-
-  /** The catalog back-wall strip along the wall's face, where the floor has that wall. */
-  private wallStrip(ctx: CanvasRenderingContext2D, objs: THREE.Object3D[]): void {
-    const s = sprite('chao/parede-fundo')
-    if (!s) return
-    const walls = objs.filter((o) => pxTag(o)?.key === 'shell' && pxTag(o)?.part === 'wall').map((o) => new THREE.Box3().setFromObject(o))
-    if (!walls.length) return
-    const from = Math.max(0, Math.min(...walls.map((b) => b.min.x)))
-    const to = Math.min(W, Math.max(...walls.map((b) => b.max.x)))
-    const bottom = Math.round(artY(0, 0))
-    for (let x = artX(from); x < artX(to); x += s.w) {
-      const w = Math.min(s.w, artX(to) - x)
-      ctx.drawImage(s.img, 0, 0, w, s.h, x, bottom - s.h, w, s.h)
-    }
+    const y = b.max.y
+    ctx.fillStyle = 'rgba(0,0,0,0.07)'
+    const x0 = Math.round(b.min.x)
+    const x1 = Math.round(b.max.x)
+    const z0 = Math.round(b.min.z)
+    const z1 = Math.round(b.max.z)
+    // lines along x (z fixed) and along z (x fixed), a pixel per half-tile step
+    for (let z = z0 + 1; z < z1; z++)
+      for (let i = 0; i < (x1 - x0) * HALF_W; i++) ctx.fillRect(Math.round(isoX(x0, z) + i), Math.round(isoY(x0, y, z) + i / 2), 1, 1)
+    for (let x = x0 + 1; x < x1; x++)
+      for (let i = 0; i < (z1 - z0) * HALF_W; i++) ctx.fillRect(Math.round(isoX(x, z0) - i), Math.round(isoY(x, y, z0) + i / 2), 1, 1)
   }
 
   // ---------- drawing ----------
 
   private drawUnit(ctx: CanvasRenderingContext2D, u: Unit, order: number): void {
-    const use = spriteFor(u.obj, pxTag(u.obj)?.key === 'elevator' ? doorsOpen(u.obj) : 0)
-    if (use) this.drawSprite(ctx, u, use)
+    const habbo = habboOf(u)
+    if (habbo === 'loading' || habbo === 'hidden') this.engine.hits.set(u.obj, { ...u.rect, order })
+    else if (habbo) this.drawHabbo(ctx, u, habbo, order)
     else {
       if (u.baked) ctx.drawImage(u.baked.canvas, u.baked.ox, u.baked.oy)
       if (u.live) {
         u.obj.updateMatrixWorld(true)
         paint(ctx, gather(u.obj), 'live')
       }
+      this.engine.hits.set(u.obj, { ...u.rect, order })
     }
-    this.engine.hits.set(u.obj, { ...u.rect, order })
+    if (u.live) this.beacon(ctx, u)
   }
 
-  /** A catalog sprite, its bottom-center on the object's front edge; its screen gets the live picture. */
-  private drawSprite(ctx: CanvasRenderingContext2D, u: Unit, use: SpriteUse): void {
-    const { sprite: s, mirror, repeat } = use
-    const img = tinted(use.key, s, use.palette)
+  /**
+   * A Habbo picture standing on the object's floor spot: centered on its footprint, its lowest
+   * pixel on the footprint's front corner (the Imager crops each picture to its art).
+   */
+  private drawHabbo(ctx: CanvasRenderingContext2D, u: Unit, use: FurniUse, order: number): void {
+    const { img, repeat, dy } = use
+    // a canvas has no natural size; an image's width is its natural one until laid out
+    const iw = img instanceof HTMLImageElement ? img.naturalWidth : img.width
+    const ih = img instanceof HTMLImageElement ? img.naturalHeight : img.height
     const b = u.box
     const copies = repeat?.n ?? 1
+    const hit: Rect = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity }
     for (let i = 0; i < copies; i++) {
       // modules of a counter, back to front
       const along = copies > 1 ? i - (copies - 1) / 2 : 0
-      const cx = artX((b.min.x + b.max.x) / 2 + (repeat?.axis === 'x' ? along : 0))
-      const front = repeat?.axis === 'z' ? b.max.z - (copies - 1 - i) : b.max.z
-      const x = Math.round(cx - s.w / 2)
-      const y = Math.round(artY(b.min.y, front) - s.h)
-      if (s.screen) {
-        // the screen is a hole in the sprite: the live picture goes under it (a window's cross stays on top)
-        const [sx, sy, sw, sh] = s.screen
-        const sxAt = mirror ? x + s.w - sx - sw : x + sx
-        ctx.fillStyle = '#14161f'
-        ctx.fillRect(sxAt, y + sy, sw, sh)
-        const live = (u.screen?.material as THREE.MeshBasicMaterial | undefined)?.map?.image as CanvasImageSource | undefined
-        if (live) ctx.drawImage(live, sxAt, y + sy, sw, sh)
-      }
-      if (mirror) {
+      const cx = (b.min.x + b.max.x) / 2 + (repeat?.axis === 'x' ? along : 0)
+      const cz = (b.min.z + b.max.z) / 2 + (repeat?.axis === 'z' ? along : 0)
+      const hx = repeat?.axis === 'x' ? 0.5 : (b.max.x - b.min.x) / 2
+      const hz = repeat?.axis === 'z' ? 0.5 : (b.max.z - b.min.z) / 2
+      const x = Math.round(isoX(cx, cz) - iw / 2)
+      const y = Math.round(isoY(cx + hx, b.min.y, cz + hz) - ih + dy)
+      if (use.flip) {
         ctx.save()
-        ctx.translate(x + s.w, y)
+        ctx.translate(x + iw, y)
         ctx.scale(-1, 1)
         ctx.drawImage(img, 0, 0)
         ctx.restore()
       } else ctx.drawImage(img, x, y)
+      if (use.screen?.src) drawScreen(ctx, use.screen.area, use.screen.src, x, y)
+      hit.x0 = Math.min(hit.x0, x)
+      hit.y0 = Math.min(hit.y0, y)
+      hit.x1 = Math.max(hit.x1, x + iw)
+      hit.y1 = Math.max(hit.y1, y + ih)
     }
-    // the alarm's strobe and the café LED have no frames of their own
+    this.engine.hits.set(u.obj, { ...hit, order })
+  }
+
+  /** The alarm's strobe has no frames of its own. */
+  private beacon(ctx: CanvasRenderingContext2D, u: Unit): void {
     const tag = pxTag(u.obj)
-    if (tag?.key === 'beacon' && u.live) {
-      const on = (tag.isOn as (() => boolean) | undefined)?.() ?? false
-      if (on && Math.sin(this.world.time() * 12.6) > 0) {
-        ctx.globalAlpha = 0.45
-        ellipse(ctx, '#ff2a3d', artX((b.min.x + b.max.x) / 2), artY((b.min.y + b.max.y) / 2, b.max.z), 14, 10)
-        ctx.globalAlpha = 1
-      }
-    }
+    if (tag?.key !== 'beacon') return
+    const on = (tag.isOn as (() => boolean) | undefined)?.() ?? false
+    if (!on || Math.sin(this.world.time() * 12.6) <= 0) return
+    const b = u.box
+    ctx.globalAlpha = 0.45
+    ellipse(ctx, '#ff2a3d', isoX((b.min.x + b.max.x) / 2, b.max.z), isoY((b.min.x + b.max.x) / 2, (b.min.y + b.max.y) / 2, b.max.z), 16, 11)
+    ctx.globalAlpha = 1
   }
 
   /** The skeleton faces the viewer here (the 3D one turns towards the isometric camera). */
   private drawSkeleton(ctx: CanvasRenderingContext2D, sk: THREE.Object3D, order: number): void {
     const s = sprite('personagens/caveira')
-    const fx = Math.round(artX(sk.position.x))
-    const fy = Math.round(artY(0, sk.position.z))
-    ctx.globalAlpha = 0.22
-    ellipse(ctx, '#140f28', fx, fy - 1, 10, 4)
+    const fx = Math.round(isoX(sk.position.x, sk.position.z))
+    const fy = Math.round(isoY(sk.position.x, 0, sk.position.z))
+    ctx.globalAlpha = 0.25
+    ellipse(ctx, '#000000', fx, fy, 14, 6)
     ctx.globalAlpha = 1
     if (s) {
       const shake = sk.rotation.z ? Math.round(sk.rotation.z * 20) : 0
@@ -352,9 +343,10 @@ export class PixelPainter {
       this.engine.hits.set(sk, { x0: x + 8, y0: y + 6, x1: x + s.w - 8, y1: fy, order })
       return
     }
-    const pieces = upright(sk)
+    sk.updateMatrixWorld(true)
+    const pieces = gather(sk)
     paint(ctx, pieces)
-    const r = bounds(pieces)
+    const r = pieces.length ? boxRect(new THREE.Box3().setFromObject(sk)) : null
     if (r) this.engine.hits.set(sk, { ...r, order })
   }
 
@@ -362,12 +354,12 @@ export class PixelPainter {
   private drawFx(ctx: CanvasRenderingContext2D, fx: THREE.Object3D): void {
     const kind = fx.userData.fx as string
     const p = fx.position
-    const x = Math.round(artX(p.x))
-    const y = Math.round(artY(p.y, p.z))
+    const x = Math.round(isoX(p.x, p.z))
+    const y = Math.round(isoY(p.x, p.y, p.z))
     if (kind === 'skull') {
       const s = sprite('personagens/caveira-cabeca')
       if (s) ctx.drawImage(s.img, x - Math.round(s.w / 2), y - s.h)
-      else paint(ctx, upright(fx))
+      else paint(ctx, gather(fx))
       return
     }
     if (kind === 'ghost') {
@@ -385,7 +377,7 @@ export class PixelPainter {
     }
     const mesh = fx as THREE.Mesh
     const m = mesh.material as THREE.MeshBasicMaterial
-    const size = Math.max(1, Math.round((kind === 'smoke' ? 0.22 : 0.06) * TILE * mesh.scale.x))
+    const size = Math.max(1, Math.round((kind === 'smoke' ? 0.22 : 0.06) * HALF_W * 2 * mesh.scale.x))
     ctx.globalAlpha = m.transparent ? m.opacity : 1
     ctx.fillStyle = m.color.getStyle()
     ctx.fillRect(x - (size >> 1), y - (size >> 1), size, size)
@@ -393,33 +385,22 @@ export class PixelPainter {
   }
 }
 
-/** A floor tile from a 64 x 64 catalog texture (two tiles a side, so the pattern repeats less). */
-function tile(ctx: CanvasRenderingContext2D, img: HTMLImageElement, x: number, z: number): void {
-  const half = Math.min(img.naturalWidth, img.naturalHeight) / 2
-  ctx.drawImage(img, (x & 1) * half, (z & 1) * half, half, half, artX(x), artY(0, z), TILE, TILE)
+/** The Habbo picture of a unit; a plant on a table or a desk gets the half-size one. */
+function habboOf(u: Unit): ReturnType<typeof furniFor> {
+  return furniFor(u.obj, pxTag(u.obj)?.key === 'plant' && u.box.min.y > 0.3)
 }
 
-/** Its pieces turned to face the viewer, keeping any wobble around z. */
-function upright(obj: THREE.Object3D): Piece[] {
-  const ry = obj.rotation.y
-  obj.rotation.y = 0
-  obj.updateMatrixWorld(true)
-  const pieces = gather(obj)
-  obj.rotation.y = ry
-  return pieces
-}
-
-/** The biggest live textured panel: what a catalog screen shows. */
-function screenOf(pieces: Piece[]): THREE.Mesh | null {
-  let best: Piece | null = null
-  let area = 0
-  for (const p of pieces) {
-    if (!p.live || !p.front || !('image' in p.front)) continue
-    const a = (p.box.max.x - p.box.min.x) * (p.box.max.y - p.box.min.y)
-    if (a > area) {
-      area = a
-      best = p
-    }
+/** The Habbo hover outline: a one-pixel diamond around the floor tile whose corner is (x, z). */
+function diamond(ctx: CanvasRenderingContext2D, x: number, z: number, color: string): void {
+  ctx.fillStyle = color
+  const tx = Math.round(isoX(x, z))
+  const ty = Math.round(isoY(x, 0, z))
+  for (let i = 0; i < HALF_W; i++) {
+    const dy = Math.floor(i / 2)
+    // top to right, top to left, left to bottom, right to bottom
+    ctx.fillRect(tx + i, ty + dy, 1, 1)
+    ctx.fillRect(tx - i - 1, ty + dy, 1, 1)
+    ctx.fillRect(tx - HALF_W + i, ty + HALF_H + dy, 1, 1)
+    ctx.fillRect(tx + HALF_W - i - 1, ty + HALF_H + dy, 1, 1)
   }
-  return best?.mesh ?? null
 }

@@ -145,7 +145,7 @@ O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew instal
 - **Andar = empresa** (Configurações → "Andares por projeto"): cada andar aceita um logo (PNG, JPG, WebP ou GIF, reduzido a 256 px) e uma cor; sem cor escolhida, vale a cor mais forte do logo. A placa da Diretoria mostra o logo e o nome, e o tapete dela ganha a cor da empresa. Marque "Agentes com a farda da empresa" para os agentes do andar usarem camisa na cor da empresa com o logo no peito; eles mantêm a farda quando descem até você.
 - **Painel de gasto**: cada andar tem um painel na parede com quanto os agentes dele gastaram nesta sessão (no térreo, o escritório inteiro). O valor sobe rolando a cada mudança, os maiores gastos passam embaixo, e a etiqueta acima mostra o valor exato (passe o mouse para ver por agente).
 - **Alarme de limite**: quando uma conta bate o limite do plano, o giroflex vermelho acima do painel acende e gira nos andares que usam essa conta (no térreo, com qualquer conta), com a etiqueta "Conta X no limite · volta 15:00".
-- **Visual 2D pixel art** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um RPG de 16 bits visto de cima, desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. No stress de 50 agentes, a página gasta cerca de 30% menos memória e um quarto da CPU. Sprites e como gerá-los com o Codex: [docs/arte-2d](docs/arte-2d/README.md).
+- **Visual 2D Habbo** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um quarto isométrico com a arte do Habbo (móveis e avatares do [HabboAssets](https://www.habboassets.com/api), buscados ao vivo), desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. Detalhes: [docs/arte-2d](docs/arte-2d/README.md).
 - **Mesas e áreas**: cada mesa tem um setup (um monitor, dois, ultrawide, notebook com monitor, monitor vertical) em mesas brancas, de madeira ou escuras. O térreo tem uma copa; nos andares de empresa, as salas da frente sem setor viram lounge, copa, jogos e canto de pufes.
 - **Conta sobre a cabeça**: cada agente do escritório tem um diamante girando sobre a cabeça, como no The Sims, na cor da conta em que está rodando. Com duas ou mais contas, a etiqueta do nome mostra também o nome da conta.
 - **Contexto do agente**: o painel mostra quanto da janela de contexto a conversa ocupa (os mesmos números do `/context`), e a lista de agentes tem uma barrinha. **Compactar** resume a conversa (`/compact`); **Limpar** começa uma conversa nova com o mesmo agente (`/clear`), sem dispensar.
@@ -404,13 +404,14 @@ src/
       props.ts          placar de gastos, quadro de rotinas (canvas redesenhado só quando muda, e o LED) e alarme de limite
       effects.ts        golpe da caveira, fumaça, faíscas, fantasma e efeitos sonoros
       viewport.ts       o que o jogo pede de quem desenha (3D isométrico ou 2D)
-    pixel/              visual 2D pixel art (Configurações → Vídeo → Visual), sem WebGL
-      engine.ts         canvas 2D em resolução de arte, ampliado pelo CSS; zoom, cliques, projeção
+    pixel/              visual 2D Habbo (Configurações → Vídeo → Visual), sem WebGL
+      engine.ts         canvas 2D em resolução de arte, ampliado pelo CSS; zoom, cliques, projeção isométrica
       painter.ts        assa cada andar (piso, paredes, móveis) e desenha tudo de trás para a frente
-      voxel.ts          achata as peças dos modelos 3D em pixel art (vale para o que ainda não tem sprite)
-      objects.ts        qual sprite do catálogo substitui cada móvel, conforme o lado para onde olha
-      people.ts         personagens pelas folhas 4x3 (de pé, andando, sentado, caído)
-      layout2d.ts       muda de lugar o que ficaria de perfil na parede lateral
+      habbo.ts          Imager do HabboAssets: móvel Habbo de cada px() tag
+      figure.ts         avatares Habbo montados peça por peça, com as animações do cliente
+      nitro.ts          lê os pacotes .nitro (bibliotecas de roupa do HabboAssets)
+      voxel.ts          projeta as peças dos modelos 3D em isométrico 2:1 (telas, paredes, vidro, o que não tem móvel Habbo)
+      people.ts         escolhe direção e pose de cada pessoa (andar, sentar, deitar, acenar, falar, piscar)
     assets/pixel/       sprites prontos (npm run pixel); o catálogo é src/shared/pixel-catalog.json
     game/               comportamento: status do agente -> onde ele vai e o que faz
                         (cada parte estende a anterior: base, floors, boards, actors, lounge,

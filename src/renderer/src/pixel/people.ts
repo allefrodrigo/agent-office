@@ -1,28 +1,35 @@
 import { Aura, AURA_COLORS } from '../world/aura'
 import type { Avatar } from '../world/avatar'
-import { agentSheets, sprite } from './assets'
-import { blinking, drawEyes, type Eyes } from './eyes'
-import { lookSheet } from './look'
 import type { Rect } from './engine'
-import { artX, artY, bounds, ellipse, gather, paint } from './voxel'
+import { blinking } from './eyes'
+import { figureFrame, FOOT, FRAME, type Pose } from './figure'
+import { figureOfLook, type Figure } from './habbo-catalog'
+import { avatarDirection, avatarImage } from './habbo'
+import { bounds, ellipse, gather, isoX, isoY, paint } from './voxel'
 
-// People in the 2D view: a character sheet from the catalog (4 x 3 poses of 48 x 64, see
-// pixel-catalog.json) when there is one, else the 3D avatar itself drawn flat.
+// People in the 2D view: Habbo avatars assembled part by part (pixel/figure.ts) in each look's
+// colors, turned to the nearest of 8 directions, with the client's own animations: walking,
+// sitting, lying, waving, carrying, talking and blinking. While the clothing libraries load,
+// the Imager's standing picture stands in; without network, the 3D avatar drawn flat.
 
-const CELL_W = 48
-const CELL_H = 64
-/** Where the soles sit in a cell. */
-const FEET = 62
-const QUARTER = Math.PI / 2
+/** Size of an Imager avatar, and where its soles sit. */
+const AV_W = 64
+const AV_H = 110
+const FEET = 104
+/** How far up a seated avatar sits: the chair's seat. */
+const SEAT = 12
 
-type Dir = 'down' | 'up' | 'side'
+const seated = (av: Avatar) => av.pose === 'sit' || av.pose === 'type' || av.pose === 'relax'
 
-/** Facing (0 = +z, towards the viewer) as one of the sheet's views; left is the right view mirrored. */
-function view(angle: number): { dir: Dir; mirror: boolean } {
-  const a = Math.atan2(Math.sin(angle), Math.cos(angle))
-  if (Math.abs(a) <= Math.PI / 4) return { dir: 'down', mirror: false }
-  if (Math.abs(a) >= (3 * Math.PI) / 4) return { dir: 'up', mirror: false }
-  return { dir: 'side', mirror: a < 0 }
+/** Facing away from the viewer (Habbo directions 7, 0, 1 and 6): the chair's back covers the body. */
+const away = (dir: number) => dir === 7 || dir === 0 || dir === 1 || dir === 6
+
+/** Draw order of a person among the furniture (bigger = later), on the same scale as voxel.depthOf. */
+export function personKey(av: Avatar): number {
+  const d = av.position.x + av.position.z
+  if (av.isDown) return d + 0.3
+  if (!seated(av) || av.stepping) return d + 0.05
+  return away(avatarDirection(av.facing)) ? d - 0.2 : d + 0.4
 }
 
 function hash(s: string): number {
@@ -31,63 +38,43 @@ function hash(s: string): number {
   return h >>> 0
 }
 
-/**
- * The picture of this person's sheet. The recolorable template of its look (pixel/look.ts), like
- * the 3D avatar and the look picked in Configurações. Without templates: fixed sheets, the boss for
- * the player and an agent sheet picked by id (helpers share their parent's).
- */
-function sheetOf(av: Avatar): { image: CanvasImageSource; eyes?: Eyes } | null {
-  const own = lookSheet(av.look, av.uniformColor ?? av.look.shirt)
-  if (own) return own
-  const pool = agentSheets()
-  const fixed = av.id === 'player' ? 'personagens/chefe' : pool.length ? pool[hash(av.id) % pool.length] : null
-  const img = fixed ? sprite(fixed)?.img : null
-  return img ? { image: img } : null
-}
-
-const seated = (av: Avatar) => av.pose === 'sit' || av.pose === 'type' || av.pose === 'relax'
+const lookFigure = (av: Avatar): Figure => figureOfLook(av.look, av.uniformColor ?? av.look.shirt)
 
 /**
- * Draw order of a person among the furniture (bigger = later). Sitting with the back to the
- * viewer, the chair's backrest is in front; sitting towards the viewer, the person is in front
- * of the backrest.
+ * Direction and pose of the avatar now. Habbo sits and lies only on the diagonals (0, 2, 4, 6),
+ * so a seated avatar turns to the nearest one, and one lying down to 2 or 4.
  */
-export function personKey(av: Avatar): number {
-  const z = av.position.z
-  if (av.isDown) return z + 0.3
-  if (!seated(av) || av.stepping) return z + 0.05
-  return view(av.facing).dir === 'up' ? z - 0.1 : z + 0.55
-}
-
-/** Sheet cell for what the avatar does now. */
-function cell(av: Avatar, t: number): { col: number; row: number; mirror: boolean; dy: number } {
-  if (av.isDown) return { col: 3, row: 2, mirror: false, dy: 0 }
-  const { dir, mirror } = view(av.facing)
-  const col = dir === 'down' ? 0 : dir === 'up' ? 1 : 2
+function poseOf(av: Avatar, t: number): { dir: number; pose: Pose } {
+  let dir = avatarDirection(av.facing)
+  const blink = blinking(t, hash(av.id))
+  if (av.isDown) return { dir: dir >= 4 ? 4 : 2, pose: { posture: 'lay', frame: 0 } }
   if (av.stepping) {
-    // stride, pass, the other stride, pass: front and back views mirror their one stride frame
-    const step = Math.floor(av.stride / QUARTER) & 3
-    if (step % 2 === 1) return { col, row: 0, mirror, dy: -1 }
-    if (dir === 'side') return { col: step === 0 ? 2 : 3, row: 1, mirror, dy: 0 }
-    return { col, row: 1, mirror: step === 2 ? !mirror : mirror, dy: 0 }
+    const pose: Pose = { posture: 'wlk', frame: Math.floor(av.stride / (Math.PI / 2)) & 3, blink }
+    if (av.prop !== 'none') pose.arms = 'crr'
+    return { dir, pose }
   }
-  if (seated(av)) {
-    // typing hands bob the shoulders now and then
-    const bob = av.pose === 'type' && Math.sin(t * 9) > 0.6 ? 1 : 0
-    return { col, row: 2, mirror, dy: (dir === 'down' ? 7 : dir === 'up' ? 2 : 4) + bob }
-  }
-  if (av.pose === 'wave' && dir === 'down') return { col: 3, row: 0, mirror: false, dy: 0 }
-  // breathing, and a little bounce while talking
-  const talk = av.pose === 'talk' && Math.sin(t * 10) > 0 ? -1 : 0
-  return { col, row: 0, mirror, dy: talk }
+  const pose: Pose = { posture: seated(av) ? 'sit' : 'std', frame: 0, blink }
+  if (pose.posture === 'sit' && dir % 2 === 1) dir = (dir + 7) % 8
+  if (av.pose === 'wave') {
+    pose.arms = 'wav'
+    pose.armFrame = Math.floor(t * 5) % 2
+  } else if (av.prop !== 'none') pose.arms = 'crr'
+  if (av.pose === 'talk') pose.talk = Math.floor(t * 7) % 2
+  return { dir, pose }
+}
+
+/** The Imager's standing picture of this person ('loading' until it arrives, null if it failed). */
+function standingOf(av: Avatar, direction: number): HTMLImageElement | 'loading' | null {
+  return avatarImage(lookFigure(av).figure, direction)
 }
 
 /** Draws one person; returns where, for clicks. */
 export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number): Rect {
   const s = av.root.scale.x
-  const fx = Math.round(artX(av.position.x))
-  const fy = Math.round(artY(0, av.position.z))
-  const sheet = sheetOf(av)
+  const fx = Math.round(isoX(av.position.x, av.position.z))
+  const fy = Math.round(isoY(av.position.x, 0, av.position.z))
+  const { dir, pose } = poseOf(av, t)
+  const frame = figureFrame(lookFigure(av), dir, pose)
 
   const effort = av.effort
   const glow = effort ? AURA_COLORS[effort] : undefined
@@ -95,95 +82,123 @@ export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number)
     // the effort aura: a flickering flame behind the body
     const k = Aura.reduced ? 1 : 0.85 + 0.15 * Math.sin(t * 7 + fx)
     ctx.globalAlpha = 0.28
-    ellipse(ctx, glow, fx, fy - 20 * s, 15 * s * k, 25 * s * k)
+    ellipse(ctx, glow, fx, fy - 36 * s, 22 * s * k, 42 * s * k)
     ctx.globalAlpha = 0.4
-    ellipse(ctx, glow, fx, fy - 16 * s, 10 * s, 18 * s * k)
+    ellipse(ctx, glow, fx, fy - 30 * s, 14 * s, 30 * s * k)
     ctx.globalAlpha = 1
   }
-  // soft shadow on the floor
-  ctx.globalAlpha = 0.22
-  ellipse(ctx, '#140f28', fx, fy - 1, (av.isDown ? 18 : 10) * s, 4 * s)
+  // the Habbo shadow: a flat dark ellipse under the feet
+  ctx.globalAlpha = 0.25
+  ellipse(ctx, '#000000', fx, fy, (av.isDown ? 26 : 15) * s, 6 * s)
   ctx.globalAlpha = 1
 
+  const shake = av.flinch > 0 ? Math.round(Math.sin(t * 60) * 2) : 0
+  const lift = pose.posture === 'sit' ? SEAT : 0
   let rect: Rect
-  if (sheet) {
-    const c = cell(av, t)
-    const w = Math.round(CELL_W * s)
-    const h = Math.round(CELL_H * s)
-    const shake = av.flinch > 0 ? Math.round(Math.sin(t * 60)) : 0
-    const x = fx - Math.round(w / 2) + shake
-    const y = fy - Math.round(FEET * s) + Math.round(c.dy * s)
-    if (c.mirror) {
-      ctx.save()
-      ctx.translate(x + w, y)
-      ctx.scale(-1, 1)
-      ctx.drawImage(sheet.image, c.col * CELL_W, c.row * CELL_H, CELL_W, CELL_H, 0, 0, w, h)
-      ctx.restore()
-    } else ctx.drawImage(sheet.image, c.col * CELL_W, c.row * CELL_H, CELL_W, CELL_H, x, y, w, h)
-    drawEyes(ctx, sheet.eyes, c.row * 4 + c.col, x, y, w / CELL_W, { mirror: c.mirror, closed: blinking(t, hash(av.id)) })
-    rect = { x0: x + 8 * s, y0: y + 10 * s, x1: x + w - 8 * s, y1: fy }
-    drawCarry(ctx, av, fx, fy, s)
+  if (frame) {
+    // the assembled avatar, its feet on the floor point (on the seat when sitting)
+    const x = fx - Math.round(FOOT.x * s) + shake
+    const y = fy - Math.round((FOOT.y + lift) * s)
+    ctx.drawImage(frame, x, y, Math.round(FRAME.w * s), Math.round(FRAME.h * s))
+    rect =
+      pose.posture === 'lay'
+        ? { x0: fx - 45 * s, y0: fy - 40 * s, x1: fx + 45 * s, y1: fy + 4 }
+        : { x0: fx - 15 * s, y0: fy - (88 + lift - (pose.posture === 'sit' ? 16 : 0)) * s, x1: fx + 15 * s, y1: fy }
   } else {
-    // no sheet yet: the 3D avatar itself, turned to the nearest of the four views
-    const r = av.root.rotation.y
-    av.root.rotation.y = Math.round(av.facing / QUARTER) * QUARTER
-    av.root.updateMatrixWorld(true)
-    const pieces = gather(av.root)
-    paint(ctx, pieces)
-    av.root.rotation.y = r
-    const b = bounds(pieces)
-    rect = b ?? { x0: fx - 8, y0: fy - 44, x1: fx + 8, y1: fy }
+    const img = standingOf(av, dir)
+    if (img === 'loading') return { x0: fx - 16 * s, y0: fy - 80 * s, x1: fx + 16 * s, y1: fy }
+    if (!img) {
+      // HabboAssets out of reach (offline): the 3D avatar itself
+      av.root.updateMatrixWorld(true)
+      const pieces = gather(av.root)
+      paint(ctx, pieces)
+      return bounds(pieces) ?? { x0: fx - 10, y0: fy - 60, x1: fx + 10, y1: fy }
+    }
+    // the libraries are still on their way: the Imager's standing picture
+    const w = Math.round(AV_W * s)
+    const x = fx - Math.round(w / 2) + shake
+    const y = fy - Math.round((FEET + lift) * s)
+    ctx.drawImage(img, x, y, w, Math.round(AV_H * s))
+    rect = { x0: x + 16 * s, y0: y + 36 * s, x1: x + w - 16 * s, y1: fy }
   }
+  if (!av.isDown) drawCarry(ctx, av, dir, fx, fy - lift * s, s, pose.posture === 'sit')
   const gem = av.gemColor
-  if (gem && sheet) drawGem(ctx, gem, fx, fy - Math.round(54 * s) + Math.round(Math.sin(t * 2.4) * 1.5))
+  if (gem)
+    drawGem(
+      ctx,
+      gem,
+      fx,
+      fy -
+        Math.round((pose.posture === 'sit' ? 84 + lift : pose.posture === 'lay' ? 40 : 100) * s) +
+        Math.round(Math.sin(t * 2.4 + hash(av.id)) * 1.5),
+    )
   return rect
 }
 
 /**
- * The person standing towards the viewer, alone on a 48 x 64 canvas (CSS scales it up, pixelated):
- * the avatar of the reading screen. `wave` picks the greeting pose. Null without a sheet.
+ * The person standing towards the viewer, alone on a 64 x 110 canvas (CSS scales it up,
+ * pixelated): the avatar of the reading screen, waving when `wave`. Drawn as soon as its
+ * libraries (or the Imager's picture) arrive.
  */
 export function figureOf(av: Avatar, wave = false): HTMLCanvasElement | null {
-  const sheet = sheetOf(av)
-  if (!sheet) return null
   const c = document.createElement('canvas')
-  c.width = CELL_W
-  c.height = CELL_H
+  c.width = AV_W
+  c.height = AV_H
   c.className = 'figure'
   const ctx = c.getContext('2d')!
-  ctx.drawImage(sheet.image, (wave ? 3 : 0) * CELL_W, 0, CELL_W, CELL_H, 0, 0, CELL_W, CELL_H)
-  drawEyes(ctx, sheet.eyes, wave ? 3 : 0, 0, 0, 1)
+  const dir = wave ? 2 : 3
+  const draw = () => {
+    const frame = figureFrame(lookFigure(av), dir, wave ? { posture: 'std', frame: 0, arms: 'wav' } : { posture: 'std', frame: 0 })
+    if (frame) {
+      ctx.clearRect(0, 0, AV_W, AV_H)
+      ctx.drawImage(frame, AV_W / 2 - FOOT.x, FEET - FOOT.y)
+      return true
+    }
+    const img = standingOf(av, dir)
+    if (!img || img === 'loading') return false
+    ctx.clearRect(0, 0, AV_W, AV_H)
+    ctx.drawImage(img, 0, 0)
+    return false
+  }
+  if (!draw()) {
+    let tries = 0
+    const timer = setInterval(() => {
+      if (draw() || ++tries > 40 || !c.isConnected) clearInterval(timer)
+    }, 500)
+  }
   return c
 }
 
-/** Papers or a mug in hand (the sheets have no hands free for them). */
-function drawCarry(ctx: CanvasRenderingContext2D, av: Avatar, fx: number, fy: number, s: number): void {
-  if (av.prop === 'none' || av.isDown) return
-  const { dir, mirror } = view(av.facing)
-  if (dir === 'up') return
+/** Papers or a mug in hand (the client draws hand items from another library). */
+function drawCarry(ctx: CanvasRenderingContext2D, av: Avatar, dir: number, fx: number, fy: number, s: number, sitting: boolean): void {
+  if (av.prop === 'none' || away(dir)) return
+  // in the right hand, raised to carry (the client's crr pose)
+  const side = dir >= 4 ? -1 : 1
+  const hand = sitting ? 40 : 52
   if (av.prop === 'mug') {
-    const x = fx + (dir === 'side' ? (mirror ? -8 : 6) : 7) * s
+    const x = Math.round(fx + side * 12 * s)
+    const y = Math.round(fy - hand * s)
     ctx.fillStyle = '#1c1830'
-    ctx.fillRect(Math.round(x - 1), Math.round(fy - 23 * s), 5, 6)
+    ctx.fillRect(x - 3, y - 1, 7, 8)
     ctx.fillStyle = '#ffffff'
-    ctx.fillRect(Math.round(x), Math.round(fy - 22 * s), 3, 4)
+    ctx.fillRect(x - 2, y, 5, 6)
     return
   }
-  const x = Math.round(fx + (dir === 'side' ? (mirror ? -12 : 4) : -5) * s)
-  const y = Math.round(fy - 28 * s)
+  const x = Math.round(fx + side * 10 * s - 5)
+  const y = Math.round(fy - (hand + 6) * s)
   ctx.fillStyle = '#1c1830'
-  ctx.fillRect(x - 1, y - 1, 10, 12)
+  ctx.fillRect(x - 1, y - 1, 12, 14)
   ctx.fillStyle = av.prop === 'redPaper' ? '#ffecec' : '#fbfbf8'
-  ctx.fillRect(x, y, 8, 10)
+  ctx.fillRect(x, y, 10, 12)
   ctx.fillStyle = av.prop === 'redPaper' ? '#e5484d' : '#20a464'
-  ctx.fillRect(x, y, 8, 2)
+  ctx.fillRect(x, y, 10, 2)
   ctx.fillStyle = '#b2bec3'
-  for (let i = 0; i < 3; i++) ctx.fillRect(x + 1, y + 4 + i * 2, 5, 1)
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + 1, y + 4 + i * 2, 7, 1)
 }
 
 /** The Sims-style diamond in the account's color, over the head. */
 function drawGem(ctx: CanvasRenderingContext2D, color: string, cx: number, top: number): void {
-  const rows = [1, 3, 5, 5, 3, 1]
+  const rows = [1, 3, 5, 7, 7, 5, 3, 1]
   ctx.fillStyle = '#1c1830'
   rows.forEach((w, i) => ctx.fillRect(cx - (w + 2) / 2 + 0.5, top + i - 1, w + 2, 3))
   ctx.fillStyle = color

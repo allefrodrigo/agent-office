@@ -6,6 +6,7 @@ import { DEFAULT_VIDEO, QUALITY_LABELS, QUALITY_PRESETS, qualityOf, type FpsLimi
 import { openAccounts } from '../accounts'
 import { dataSection } from '../data'
 import { h, icon } from '../dom'
+import { habboEditor } from '../habbo-editor'
 import { portrait } from '../portrait'
 import { updateSettingsBox } from '../updates'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
@@ -22,6 +23,8 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const s = state.settings
   const look: Look = { ...s.playerLook }
   const name = h('input', { class: 'input', value: s.playerName, maxlength: 24 })
+  // the 2D view dresses the player in Habbo's wardrobe, with the avatar live beside it
+  const habbo = s.video?.view === '2d' ? habboEditor(look) : null
   const preview = h('div', { class: 'look-preview' })
   const renderPreview = () => preview.replaceChildren(portrait(look, 96))
   renderPreview()
@@ -136,7 +139,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   save.addEventListener('click', async () => {
     await window.office.saveSettings({
       playerName: name.value.trim() || 'Você',
-      playerLook: look,
+      playerLook: habbo ? habbo.value() : look,
       pixelSize: Number(pixel.value),
       notifications: notify.checked,
       defaultModel: brain.model.value,
@@ -161,21 +164,25 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const el = modal(
     'Configurações',
     [
-      h(
-        'div',
-        { class: 'look-editor' },
-        preview,
-        h(
-          'div',
-          { class: 'look-fields' },
-          field('Seu nome', name),
-          field('Pele', swatches('skin', SKIN_TONES)),
-          field('Cabelo', swatches('hair', HAIR_COLORS)),
-          field('Corte', styles),
-          field('Camiseta', swatches('shirt', SHIRT_COLORS)),
-          field('Calça', swatches('pants', PANTS_COLORS)),
-        ),
-      ),
+      ...(habbo
+        ? [field('Seu nome', name), habbo.el]
+        : [
+            h(
+              'div',
+              { class: 'look-editor' },
+              preview,
+              h(
+                'div',
+                { class: 'look-fields' },
+                field('Seu nome', name),
+                field('Pele', swatches('skin', SKIN_TONES)),
+                field('Cabelo', swatches('hair', HAIR_COLORS)),
+                field('Corte', styles),
+                field('Camiseta', swatches('shirt', SHIRT_COLORS)),
+                field('Calça', swatches('pants', PANTS_COLORS)),
+              ),
+            ),
+          ]),
       h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', brain.model), field('Permissão padrão', mode)),
       meterField('Esforço padrão', brain.meter),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
@@ -312,7 +319,7 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
   const effects = h('select', { class: 'input' }, h('option', { value: 'full' }, 'Completos'), h('option', { value: 'reduced' }, 'Reduzidos'))
   const battery = h('input', { type: 'checkbox' }) as HTMLInputElement
   battery.checked = v.batterySaver
-  const view = h('select', { class: 'input' }, h('option', { value: 'iso' }, 'Isométrico 3D (padrão)'), h('option', { value: '2d' }, '2D pixel art (mais leve)'))
+  const view = h('select', { class: 'input' }, h('option', { value: 'iso' }, 'Isométrico 3D (padrão)'), h('option', { value: '2d' }, '2D Habbo (mais leve)'))
   view.value = v.view ?? 'iso'
 
   const value = (): VideoSettings => ({
@@ -346,7 +353,7 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
     h('div', { class: 'bridge-title' }, icon('gauge', 16), 'Vídeo'),
     h('div', { class: 'field-hint' }, 'Economia desliga as sombras, limita a 30 fps e reduz fumaça, faíscas e giroflex. Com o escritório parado ou a janela minimizada, o app já desenha menos sozinho.'),
     h('div', { class: 'field-row' }, field('Visual', view), field('Qualidade', quality)),
-    h('div', { class: 'field-hint' }, '2D pixel art desenha o escritório em sprites planos, sem 3D: gasta menos placa de vídeo e memória, bom para computador mais fraco. Trocar o visual recarrega o escritório.'),
+    h('div', { class: 'field-hint' }, '2D Habbo desenha o escritório em isométrico com a arte do Habbo (via HabboAssets, precisa de internet), sem 3D: gasta menos placa de vídeo e memória, bom para computador mais fraco. Trocar o visual recarrega o escritório.'),
     h('div', { class: 'field-row' }, field('Limite de fps', fps), field('Sombras', shadows)),
     h('div', { class: 'field-row' }, field('Efeitos', effects)),
     h('label', { class: 'check' }, battery, 'Economia automática na bateria'),
