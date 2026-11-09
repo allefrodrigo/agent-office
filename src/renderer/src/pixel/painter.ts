@@ -5,11 +5,8 @@ import type { Office } from '../world/office'
 import { pxTag } from '../world/pixel-tag'
 import { sprite } from './assets'
 import type { PixelEngine, Rect } from './engine'
-import { onFigureLibrary } from './figure'
-import { allLibraries } from './habbo-catalog'
-import { furniFor, onHabboImage, type FurniUse } from './habbo'
-import { drawScreen } from './habbo-computer'
-import { drawPerson, personKey } from './people'
+import { drawScreen, furniFor, onFurniArt, type FurniUse } from './iso-art'
+import { auraKey, drawAura, drawPerson, onPeopleArt, personKey } from './people'
 import { bake, boxRect, depthOf, ellipse, gather, HALF_H, HALF_W, isoX, isoY, paint, type Piece } from './voxel'
 
 /** What the painter reads from the game each frame. */
@@ -56,9 +53,9 @@ interface Drawable {
 const onWall = (b: THREE.Box3) => (b.max.z < 0.45 || b.max.x < 0.45) && b.min.y > 0.3
 
 /**
- * Paints the floor on screen in the Habbo isometric view: a cached background (floor slab,
+ * Paints the floor on screen in the 2:1 isometric view: a cached background (floor slab,
  * rugs, back walls), then furniture and people sorted back to front, then effects. Furniture
- * with a Habbo counterpart is drawn with the Imager's picture; the rest is baked from its 3D
+ * with its own sprite (pixel/iso-art.ts) is drawn with it; the rest is baked from its 3D
  * pieces once per floor. Only screens, lights, doors and people are drawn again each frame.
  */
 export class PixelPainter {
@@ -70,13 +67,9 @@ export class PixelPainter {
     private world: PixelWorld,
   ) {
     engine.painter = (ctx, view) => this.paint(ctx, view)
-    // Habbo pictures arrive after the first frames: draw again with each one
-    onHabboImage(() => (engine.dirty = true))
-    onFigureLibrary(() => (engine.dirty = true))
-    // the whole wardrobe to disk in the background: any look then draws at once, offline too
-    void window.office
-      .habboPrefetch(allLibraries())
-      .catch((err) => console.warn(`[habbo] cache: ${err instanceof Error ? err.message : err}`))
+    // the sprites load after the first frames: draw again with each one
+    onFurniArt(() => (engine.dirty = true))
+    onPeopleArt(() => (engine.dirty = true))
   }
 
   /** Forget the baked floors. */
@@ -96,6 +89,8 @@ export class PixelPainter {
 
     const dynamic: Drawable[] = []
     for (const av of this.world.people()) {
+      const behind = auraKey(av)
+      if (behind !== null) dynamic.push({ key: behind, draw: () => drawAura(ctx, av, t) })
       dynamic.push({
         key: personKey(av),
         draw: (order) => {
@@ -115,7 +110,7 @@ export class PixelPainter {
     const slack = 2 * HALF_W
     for (const u of art.units) {
       while (d < dynamic.length && dynamic[d].key <= u.key) dynamic[d++].draw(++this.order)
-      // a Habbo picture can be bigger than the 3D pieces: some slack
+      // a sprite can be bigger than the 3D pieces: some slack
       if (u.rect.x1 < view.x0 - slack || u.rect.x0 > view.x1 + slack || u.rect.y1 < view.y0 - slack || u.rect.y0 > view.y1 + slack * 2)
         continue
       this.drawUnit(ctx, u, ++this.order)
@@ -186,7 +181,7 @@ export class PixelPainter {
         live: pieces.some((p) => p.live),
       })
     }
-    // what stands on a desk or a table comes after it: the Habbo desk's picture would hide the
+    // what stands on a desk or a table comes after it: the desk's sprite would hide the
     // things on its back half (the boss's monitor) behind its top
     for (const u of units) {
       if (u.box.min.y < 0.3) continue
@@ -202,8 +197,8 @@ export class PixelPainter {
           u.key = Math.max(u.key, s.key + 0.001)
     }
     units.sort((a, b) => a.key - b.key)
-    // ask the Imager for every picture of the floor now, not as each comes into view
-    for (const u of units) habboOf(u)
+    // load every sprite of the floor now, not as each comes into view
+    for (const u of units) artOf(u)
     const lights: FloorArt['lights'] = []
     const at = new THREE.Vector3()
     group.traverse((o) => {
@@ -245,7 +240,7 @@ export class PixelPainter {
     return { bg, bgX: x0, bgY: y0 }
   }
 
-  /** Faint Habbo tile seams over the floor slab, one diamond per tile. */
+  /** Faint tile seams over the floor slab, one diamond per tile. */
   private tileLines(ctx: CanvasRenderingContext2D, slab: THREE.Object3D): void {
     const b = new THREE.Box3().setFromObject(slab)
     const y = b.max.y
@@ -264,9 +259,9 @@ export class PixelPainter {
   // ---------- drawing ----------
 
   private drawUnit(ctx: CanvasRenderingContext2D, u: Unit, order: number): void {
-    const habbo = habboOf(u)
-    if (habbo === 'loading' || habbo === 'hidden') this.engine.hits.set(u.obj, { ...u.rect, order })
-    else if (habbo) this.drawHabbo(ctx, u, habbo, order)
+    const art = artOf(u)
+    if (art === 'loading' || art === 'hidden') this.engine.hits.set(u.obj, { ...u.rect, order })
+    else if (art) this.drawSprite(ctx, u, art, order)
     else {
       if (u.baked) ctx.drawImage(u.baked.canvas, u.baked.ox, u.baked.oy)
       if (u.live) {
@@ -279,10 +274,10 @@ export class PixelPainter {
   }
 
   /**
-   * A Habbo picture standing on the object's floor spot: centered on its footprint, its lowest
-   * pixel on the footprint's front corner (the Imager crops each picture to its art).
+   * A sprite standing on the object's floor spot: centered on its footprint, its lowest
+   * pixel on the footprint's front corner (each sprite is cropped to its art).
    */
-  private drawHabbo(ctx: CanvasRenderingContext2D, u: Unit, use: FurniUse, order: number): void {
+  private drawSprite(ctx: CanvasRenderingContext2D, u: Unit, use: FurniUse, order: number): void {
     const { img, repeat, dy } = use
     // a canvas has no natural size; an image's width is its natural one until laid out
     const iw = img instanceof HTMLImageElement ? img.naturalWidth : img.width
@@ -385,12 +380,12 @@ export class PixelPainter {
   }
 }
 
-/** The Habbo picture of a unit; a plant on a table or a desk gets the half-size one. */
-function habboOf(u: Unit): ReturnType<typeof furniFor> {
+/** The sprite of a unit; a plant on a table or a desk gets the half-size one. */
+function artOf(u: Unit): ReturnType<typeof furniFor> {
   return furniFor(u.obj, pxTag(u.obj)?.key === 'plant' && u.box.min.y > 0.3)
 }
 
-/** The Habbo hover outline: a one-pixel diamond around the floor tile whose corner is (x, z). */
+/** The hover outline: a one-pixel diamond around the floor tile whose corner is (x, z). */
 function diamond(ctx: CanvasRenderingContext2D, x: number, z: number, color: string): void {
   ctx.fillStyle = color
   const tx = Math.round(isoX(x, z))

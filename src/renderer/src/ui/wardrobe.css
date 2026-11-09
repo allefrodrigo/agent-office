@@ -1,0 +1,125 @@
+/* Look editor of the 2D view (ui/wardrobe.ts). */
+
+.wardrobe {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.wr-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.wr-stage {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: radial-gradient(ellipse at 50% 85%, rgba(255, 255, 255, 0.07), transparent 70%), rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.wr-stage:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
+.wr-canvas {
+  display: block;
+  width: 216px;
+  height: 336px;
+  image-rendering: pixelated;
+}
+
+.wr-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.wr-icon {
+  width: 28px;
+  padding: 0;
+}
+
+.wr-flip .icon {
+  transform: scaleX(-1);
+}
+
+.wr-controls .btn.on {
+  border-color: var(--accent);
+  background: rgba(217, 119, 87, 0.18);
+}
+
+.wr-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wr-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wr-cut-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.wr-cut-label {
+  font-size: 11px;
+  opacity: 0.6;
+}
+
+.wr-cuts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(56px, 1fr));
+  gap: 6px;
+}
+
+.wr-cut {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  padding: 0;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.wr-cut:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.wr-cut.on {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px var(--accent);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.wr-head {
+  width: 48px;
+  height: 42px;
+  image-rendering: pixelated;
+}
+
+/* Configurações: the name field above the wardrobe. */
+.look-editor-2d {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.look-editor-2d > .field {
+  max-width: 260px;
+}

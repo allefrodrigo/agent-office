@@ -3,7 +3,6 @@ import { basename, isAbsolute, relative, resolve } from 'node:path'
 import { z } from 'zod'
 import { ATTACH_LIMITS } from '@shared/attachments'
 import { HAIR_STYLES } from '@shared/describe'
-import { cleanHabboLook } from '@shared/habbo-look'
 import { canAddFloor, floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
@@ -291,11 +290,6 @@ const lookSchema = z.object({
   shirt: z.string().regex(HEX),
   pants: z.string().regex(HEX),
   shoes: z.string().regex(HEX),
-  habbo: z
-    .unknown()
-    .optional()
-    .refine((v) => v === undefined || cleanHabboLook(v) !== undefined, 'Visual do Habbo inválido.')
-    .transform((v) => (v === undefined ? undefined : cleanHabboLook(v))),
 })
 
 /**

@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { AgentSummary, OfficeState } from '@shared/types'
 import { appInfo, selfUpdateBrief } from '../about'
-import { habboFurni, habboLibrary, prefetchHabbo } from '../habbo'
 import { dataNotices } from '../fs-safe'
 import { diagnostics, rendererError } from '../crash'
 import { logDir } from '../log'
@@ -68,10 +67,6 @@ export function registerAppIpc(ctx: IpcContext): void {
     broadcast({ type: 'settings', settings: store.settings })
     caffeine.check()
   })
-  // the 2D view's avatars: a Habbo clothing library (.nitro), cached under userData/habbo
-  ipcMain.handle('office:habboLibrary', (_e, name: unknown) => habboLibrary(join(app.getPath('userData'), 'habbo'), name))
-  ipcMain.handle('office:habboFurni', (_e, name: unknown) => habboFurni(join(app.getPath('userData'), 'habbo'), name))
-  ipcMain.handle('office:habboPrefetch', (_e, names: unknown) => prefetchHabbo(join(app.getPath('userData'), 'habbo'), names))
   ipcMain.handle('office:quitApp', async () => void (await quit.ask()))
   // Configurações → Vídeo → Visual: the other view starts on a fresh page (the window blocks page navigation)
   ipcMain.handle('office:reloadWindow', (e) => BrowserWindow.fromWebContents(e.sender)?.webContents.reload())

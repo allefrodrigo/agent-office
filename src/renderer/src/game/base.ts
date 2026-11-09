@@ -113,7 +113,7 @@ export abstract class GameBase {
     this.playerTag.setDot('you')
     this.engine.jumpTo(this.player.position.x, this.player.position.z)
 
-    // hovered tile outline, Habbo style
+    // hovered tile outline, classic isometric style
     const g = new THREE.BufferGeometry().setFromPoints(
       [[0, 0], [1, 0], [1, 0], [1, 1], [1, 1], [0, 1], [0, 1], [0, 0]].map(([x, z]) => new THREE.Vector3(x, 0.03, z)),
     )

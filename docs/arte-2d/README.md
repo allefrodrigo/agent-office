@@ -1,68 +1,55 @@
-# Modo 2D Habbo
+# Modo 2D
 
-O escritório pode ser desenhado em 2D isométrico com a arte do Habbo: móveis e avatares vêm do Imager público do [HabboAssets](https://www.habboassets.com/api). É uma opção para computadores mais fracos: não usa WebGL, sombra nem pós-processamento. O isométrico 3D continua como padrão.
+O escritório pode ser desenhado em 2D isométrico, em pixel art própria. É uma opção para computadores mais fracos: não usa WebGL, sombra nem pós-processamento, nem internet. O isométrico 3D continua como padrão.
 
 ## Ligar
 
-Configurações → Vídeo → **Visual** → *2D Habbo (mais leve)* → Salvar. A janela recarrega no novo visual. Para voltar, escolha *Isométrico 3D (padrão)*.
+Configurações → Vídeo → **Visual** → *2D pixel art (mais leve)* → Salvar. A janela recarrega no novo visual. Para voltar, escolha *Isométrico 3D (padrão)*.
 
 Em dev, `AGENT_OFFICE_VIEW=2d npm run dev` abre em 2D sem mexer nas configurações (vale também para `npm run bench` e para as capturas com `AGENT_OFFICE_SHOTS`).
 
 ## Como funciona
 
 - O jogo é o mesmo: andares, agentes, caminhos, cliques e etiquetas. Muda só quem desenha (`src/renderer/src/pixel/`).
-- Projeção do Habbo: um tile é um losango de 64 x 32, x desce para a direita e z para a esquerda. As paredes do fundo (z = 0 e x = 0) fecham a sala por cima, como no 3D.
-- Cada móvel com px() tag que tem par no Habbo vira a imagem do Imager (`/imaging/furniture/<classname>.png?direction=N`). A tabela fica em `pixel/habbo.ts` (`BY_TAG`, `PLANTS`, `SOFAS`). Direções: 2 olha para +x, 4 para +z, 0 e 6 de costas.
-- O resto (telas ao vivo, paredes, vidro, quadros, elevador) é desenhado a partir das peças do modelo 3D, projetadas em isométrico (`pixel/voxel.ts`). Telas, céu das janelas e placas continuam ao vivo.
-- Editor de visual: no 2D, Configurações (você) e o editor de modelo (agentes) abrem o guarda-roupa do Habbo (`ui/habbo-editor.ts`). São 13 categorias com todo o catálogo do cliente, uma ou duas cores da paleta por peça e o avatar ao vivo ao lado: gira nas 8 direções, anda, acena, fala e pisca. A escolha fica em `Look.habbo`; as cores principais também vão para o visual 3D. As miniaturas vêm do Imager (`/imaging/clothing/set/<id>.png`).
-- Avatares: montados peça por peça, como no cliente do Habbo (`pixel/figure.ts`, catálogo em `pixel/habbo-catalog.ts`). Quem não tem `Look.habbo` ganha um visual derivado das cores 3D (pele, cabelo, corte, camisa ou uniforme do squad, calça, sapato), que vira um conjunto de peças (corpo, cabeça, rosto, cabelo, camisa, mangas, pernas, sapatos). Cada peça é um sprite da sua biblioteca de roupa (`.nitro` do HabboAssets), tingido com a cor da paleta e desenhado na ordem da sua direção.
-- Animações do próprio cliente: andar (4 frames), sentar, deitar, acenar, carregar, falar (boca) e piscar. Sentado e deitado, o Habbo só tem as diagonais, então o avatar vira para a mais próxima.
-- O processo principal baixa as bibliotecas (o CDN não libera CORS para a página) e guarda em `userData/habbo/`. Ao abrir o 2D, ele também baixa em segundo plano, uma a cada 1,5 s, todas as bibliotecas do catálogo que faltam. Assim qualquer roupa do editor aparece na hora e sem internet. Um 429 do HabboAssets espera o Retry-After e tenta de novo. Enquanto as bibliotecas chegam, aparece a imagem em pé do Imager.
-- Quais peças formam cada conjunto, em que biblioteca cada peça fica e as paletas vêm do `figuredata.xml` e do `figuremap.xml` do cliente (`pixel/habbo-avatar.json`). A ordem de desenho por direção foi medida contra o Imager: é a que reproduz a imagem dele.
-- Sem internet, ou enquanto a imagem não chega, o objeto aparece desenhado pelas peças 3D. O Imager limita a 60 por minuto as imagens que ainda não estão no cache dele; uma imagem recusada é pedida de novo depois de 15 s, 1 min e 5 min.
+- Projeção: um tile é um losango de 64 x 32, x desce para a direita e z para a esquerda. As paredes do fundo (z = 0 e x = 0) fecham a sala por cima, como no 3D.
+- Cada móvel com px() tag que tem sprite vira a imagem de `src/renderer/src/assets/iso/<chave>.png`. A tabela fica em `pixel/iso-art.ts` (`BY_TAG`, `PLANTS`, `SOFAS`).
+- O resto (paredes, vidro, quadros, elevador, TVs, painéis) é desenhado a partir das peças do modelo 3D, projetadas em isométrico (`pixel/voxel.ts`). Telas, céu das janelas e placas continuam ao vivo.
+- Pessoas: `pixel/people.ts`, com as cores do visual de cada um (Configurações → Você e o editor de modelo dos agentes: cores e corte de cabelo). Enquanto as folhas carregam, o avatar 3D aparece desenhado plano.
 
-## Atualizar os dados dos avatares
-
-1. Baixe o pacote do cliente: `https://www.habboassets.com/api/v2/swfs/builds` lista os builds; o `download` de um deles é um ZIP.
-2. Descompacte e rode `npm run habbo:avatar -- <pasta do build>` (a pasta com `figuremap.xml` e `gamedata/figuredata.xml`).
-3. O script extrai todo conjunto selecionável das 13 categorias do editor. Para mudar o visual de quem não escolheu um, troque os ids em `HAIR_SETS`/`BODY` (`pixel/habbo-catalog.ts`).
-4. Cabelo e chapéu seguem o Imager. Cabelo com versão cheia (`hrb`) desenha só ela, nunca o `hr` gêmeo de mesmo id. O chapéu esconde o `hrb` (`hiddenlayers` do `figuredata.xml`), e o capacete esconde mais.
-5. O `figuremap.xml` lista algumas partes só pelo tipo principal (o `hrb 4` fica na biblioteca do `hr 4`). O script dá a essas partes a biblioteca das outras peças do conjunto.
-6. Para conferir o catálogo inteiro contra o Imager, desenhe cada conjunto com a mesma regra do app e compare pixel a pixel. Fora a textura (o Imager usa revisões mais antigas da arte), tudo deve bater.
-
-## Trocar um móvel
-
-1. Ache o classname em <https://www.habboassets.com/furniture> ou em `https://www.habboassets.com/imaging/search?type=furniture&q=<texto>`.
-2. Veja as direções que ele tem: `https://www.habboassets.com/imaging/info/furniture/<classname>`.
-3. Troque a linha da tag em `BY_TAG` (`pixel/habbo.ts`) e confira no app.
-
-## Móveis que o Habbo não tem
-
-Gela água, pebolim, pingue-pongue, mesa alta, mesa de reunião, relógio de parede, armário de parede, papéis e caneca não existem no catálogo do Habbo. A luminária de mesa também: a do Habbo tem tamanho de móvel de chão. O Codex desenha cada um no estilo dos móveis do Habbo, com móveis reais anexados como régua de estilo.
+## Móveis
 
 ```sh
-npm run habbo:moveis                    # gera os que faltam (usa sua conta ChatGPT)
-npm run habbo:moveis -- foosball        # redesenha um, pela chave
-npm run habbo:moveis -- --process       # só recorta de novo os brutos de arte-2d/habbo/
+npm run arte:iso                       # desenha os que faltam (usa sua conta ChatGPT)
+npm run arte:iso -- desk sofa3         # redesenha estes, pela chave
+npm run arte:iso -- --process [chaves] # só recorta de novo os brutos de arte-2d/iso/
+npm run arte:iso -- --list             # os jobs e quais já estão prontos
 ```
 
-- O bruto vai para `arte-2d/habbo/` (fora do git). O sprite pronto vai para `src/renderer/src/assets/habbo/<chave>.png`, na escala do Habbo: um tile tem 64 px de largura. A largura de cada um fica em `JOBS` (`scripts/habbo-furni.mjs`).
-- Cada sprite é desenhado numa direção, e o app espelha para a outra. Ao redesenhar, confira para onde ficou a frente e acerte o `own('<chave>', 2 | 4)` em `pixel/habbo.ts`. Na direção 2, o comprimento vai na diagonal para baixo-esquerda; na 4, para baixo-direita.
-- Laptop e arquivo de aço usam móveis do próprio Habbo (`computer_laptop`, `army_c15_cabinet`). A luminária de mesa do Habbo tem tamanho de móvel de chão; a nossa é desenhada pequena.
-- Continuam desenhados pelas peças 3D os objetos com conteúdo ao vivo ou animação: TVs, quadro branco, painéis de custo e de rotinas, placas da sala e da marca, janelas, quadros, elevador, giroflex e o cantinho do café.
+- Os prompts e o tamanho 3D de cada móvel (comprimento, profundidade, altura, em tiles) ficam em `scripts/iso/prompts.mjs` (`ISO_JOBS`). A largura do sprite sai do tamanho: (comprimento + profundidade) x 32 px.
+- Para cada job, o script desenha uma caixa cinza em isométrico 2:1 exato (`arte-2d/iso/_blockout-<chave>.png`) e manda junto com o prompt, para o Codex manter o ângulo do piso. A mesa (`desk`) sai primeiro e vai junto como régua de estilo.
+- O bruto vai para `arte-2d/iso/` (fora do git); o sprite pronto, para `src/renderer/src/assets/iso/<chave>.png`.
+- Direção: a arte de frente olha para baixo-direita (direção 2); espelhada, vira a 4. A arte `<chave>-back` mostra o móvel de costas (direção 6); espelhada, a 0. Sem `-back`, o móvel mostra a frente também de costas.
+- Móvel novo: crie o job em `ISO_JOBS`, rode `npm run arte:iso -- <chave>` e ligue a tag em `BY_TAG` (`pixel/iso-art.ts`).
 
-## Computadores
+## Pessoas
 
-As mesas usam o computador do próprio Habbo (`computer_flatscreen`), desmontado em `pixel/habbo-computer.ts`. O processo principal baixa o `.nitro` do móvel (zip da API do HabboAssets) e guarda em `userData/habbo/furni/`.
+```sh
+npm run arte:pessoas                       # desenha as folhas que faltam (molde-0 primeiro: a régua)
+npm run arte:pessoas -- molde-3            # redesenha esta
+npm run arte:pessoas -- --process [chaves] # só recorta de novo os brutos de arte-2d/iso/people/
+```
 
-- O `.nitro` tem duas camadas: o corpo (monitor, teclado e mouse) e a tela. O monitor e o teclado viram duas figuras, porque a mesa os põe em lugares diferentes e a mesa de dois monitores tem um teclado só.
-- A camada da tela dá o paralelogramo exato onde o app desenha a tela ao vivo do agente (ou o código rolando, nos monitores extras).
-- De costas (a mesa do chefe e as da diretoria), o monitor usa a vista de trás do mesmo móvel.
-- O que fica em cima de uma mesa é desenhado depois dela; senão o tampo da figura do Habbo cobre o que está na metade de trás.
+- Uma folha por corte de cabelo (`Look.hairStyle` 0 a 5): `src/renderer/src/assets/iso/people/molde-N.png`. Prompts em `scripts/iso/people.mjs`.
+- Grade de 4 x 3 células de 64 x 100. Linha 1, três-quartos de frente: em pé, andando, andando, acenando. Linha 2, três-quartos de costas: em pé, andando, andando, sentado. Linha 3: sentado de frente, caído, falando, sentado falando. Espelhadas, cobrem as outras duas diagonais.
+- Cada parte é pintada na sua cor-chave, em 5 tons; `pixel/tint.ts` troca pela cor do visual de cada um: amarelo `#FFFF00` pele, verde `#00FF00` cabelo, vermelho `#FF0000` camisa, azul `#0000FF` calça, ciano `#00FFFF` sapato. Contorno, olhos e boca ficam como estão.
+
+## Telas
+
+A tela do monitor é pintada em magenta `#FF00FF`. O app transforma esses pixels numa máscara e desenha ali a tela ao vivo do agente (ou o código rolando, nos monitores extras). De costas, o monitor usa `monitor-back`.
 
 ## Direitos
 
-A arte é do Habbo (Sulake). O HabboAssets é um arquivo da comunidade, sem vínculo com a Sulake. Antes de distribuir o app com esse visual, confirme se o uso é permitido.
+Toda a arte 2D é original, desenhada para este projeto com o Codex a partir dos nossos prompts. Não há sprite de terceiros.
 
 ## Sprites do catálogo (retrato e pet)
 

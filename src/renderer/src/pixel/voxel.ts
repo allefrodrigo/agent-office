@@ -1,13 +1,13 @@
 import * as THREE from 'three'
 
 /**
- * The 3D office drawn flat on a 2D canvas, without WebGL, in the isometric projection of the
- * Habbo rooms: a floor tile is a 64 x 32 diamond, x runs down-right and z down-left, so the
+ * The 3D office drawn flat on a 2D canvas, without WebGL, in the classic 2:1 isometric pixel-art
+ * projection: a floor tile is a 64 x 32 diamond, x runs down-right and z down-left, so the
  * back walls (z = 0 and x = 0) close the room at the top, as in the 3D view. Three faces of a
  * box show: its top, its +z face (left, lit) and its +x face (right, in shade).
  *
- * The Habbo furniture (pixel/habbo.ts) replaces these shapes object by object; whatever has no
- * Habbo counterpart (screens, walls, glass) is drawn from its 3D pieces here.
+ * Our furniture sprites (pixel/iso-art.ts) replace these shapes object by object; whatever has
+ * no sprite (walls, glass, live panels) is drawn from its 3D pieces here.
  */
 
 /** Half the width and half the height of a floor tile, and the art pixels of one world unit up. */
@@ -59,7 +59,7 @@ const styles = new Map<string, { top: string; front: string; side: string }>()
 const tmp = new THREE.Color()
 const WHITE = new THREE.Color('#ffffff')
 
-/** CSS colors for a material color: top lit, left face a touch darker, right face in shade (Habbo light). */
+/** CSS colors for a material color: top lit, left face a touch darker, right face in shade (light from the top-left). */
 function shades(color: THREE.Color, lit: boolean): { top: string; front: string; side: string } {
   const key = `${color.getHex()}|${lit}`
   let s = styles.get(key)
@@ -171,7 +171,7 @@ type Pt = [number, number]
 
 /**
  * A convex polygon filled row by row with whole-pixel spans: crisp edges, no anti-aliasing,
- * like the Habbo art (a path fill would blur every slanted edge).
+ * like the sprites (a path fill would blur every slanted edge).
  */
 function polygon(ctx: CanvasRenderingContext2D, pts: Pt[]): void {
   let top = Infinity
@@ -317,8 +317,8 @@ export function bounds(pieces: Piece[]): Rect | null {
 }
 
 /**
- * Bakes the still pieces of an object into a small canvas with a 1-pixel dark outline, the
- * Habbo look. `ox, oy` is where its top-left goes in world art pixels.
+ * Bakes the still pieces of an object into a small canvas with a 1-pixel dark outline, like the
+ * sprites. `ox, oy` is where its top-left goes in world art pixels.
  */
 export function bake(pieces: Piece[], outline = true): { canvas: HTMLCanvasElement; ox: number; oy: number } | null {
   const still = pieces.filter((p) => !p.live)

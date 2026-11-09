@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { hairShape } from '@shared/describe'
 import type { EffortLevel, Look } from '@shared/types'
 import { Aura } from './aura'
 import { patchTexture } from './brand'
@@ -34,7 +35,7 @@ function wrapAngle(a: number): number {
   return a
 }
 
-/** A blocky, Habbo-proportioned character with procedural animation. */
+/** A blocky, big-headed character with procedural animation. */
 export class Avatar {
   readonly root = new THREE.Group()
   /** World-space point above the head where name tags and bubbles attach. */
@@ -61,6 +62,7 @@ export class Avatar {
   private aura: Aura | null = null
   private gemHex: string | null = null
   private effortLevel: EffortLevel | undefined
+  private auraWorking = false
 
   pose: Pose = 'stand'
   prop: Prop = 'none'
@@ -186,7 +188,9 @@ export class Avatar {
       box(g, 0.04, 0.16, 0.34, c, 0.215, 0.04, -0.02)
       box(g, 0.44, 0.06, 0.05, c, 0, 0.13, 0.18)
     }
-    switch (L.hairStyle % 6) {
+    const shape = hairShape(L.hairStyle)
+    if (shape === null) return // bald
+    switch (shape) {
       case 0: // short side part
         cap()
         box(g, 0.16, 0.05, 0.05, dark, 0.1, 0.1, 0.19, false)
@@ -260,6 +264,7 @@ export class Avatar {
   /** Aura in the color of the effort level (missing hides it); flares while `working`. */
   setAura(effort: EffortLevel | undefined, working: boolean): void {
     this.effortLevel = effort
+    this.auraWorking = working
     if (!effort && !this.aura) return
     if (!this.aura) {
       this.aura = new Aura(this.id)
@@ -333,6 +338,11 @@ export class Avatar {
     return this.effortLevel
   }
 
+  /** The aura flares: the agent is working now (the 2D view draws it brighter). */
+  get auraFlares(): boolean {
+    return this.auraWorking
+  }
+
   /** Shirt color of the company uniform, or null in its own clothes. */
   get uniformColor(): string | null {
     return this.uniform?.color ?? null
@@ -401,7 +411,7 @@ export class Avatar {
     this.onArrive = null
   }
 
-  /** Face a direction given as angle (0 = +z), snapped to 8 directions like Habbo. */
+  /** Face a direction given as angle (0 = +z), snapped to 8 directions like classic isometric games. */
   face(angle: number, snap = true, immediate = false): void {
     this.targetAngle = snap ? Math.round(angle / SNAP) * SNAP : angle
     if (immediate) {

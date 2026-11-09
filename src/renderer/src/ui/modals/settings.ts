@@ -1,4 +1,4 @@
-import { HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
+import { HAIR_COLORS, HAIR_STYLE_INFO, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
 import { canAddFloor, floorNameFor } from '@shared/projects'
 import type { Look, OfficePermissionMode, ProjectFloor } from '@shared/types'
 import type { State } from '../../state'
@@ -6,9 +6,9 @@ import { DEFAULT_VIDEO, QUALITY_LABELS, QUALITY_PRESETS, qualityOf, type FpsLimi
 import { openAccounts } from '../accounts'
 import { dataSection } from '../data'
 import { h, icon } from '../dom'
-import { habboEditor } from '../habbo-editor'
 import { portrait } from '../portrait'
 import { updateSettingsBox } from '../updates'
+import { in2d, wardrobe } from '../wardrobe'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { AUTOSTOP_MIN_RANGE, DEFAULT_MEETING_SETTINGS, LOW_MEMORY_GB, RETENTION_DAYS_RANGE } from '@shared/meetings'
 import type { MeetingSettings } from '@shared/types'
@@ -22,9 +22,9 @@ import { brandFields } from './brand'
 export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge'; tour?: () => void } = {}): void {
   const s = state.settings
   const look: Look = { ...s.playerLook }
+  // 2D view: the wardrobe edits the look; the plain fields below stay for the 3D view
+  const closet = in2d() ? wardrobe(s.playerLook) : null
   const name = h('input', { class: 'input', value: s.playerName, maxlength: 24 })
-  // the 2D view dresses the player in Habbo's wardrobe, with the avatar live beside it
-  const habbo = s.video?.view === '2d' ? habboEditor(look) : null
   const preview = h('div', { class: 'look-preview' })
   const renderPreview = () => preview.replaceChildren(portrait(look, 96))
   renderPreview()
@@ -47,7 +47,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   }
   const styles = h('div', { class: 'swatches' })
   for (let i = 0; i < HAIR_STYLES; i++) {
-    const b = h('button', { class: 'swatch swatch-style', type: 'button' }, String(i + 1))
+    const b = h('button', { class: 'swatch swatch-style', type: 'button', title: HAIR_STYLE_INFO[i].name, 'aria-label': HAIR_STYLE_INFO[i].name }, String(i + 1))
     b.classList.toggle('on', look.hairStyle === i)
     b.addEventListener('click', () => {
       look.hairStyle = i
@@ -139,7 +139,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   save.addEventListener('click', async () => {
     await window.office.saveSettings({
       playerName: name.value.trim() || 'Você',
-      playerLook: habbo ? habbo.value() : look,
+      playerLook: closet ? closet.value() : look,
       pixelSize: Number(pixel.value),
       notifications: notify.checked,
       defaultModel: brain.model.value,
@@ -164,25 +164,23 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const el = modal(
     'Configurações',
     [
-      ...(habbo
-        ? [field('Seu nome', name), habbo.el]
-        : [
+      closet
+        ? h('div', { class: 'look-editor-2d' }, field('Seu nome', name), closet.el)
+        : h(
+            'div',
+            { class: 'look-editor' },
+            preview,
             h(
               'div',
-              { class: 'look-editor' },
-              preview,
-              h(
-                'div',
-                { class: 'look-fields' },
-                field('Seu nome', name),
-                field('Pele', swatches('skin', SKIN_TONES)),
-                field('Cabelo', swatches('hair', HAIR_COLORS)),
-                field('Corte', styles),
-                field('Camiseta', swatches('shirt', SHIRT_COLORS)),
-                field('Calça', swatches('pants', PANTS_COLORS)),
-              ),
+              { class: 'look-fields' },
+              field('Seu nome', name),
+              field('Pele', swatches('skin', SKIN_TONES)),
+              field('Cabelo', swatches('hair', HAIR_COLORS)),
+              field('Corte', styles),
+              field('Camiseta', swatches('shirt', SHIRT_COLORS)),
+              field('Calça', swatches('pants', PANTS_COLORS)),
             ),
-          ]),
+          ),
       h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', brain.model), field('Permissão padrão', mode)),
       meterField('Esforço padrão', brain.meter),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
@@ -319,7 +317,7 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
   const effects = h('select', { class: 'input' }, h('option', { value: 'full' }, 'Completos'), h('option', { value: 'reduced' }, 'Reduzidos'))
   const battery = h('input', { type: 'checkbox' }) as HTMLInputElement
   battery.checked = v.batterySaver
-  const view = h('select', { class: 'input' }, h('option', { value: 'iso' }, 'Isométrico 3D (padrão)'), h('option', { value: '2d' }, '2D Habbo (mais leve)'))
+  const view = h('select', { class: 'input' }, h('option', { value: 'iso' }, 'Isométrico 3D (padrão)'), h('option', { value: '2d' }, '2D pixel art (mais leve)'))
   view.value = v.view ?? 'iso'
 
   const value = (): VideoSettings => ({
@@ -353,7 +351,7 @@ function videoFields(state: State): { el: HTMLElement; value: () => VideoSetting
     h('div', { class: 'bridge-title' }, icon('gauge', 16), 'Vídeo'),
     h('div', { class: 'field-hint' }, 'Economia desliga as sombras, limita a 30 fps e reduz fumaça, faíscas e giroflex. Com o escritório parado ou a janela minimizada, o app já desenha menos sozinho.'),
     h('div', { class: 'field-row' }, field('Visual', view), field('Qualidade', quality)),
-    h('div', { class: 'field-hint' }, '2D Habbo desenha o escritório em isométrico com a arte do Habbo (via HabboAssets, precisa de internet), sem 3D: gasta menos placa de vídeo e memória, bom para computador mais fraco. Trocar o visual recarrega o escritório.'),
+    h('div', { class: 'field-hint' }, '2D pixel art desenha o escritório em sprites planos, sem 3D: gasta menos placa de vídeo e memória, bom para computador mais fraco. Trocar o visual recarrega o escritório.'),
     h('div', { class: 'field-row' }, field('Limite de fps', fps), field('Sombras', shadows)),
     h('div', { class: 'field-row' }, field('Efeitos', effects)),
     h('label', { class: 'check' }, battery, 'Economia automática na bateria'),

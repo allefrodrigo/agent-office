@@ -33,7 +33,7 @@ O Agent Office troca os terminais por um escritório. Cada agente ganha mesa, co
 
 > *"Ninguém precisa vigiar terminais. Quem precisa de você vem até você."*
 
-Inspirado no Habbo Hotel (o visual isométrico) e no Gather (o escritório virtual).
+Inspirado nos jogos isométricos de pixel art e no Gather (o escritório virtual).
 
 <p align="center">
   <img src="docs/img/escritorio.jpg" alt="Visão geral do escritório: sua sala, a copa, o time de agentes e o lounge" width="100%">
@@ -145,7 +145,7 @@ O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew instal
 - **Andar = empresa** (Configurações → "Andares por projeto"): cada andar aceita um logo (PNG, JPG, WebP ou GIF, reduzido a 256 px) e uma cor; sem cor escolhida, vale a cor mais forte do logo. A placa da Diretoria mostra o logo e o nome, e o tapete dela ganha a cor da empresa. Marque "Agentes com a farda da empresa" para os agentes do andar usarem camisa na cor da empresa com o logo no peito; eles mantêm a farda quando descem até você.
 - **Painel de gasto**: cada andar tem um painel na parede com quanto os agentes dele gastaram nesta sessão (no térreo, o escritório inteiro). O valor sobe rolando a cada mudança, os maiores gastos passam embaixo, e a etiqueta acima mostra o valor exato (passe o mouse para ver por agente).
 - **Alarme de limite**: quando uma conta bate o limite do plano, o giroflex vermelho acima do painel acende e gira nos andares que usam essa conta (no térreo, com qualquer conta), com a etiqueta "Conta X no limite · volta 15:00".
-- **Visual 2D Habbo** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um quarto isométrico com a arte do Habbo (móveis e avatares do [HabboAssets](https://www.habboassets.com/api), buscados ao vivo), desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. Detalhes: [docs/arte-2d](docs/arte-2d/README.md).
+- **Visual 2D isométrico** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um quarto isométrico em pixel art própria (móveis e pessoas desenhados para o projeto, sem internet), desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. Detalhes: [docs/arte-2d](docs/arte-2d/README.md).
 - **Mesas e áreas**: cada mesa tem um setup (um monitor, dois, ultrawide, notebook com monitor, monitor vertical) em mesas brancas, de madeira ou escuras. O térreo tem uma copa; nos andares de empresa, as salas da frente sem setor viram lounge, copa, jogos e canto de pufes.
 - **Conta sobre a cabeça**: cada agente do escritório tem um diamante girando sobre a cabeça, como no The Sims, na cor da conta em que está rodando. Com duas ou mais contas, a etiqueta do nome mostra também o nome da conta.
 - **Contexto do agente**: o painel mostra quanto da janela de contexto a conversa ocupa (os mesmos números do `/context`), e a lista de agentes tem uma barrinha. **Compactar** resume a conversa (`/compact`); **Limpar** começa uma conversa nova com o mesmo agente (`/clear`), sem dispensar.
@@ -396,7 +396,7 @@ src/
       office.ts         monta o térreo e a grade de colisão
       upper-floor.ts    monta um andar de projeto: Diretoria, salas do time e setores dos squads
       furniture.ts      móveis em voxel (mesa, monitor, cadeira, plantas, sofá, elevador...)
-      avatar.ts         personagens estilo Habbo com animação procedural
+      avatar.ts         personagens em blocos com animação procedural
       screens.ts        telas dos computadores (canvas pixel art que reflete o status)
       pathfinding.ts    A* em 8 direções com paredes finas
       overlays.ts       crachás com nome e balões de fala (HTML sobre o canvas)
@@ -404,14 +404,12 @@ src/
       props.ts          placar de gastos, quadro de rotinas (canvas redesenhado só quando muda, e o LED) e alarme de limite
       effects.ts        golpe da caveira, fumaça, faíscas, fantasma e efeitos sonoros
       viewport.ts       o que o jogo pede de quem desenha (3D isométrico ou 2D)
-    pixel/              visual 2D Habbo (Configurações → Vídeo → Visual), sem WebGL
+    pixel/              visual 2D isométrico (Configurações → Vídeo → Visual), sem WebGL
       engine.ts         canvas 2D em resolução de arte, ampliado pelo CSS; zoom, cliques, projeção isométrica
       painter.ts        assa cada andar (piso, paredes, móveis) e desenha tudo de trás para a frente
-      habbo.ts          Imager do HabboAssets: móvel Habbo de cada px() tag
-      figure.ts         avatares Habbo montados peça por peça, com as animações do cliente
-      nitro.ts          lê os pacotes .nitro (bibliotecas de roupa do HabboAssets)
-      voxel.ts          projeta as peças dos modelos 3D em isométrico 2:1 (telas, paredes, vidro, o que não tem móvel Habbo)
-      people.ts         escolhe direção e pose de cada pessoa (andar, sentar, deitar, acenar, falar, piscar)
+      iso-art.ts        sprite de cada px() tag (assets/iso/, npm run arte:iso), frente ou costas, e a máscara da tela
+      voxel.ts          projeta as peças dos modelos 3D em isométrico 2:1 (paredes, vidro, o que não tem sprite)
+      people.ts         pessoas das folhas recoloríveis (assets/iso/people/, npm run arte:pessoas): direção e pose
     assets/pixel/       sprites prontos (npm run pixel); o catálogo é src/shared/pixel-catalog.json
     game/               comportamento: status do agente -> onde ele vai e o que faz
                         (cada parte estende a anterior: base, floors, boards, actors, lounge,

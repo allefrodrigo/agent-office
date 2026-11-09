@@ -1,6 +1,6 @@
 {
   "name": "agent-office",
-  "version": "0.4.0-beta.3",
+  "version": "0.4.0-beta.4",
   "private": true,
   "description": "Escritório isométrico onde agentes do Claude Code trabalham, pedem permissão e entregam resultados.",
   "main": "./out/main/index.js",
@@ -33,8 +33,8 @@
     "lint": "eslint .",
     "contrast": "node scripts/contrast.mjs",
     "pixel": "node scripts/pixel-assets.mjs",
-    "habbo:avatar": "node scripts/habbo-avatar.mjs",
-    "habbo:moveis": "node scripts/habbo-furni.mjs",
+    "arte:iso": "node scripts/iso-art.mjs",
+    "arte:pessoas": "node scripts/iso-people.mjs",
     "pixel:gerar": "node scripts/pixel-gen.mjs",
     "format": "prettier --write",
     "pet": "node scripts/pet-art.mjs processar",
