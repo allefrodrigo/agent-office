@@ -17,7 +17,7 @@ export interface Rect {
 export type Painter = (ctx: CanvasRenderingContext2D, view: Rect) => void
 
 /**
- * The 2D view (Configurações → Vídeo → Visual): the office in Habbo isometric art on a plain
+ * The 2D view (Configurações → Vídeo → Visual): the office in isometric pixel art on a plain
  * 2D canvas at art resolution, scaled up by CSS with nearest-neighbour: no WebGL, no shadow
  * map, no post-processing buffers. The scene graph is the same one the 3D view uses; nothing in it
  * ever reaches the GPU.

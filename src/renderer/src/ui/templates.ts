@@ -1,12 +1,12 @@
-import { HAIR_COLORS, HAIR_STYLES, lookFromSeed, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
+import { HAIR_COLORS, HAIR_STYLE_INFO, HAIR_STYLES, lookFromSeed, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
 import { projectFor } from '@shared/projects'
 import { renderInstruction, TEMPLATE_LIMITS, TEMPLATE_VARS, templatesFor, ticketRef, usesTicket } from '@shared/templates'
 import type { AgentSummary, AgentTemplate, Look, OfficePermissionMode, ProjectFloor, Ticket } from '@shared/types'
 import type { State } from '../state'
 import { h, icon } from './dom'
 import { brainFields, cleanError, confirmDialog, EFFORTS, field, MODELS, modal, MODES } from './modals'
-import { habboEditor } from './habbo-editor'
 import { portrait } from './portrait'
+import { in2d, wardrobe } from './wardrobe'
 import './templates.css'
 
 type Toast = (t: string, k?: 'info' | 'ok' | 'err') => void
@@ -47,7 +47,7 @@ function lookEditor(initial: Look): { el: HTMLElement; value(): Look } {
   }
   const styles = h('div', { class: 'swatches' })
   for (let i = 0; i < HAIR_STYLES; i++) {
-    const b = h('button', { class: 'swatch swatch-style', type: 'button' }, String(i + 1))
+    const b = h('button', { class: 'swatch swatch-style', type: 'button', title: HAIR_STYLE_INFO[i].name, 'aria-label': HAIR_STYLE_INFO[i].name }, String(i + 1))
     b.addEventListener('click', () => {
       look.hairStyle = i
       repaint()
@@ -86,9 +86,8 @@ export function openTemplateEditor(root: HTMLElement, state: State, initial: Par
   return new Promise((resolve) => {
     const editing = !!initial.id && state.settings.templates?.some((t) => t.id === initial.id)
     const name = h('input', { class: 'input', value: initial.name ?? '', maxlength: TEMPLATE_LIMITS.name, placeholder: 'Ex.: Revisor de PR' })
-    const startLook = initial.look ?? lookFromSeed(initial.name || String(Math.random()))
-    // the 2D view dresses agents in Habbo's wardrobe, with the avatar live beside it
-    const look = state.settings.video?.view === '2d' ? habboEditor(startLook) : lookEditor(startLook)
+    const firstLook = initial.look ?? lookFromSeed(initial.name || String(Math.random()))
+    const look = in2d() ? wardrobe(firstLook) : lookEditor(firstLook)
     const brain = brainFields({ model: initial.model ?? '', effort: initial.effort ?? '' }, true)
     const mode = h('select', { class: 'input' }, ...MODES.map((m) => h('option', { value: m.value }, m.label)))
     mode.value = initial.permissionMode ?? state.settings.defaultPermissionMode
