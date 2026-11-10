@@ -54,7 +54,7 @@ export interface Settings {
   video: VideoSettings
   /** Configurações → Reuniões: modelos de ata e receitas próprios (o RN-13 completa a seção). */
   meetings: MeetingSettings
-  /** Café corner (Copa): keep the screen awake. Missing = 'off'. */
+  /** Café corner (lounge): keep the screen awake. Missing = 'off'. */
   caffeine?: CaffeineMode
 }
 

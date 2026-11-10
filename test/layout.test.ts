@@ -100,17 +100,21 @@ describe('projectPlan: sala de reunião nos andares (RN-14)', () => {
 })
 
 describe('sala de reunião do térreo (RN-16)', () => {
-  it('fica na ponta direita do lounge, sem sobrepor outra zona', () => {
-    expect(GROUND_MEETING.rect).toEqual([24, 15, 32, 24])
-    expect(ZONES.find((z) => z.id === 'lounge')!.rect).toEqual([11, 15, 24, 24])
+  it('fica no canto da antiga copa, sem sobrepor outra zona; não há mais copa', () => {
+    expect(GROUND_MEETING.rect).toEqual([0, 15, 10, 24])
+    expect(ZONES.find((z) => z.id === 'lounge')!.rect).toEqual([11, 15, 32, 24])
+    expect(ZONES.find((z) => z.id === 'boss')!.rect).toEqual([0, 0, 9, 13])
+    expect(ZONES.some((z) => z.id === 'cafe')).toBe(false)
     for (let i = 0; i < ZONES.length; i++) {
       for (let j = i + 1; j < ZONES.length; j++)
         expect(overlaps(ZONES[i].rect, ZONES[j].rect), `${ZONES[i].label} x ${ZONES[j].label}`).toBe(false)
     }
   })
 
-  it('nenhum lugar do lounge fica dentro da sala', () => {
+  it('nenhum lugar do lounge fica dentro da sala; todos no lounge', () => {
+    const lounge = ZONES.find((z) => z.id === 'lounge')!.rect
     for (const s of LOUNGE_SEATS) {
+      expect(inside(s.x, s.z, lounge), `${s.x},${s.z}`).toBe(true)
       expect(inside(s.x, s.z, GROUND_MEETING.rect)).toBe(false)
       expect(inside(s.approach[0], s.approach[1], GROUND_MEETING.rect)).toBe(false)
     }
@@ -124,7 +128,7 @@ describe('sala de reunião do térreo (RN-16)', () => {
     for (const [x, z] of GROUND_MEETING.blocked) g.block(x, z)
     expectSeatsReachable(GROUND_MEETING, g)
     // the lounge side is glass: from the lounge you go round through the corridor door
-    const path = g.findPath(23, 19, 25, 19)!
+    const path = g.findPath(12, 19, 9, 19)!
     expect(path.some(([, z]) => z < 15)).toBe(true)
   })
 })

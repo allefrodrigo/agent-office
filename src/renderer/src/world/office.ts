@@ -40,7 +40,7 @@ export const CALM_BEACON = 0.15
 export interface GroundFloor extends Office {
   /** Lounge monitor where Claude FM plays. */
   tv: F.MonitorTv
-  /** The copa's espresso machine: a click opens the café corner (keep the screen awake). */
+  /** The lounge's espresso machine: a click opens the café corner (keep the screen awake). */
   coffee: CoffeeCorner
   /** Over the Sala de reunião's door: where its tag goes. */
   meetingAnchor: THREE.Object3D
@@ -100,10 +100,23 @@ export function buildOffice(): GroundFloor {
   place(routines.group, 0.06, 6, Math.PI / 2, 1.22)
   place(F.floorLamp(), 0.5, 4.5)
   grid.block(0, 4)
-  place(F.plant('fern'), 0.5, 8.5)
-  grid.block(0, 8)
-  place(F.plant('flower', '#f5f3ee'), 8.5, 8.5)
-  grid.block(8, 8)
+  // the extra room down to the corridor: a reading corner and the spending board
+  place(F.rug(4, 3, rugTexture(4, 3, '#f3e4c4', '#c98b5e', '#d97757')), 4.5, 10.5)
+  place(F.armchair('#2f8f83'), 3.45, 10.5, Math.PI / 2)
+  place(F.lowTable(), 4.5, 10.5)
+  place(F.armchair('#2f8f83'), 5.55, 10.5, -Math.PI / 2)
+  grid.blockRect(3, 10, 3, 1)
+  place(F.plant('fern'), 0.5, 12.5)
+  grid.block(0, 12)
+  place(F.plant('flower', '#f5f3ee'), 8.5, 12.5)
+  grid.block(8, 12)
+  place(F.plant('tall'), 8.5, 9.5)
+  grid.block(8, 9)
+  // the spending board on the side wall with the alarm above it
+  const money = costBoard('Escritório inteiro', 2.2)
+  place(money.group, 0.06, 10.6, Math.PI / 2, 1.0)
+  const alarm = beacon()
+  place(alarm.group, 0.04, 8.7, Math.PI / 2, 1.85)
 
   // ---------- team floor ----------
   const deskScreens: Screen[] = []
@@ -144,45 +157,10 @@ export function buildOffice(): GroundFloor {
   // ---------- corridor ----------
   place(F.plant('tall', '#e9edf2'), 10.5, 0.5)
   grid.block(10, 0)
-  place(F.art('mountains', 1.0, 0.75), 0.04, 9.9, Math.PI / 2, 1.6)
-
-  // ---------- café: counter and fridge on the side wall, tables, the spending board ----------
-  const counter = F.kitchenCounter(4)
-  place(counter, 0.35, 16, Math.PI / 2)
-  grid.blockRect(0, 14, 1, 4)
-  place(F.wallCabinets(4), 0.2, 16, Math.PI / 2)
-  const coffee = coffeeCorner()
-  place(coffee.group, 0.4, 14.6, Math.PI / 2, 0.91)
-  place(F.microwave(), 0.4, 15.6, Math.PI / 2, 0.91)
-  place(F.mug('#e17055'), 0.5, 16.3, 0, 0.91)
-  place(F.mug('#74b9ff'), 0.45, 16.5, 0, 0.91)
-  place(F.fridge(), 0.4, 18.6, Math.PI / 2)
-  grid.blockRect(0, 18, 1, 1)
-  place(F.barTable(), 4.5, 15.5)
-  grid.block(4, 15)
-  for (const [x, z, c] of [[3.7, 15.5, '#d97757'], [5.3, 15.5, '#2f8f83'], [4.5, 14.7, '#6c5ce7']] as const) place(F.stool(c), x, z)
-  place(F.roundTable(0.55), 4.5, 20)
-  grid.block(4, 19)
-  grid.block(4, 20)
-  for (const [x, z, r] of [[3.5, 20, Math.PI / 2], [5.5, 20, -Math.PI / 2], [4.5, 21, Math.PI]] as const) place(F.simpleChair('#f4a259'), x, z, r)
-  // the skeleton stands here by the boss office (added by the game)
-  grid.block(2, 12)
-  place(F.plant('tall'), 0.5, 11.5)
-  grid.block(0, 11)
-  place(F.plant('fern'), 8.5, 23.5)
-  grid.block(8, 23)
-  place(F.plant('bush'), 0.5, 23.5)
-  grid.block(0, 23)
-  place(F.plant('flower', '#f5f3ee'), 8.5, 11.5)
-  grid.block(8, 11)
-  // the spending board on the side wall with the alarm above it
-  const money = costBoard('Escritório inteiro', 2.2)
-  place(money.group, 0.06, 21.3, Math.PI / 2, 1.0)
-  const alarm = beacon()
-  place(alarm.group, 0.04, 19.4, Math.PI / 2, 1.85)
+  place(F.art('mountains', 1.0, 0.75), 0.04, 14, Math.PI / 2, 1.6)
 
   // ---------- lounge (living area, games, bean bag circle) ----------
-  const { sofaA, tableA, armchairs, foosball, circle, circleBags, pingPong } = LOUNGE
+  const { sofaA, tableA, armchairs, foosball, circle, circleBags, pingPong, cafe } = LOUNGE
 
   // living area
   place(F.rug(6, 5, rugTexture(6, 5, '#d7ecd9', '#5f9e7a', '#2f8f83')), tableA.x, tableA.z)
@@ -218,7 +196,7 @@ export function buildOffice(): GroundFloor {
   place(F.plant('tall'), 20.5, 15.5)
   grid.block(20, 15)
 
-  // two arcades by the meeting room's glass, the ping-pong table along it (RN-16)
+  // two arcades by the corridor, the ping-pong table behind them
   LOUNGE.arcades.forEach((a, i) => {
     const screen = new LoopScreen(24, 20, arcadePainter, 8 - i)
     loops.push(screen)
@@ -228,17 +206,39 @@ export function buildOffice(): GroundFloor {
   place(F.pingPong(), pingPong.x, pingPong.z)
   grid.blockRect(Math.floor(pingPong.x), Math.floor(pingPong.z) - 1, 1, 2)
 
+  // ---------- café corner at the lounge's right end ----------
+  place(F.kitchenCounter(cafe.counter.w), cafe.counter.x, cafe.counter.z)
+  grid.blockRect(cafe.counter.x - cafe.counter.w / 2, 15, cafe.counter.w, 1)
+  const coffee = coffeeCorner()
+  place(coffee.group, cafe.counter.x - 1.4, cafe.counter.z + 0.05, 0, 0.91)
+  place(F.microwave(), cafe.counter.x - 0.4, cafe.counter.z + 0.05, 0, 0.91)
+  place(F.mug('#e17055'), cafe.counter.x + 0.5, cafe.counter.z + 0.15, 0, 0.91)
+  place(F.mug('#74b9ff'), cafe.counter.x + 0.75, cafe.counter.z + 0.1, 0, 0.91)
+  place(F.fridge(), cafe.fridge.x, cafe.fridge.z)
+  grid.block(Math.floor(cafe.fridge.x), Math.floor(cafe.fridge.z))
+  place(F.barTable(), cafe.bar.x, cafe.bar.z)
+  grid.block(Math.floor(cafe.bar.x), Math.floor(cafe.bar.z))
+  for (const [dx, dz, c] of [[-0.8, 0, '#d97757'], [0.8, 0, '#2f8f83'], [0, -0.8, '#6c5ce7']] as const) place(F.stool(c), cafe.bar.x + dx, cafe.bar.z + dz)
+  place(F.roundTable(0.55), cafe.table.x, cafe.table.z)
+  grid.block(Math.floor(cafe.table.x), Math.floor(cafe.table.z))
+  for (const [dx, dz, r] of [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, 1, Math.PI]] as const) place(F.simpleChair('#f4a259'), cafe.table.x + dx, cafe.table.z + dz, r)
+  // the skeleton stands in the corner here (added by the game)
+  grid.block(31, 22)
+  place(F.plant('tall'), 31.5, 15.5)
+  grid.block(31, 15)
+
   // plants along the front edge (the meeting room has its own)
   for (const [x, kind] of [
     [11, 'bush'],
     [15, 'fern'],
     [23, 'bush'],
+    [27, 'fern'],
   ] as const) {
     place(F.plant(kind), x + 0.5, 23.5)
     grid.block(x, 23)
   }
 
-  // ---------- Sala de reunião at the lounge's end (RN-16) ----------
+  // ---------- Sala de reunião in the front-left corner (RN-16) ----------
   const meeting = meetingRoom(GROUND_MEETING, place, grid, loops, '#d97757', group)
 
   // every box that never moves becomes one mesh per material (AO-30)
