@@ -121,12 +121,12 @@ export interface GameHooks {
   onTv(): void
   /** Player clicked the routines board (your office or a Diretoria). */
   onRoutines(): void
-  /** Player clicked the copa's espresso machine: the café corner (keep the screen awake). */
+  /** Player clicked the lounge's espresso machine: the café corner (keep the screen awake). */
   onCoffee(): void
 }
 
-/** Floor spot by the boss office where the skeleton stands. */
-export const SKULL_HOME = { x: 2.5, y: 0, z: 12.3 }
+/** Floor spot in the lounge's café corner where the skeleton stands. */
+export const SKULL_HOME = { x: 31.5, y: 0, z: 22.3 }
 /** Seconds the camera gets to reach a dismissed agent before the skull drops. */
 export const STRIKE_AFTER_S = 0.6
 /** An idle agent waits at its desk this long before wandering off to the lounge. */

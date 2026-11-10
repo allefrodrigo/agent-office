@@ -38,7 +38,7 @@ export abstract class GameBase {
   protected moneyTag: Tag
   /** "Rotinas" over the routines board in your office. */
   protected routinesTag: Tag
-  /** Over the copa's espresso machine: the café corner. */
+  /** Over the lounge's espresso machine: the café corner. */
   protected coffeeTag: Tag
   /** "🎙 Sala de reunião" over the ground floor's meeting room. */
   protected meetingTag: Tag
@@ -95,9 +95,8 @@ export abstract class GameBase {
       const pos: Record<string, [number, number]> = {
         boss: [4.5, 8.35],
         team: [21, 5.5],
-        cafe: [4.5, 23.4],
-        lounge: [17.5, 23.4],
-        meeting: [28, 23.4],
+        lounge: [21.5, 23.4],
+        meeting: [5, 23.4],
       }
       const [x, zz] = pos[z.id] ?? [(z.rect[0] + z.rect[2]) / 2, (z.rect[1] + z.rect[3]) / 2]
       this.overlays.label(z.label, x, zz)
@@ -121,7 +120,7 @@ export abstract class GameBase {
     this.hover.visible = false
     this.engine.scene.add(this.hover)
 
-    // the skeleton by the boss office: click it to dismiss an agent
+    // the skeleton in the lounge's café corner: click it to dismiss an agent
     this.effects = new Effects(this.engine.scene)
     const sk = skeleton()
     px(sk.group, 'skeleton')

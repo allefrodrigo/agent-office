@@ -320,7 +320,7 @@ export interface CoffeeCorner {
 const COFFEE_LED = { off: '#2b2f3a', armed: '#ffb347', awake: '#55efc4' }
 
 /**
- * The café corner's espresso machine (facing +z), the copa's switch for keeping the
+ * The café corner's espresso machine (facing +z), the lounge's switch for keeping the
  * screen awake: a status LED on the front and steam puffs while it holds the screen.
  * A clear box around it makes the small machine easy to click. Origin at the bottom center.
  */
