@@ -336,6 +336,25 @@ const PAIRS = [
   ['Chat: menu', '.ch-menu-item', 'chat: menu + hover'],
   ['Chat: menu (perigo)', '.ch-menu-item.danger', 'chat: menu + hover'],
   ['Chat: menu (dica)', '.ch-menu-hint', 'chat: menu + hover'],
+  // os canais (CB-20)
+  ['Chat: ＋ Canal', '.ch-group-add', 'chat: lateral'],
+  ['Chat: # do canal', '.ch-row-hash', ['.ch-row-hash', 'chat: lateral + atual']],
+  ['Chat: # do canal não lido', '.ch-row-channel.unread .ch-row-hash', ['.ch-row-hash', 'chat: lateral + atual']],
+  ['Chat: # no cabeçalho', '.ch-head-hash', ['.ch-head-hash', 'chat: fio']],
+  ['Chat: membros a mais', '.ch-face-more', 'chat: fio'],
+  ['Chat: andar do canal', '.ch-field-static', 'chat: fio'],
+  ['Chat: membro (frase)', '.ch-check small', ['.ch-member', 'chat: fio']],
+  ['Chat: @menção', '.ch-mention', 'chat: balão seu'],
+  ['Chat: para quem foi', '.ch-route', 'chat: fio'],
+  ['Chat: escolhendo quem responde', '.ch-route.pending', 'chat: fio'],
+  ['Chat: para quem é?', '.ch-route.nobody .ch-route-to', 'chat: fio'],
+  ['Chat: trocar', '.ch-route-pick', 'chat: fio'],
+  ['Chat: pergunta entre bots', '.ch-aside-who', 'chat: fio'],
+  ['Chat: estado da pergunta', '.ch-aside-status', 'chat: fio'],
+  ['Chat: esperando a resposta', '.ch-aside.s-asked .ch-aside-status', 'chat: fio'],
+  ['Chat: pergunta sem resposta', '.ch-aside.s-failed .ch-aside-status', 'chat: fio'],
+  ['Chat: lista do @ (nome)', '.ch-mention-opt', ['.ch-mention-opt.on', 'chat: menu']],
+  ['Chat: lista do @ (frase)', '.ch-mention-line', ['.ch-mention-opt.on', 'chat: menu']],
 ]
 
 export function measure() {

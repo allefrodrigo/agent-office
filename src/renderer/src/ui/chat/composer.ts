@@ -1,11 +1,12 @@
 import { ATTACH_LIMITS, formatBytes, kindFromName, limitError } from '@shared/attachments'
 import { replyIntent, snippet } from '@shared/bots-view'
 import { adviseAgent } from '@shared/economy'
-import type { AttachmentInput, Bot, PermissionDecision, PermissionRequest } from '@shared/types'
+import type { AttachmentInput, Bot, Channel, PermissionDecision, PermissionRequest } from '@shared/types'
 import { h, icon } from '../dom'
 import { askCold, warnTokens } from '../panel/economy'
 import { toBase64, type PendingFile } from '../panel/helpers'
 import { MicButton } from '../voice'
+import { MentionMenu } from './channels/mentions'
 import { agentBusy, botAgent, botPending, chatError, type ChatCtx } from './util'
 
 // A caixa de mensagem do fio, em pílula: 📎 (os anexos do painel), 🎙 (o microfone do app) e
@@ -13,9 +14,15 @@ import { agentBusy, botAgent, botPending, chatError, type ChatCtx } from './util
 // pedido (replyIntent); na dúvida, o app pergunta se é um sim ou um não. Segurança: a frase só
 // responde ao pedido que já estava na tela antes de você começar a digitar, e um sim digitado nunca
 // libera sozinho um plano ou um pedido sensível (sem "Sempre permitir"): esses pedem um clique.
+// Num canal, a caixa posta no canal (@ abre a lista dos membros) e nunca responde a pedidos: os
+// pedidos dos bots do canal se respondem só pelos cartões.
 
 export interface ComposerCtx extends ChatCtx {
   bot(): Bot | undefined
+  /** The channel on screen, when it is a channel's thread. */
+  channel?(): Channel | undefined
+  /** The channel's members, for the @ list. */
+  members?(): Bot[]
   /** A message went (or a request was answered): the thread goes to the bottom. */
   onSent(): void
   /** Brings the pending request's card into view. */
@@ -40,10 +47,19 @@ export class Composer {
   private chipFor: string | null = null
   /** The text in the box was started before that request showed up: it was not written as an answer. */
   private typedBeforeChip = false
+  private mentions: MentionMenu
 
   constructor(private ctx: ComposerCtx) {
     this.input = h('textarea', { class: 'ch-input', rows: 1, 'aria-label': 'Mensagem', spellcheck: true })
+    this.mentions = new MentionMenu(this.input, {
+      members: () => (this.channel() ? (ctx.members?.() ?? []) : []),
+      changed: () => {
+        this.grow()
+        this.sync()
+      },
+    })
     this.input.addEventListener('keydown', (e) => {
+      if (this.mentions.onKey(e)) return
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault()
         void this.send()
@@ -56,6 +72,10 @@ export class Composer {
     this.input.addEventListener('input', () => {
       this.grow()
       this.sync()
+      this.mentions.update()
+    })
+    this.input.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') this.mentions.update()
     })
     this.input.addEventListener('paste', (e) => {
       const files = [...(e.clipboardData?.files ?? [])]
@@ -78,6 +98,7 @@ export class Composer {
     this.el = h(
       'div',
       { class: 'ch-composer' },
+      this.mentions.el,
       this.replyChip,
       this.askBar,
       this.chips,
@@ -107,14 +128,31 @@ export class Composer {
 
   /** The thread changed: keep what was typed in the old one, bring back the new one's. */
   setBot(bot: Bot | undefined): void {
+    this.setThread(bot?.id ?? null)
+  }
+
+  /** A channel's thread: the box posts in the channel and @ lists its members. */
+  setChannel(channel: Channel | undefined): void {
+    this.setThread(channel?.id ?? null)
+  }
+
+  private setThread(id: string | null): void {
     if (this.botId) this.drafts.set(this.botId, this.input.value)
-    this.botId = bot?.id ?? null
-    this.input.value = (bot && this.drafts.get(bot.id)) || ''
+    this.botId = id
+    this.input.value = (id && this.drafts.get(id)) || ''
     this.files = []
+    this.mentions.close()
+    if (this.channel()) this.input.setAttribute('aria-autocomplete', 'list')
+    else for (const a of ['aria-autocomplete', 'aria-controls', 'aria-expanded', 'aria-activedescendant']) this.input.removeAttribute(a)
     this.renderChips()
     this.hideAsk()
     this.grow()
     this.sync()
+  }
+
+  /** The channel on screen, when the box is in one. */
+  private channel(): Channel | undefined {
+    return this.ctx.channel?.()
   }
 
   focus(): void {
@@ -190,11 +228,15 @@ export class Composer {
   }
 
   private pending(): PermissionRequest | undefined {
+    // in a channel a sentence never answers a request: its bots' cards take a click
+    if (this.channel()) return undefined
     return botPending(this.ctx.state, this.ctx.bot())[0]
   }
 
   /** Send ↔ Parar, the placeholder and the "Responder ao pedido" chip, from the bot's state now. */
   sync(): void {
+    const channel = this.channel()
+    if (channel) return this.syncChannel(channel)
     const bot = this.ctx.bot()
     const agent = botAgent(this.ctx.state, bot)
     const pending = this.pending()
@@ -237,7 +279,27 @@ export class Composer {
       : 'Enter envia · ⇧Enter quebra a linha'
   }
 
+  /** In a channel: always Enviar, no request chip, the @ hint. */
+  private syncChannel(channel: Channel): void {
+    const typed = !!this.input.value.trim() || this.files.length > 0
+    this.chipFor = null
+    this.typedBeforeChip = false
+    this.replyChip.hidden = true
+    this.hideAsk()
+    this.main.replaceChildren(icon('send', 18))
+    this.main.classList.remove('stop')
+    this.main.title = 'Enviar (Enter)'
+    this.main.setAttribute('aria-label', 'Enviar')
+    this.main.disabled = !typed
+    this.input.disabled = false
+    this.input.placeholder = `Mensagem em #${channel.name} · @ chama um bot`
+    this.hint.textContent = this.input.value.startsWith('!')
+      ? 'Comandos com ! rodam só na conversa direta com um bot.'
+      : '@ e o nome chamam um bot · sem @, o app escolhe quem responde · Enter envia'
+  }
+
   private async mainAction(): Promise<void> {
+    if (this.channel()) return this.send()
     const bot = this.ctx.bot()
     if (!bot) return
     if (this.main.classList.contains('stop')) {
@@ -252,8 +314,48 @@ export class Composer {
     await this.send()
   }
 
+  /** Files as the IPC takes them: a path when there is one, the bytes otherwise. */
+  private inputs(files: PendingFile[]): Promise<AttachmentInput[]> {
+    return Promise.all(
+      files.map(async (f) =>
+        f.path
+          ? { name: f.name, mime: f.file.type, path: f.path }
+          : { name: f.name, mime: f.file.type, dataBase64: await toBase64(f.file) },
+      ),
+    )
+  }
+
+  /** Posts in the channel: the @mentioned members answer, or the ones the router picks. */
+  private async post(channel: Channel): Promise<void> {
+    const text = this.input.value.trim()
+    if (this.sending || (!text && !this.files.length)) return
+    if (text.startsWith('!')) {
+      this.ctx.toast('Comandos com ! rodam só na conversa direta com um bot. Abra o bot à esquerda e mande lá.')
+      return
+    }
+    this.sending = true
+    const files = this.files
+    try {
+      await window.office.postToChannel(channel.id, text, await this.inputs(files))
+      if (this.input.value.trim() === text) this.input.value = ''
+      this.drafts.delete(channel.id)
+      this.files = this.files.filter((f) => !files.includes(f))
+      this.mentions.close()
+      this.renderChips()
+      this.grow()
+      this.ctx.onSent()
+    } catch (err) {
+      this.ctx.toast(chatError(err), 'err')
+    } finally {
+      this.sending = false
+      this.sync()
+    }
+  }
+
   /** `asMessage`: send as a plain message even with a request pending. */
   private async send(asMessage = false): Promise<void> {
+    const channel = this.channel()
+    if (channel) return this.post(channel)
     const bot = this.ctx.bot()
     const text = this.input.value.trim()
     if (!bot || this.sending || (!text && !this.files.length)) return
