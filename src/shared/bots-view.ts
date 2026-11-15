@@ -2,11 +2,24 @@
 // renderer/src/ui/chat; everything here is plain data in, plain data out, and tested in
 // test/bots-view.test.ts. Spec: docs/prd/chat-de-bots.md ("Experiência").
 
+import { describeSchedule, nextRun, nextRuns, scheduleError } from './schedule'
 import type { AgentSummary } from './types/agents'
-import type { Bot, BotDraft, BotEventKind, BotEventTrigger, BotRun, RunTrigger, ThreadItem } from './types/bots'
-import { BOT_LIMITS, BOT_RUN_STATUS_LABEL, SENSITIVE_LABEL } from './types/bots'
+import type { McpServerView } from './types/backstage'
+import type {
+  AutomationDraft,
+  Bot,
+  BotDraft,
+  BotEventKind,
+  BotEventTrigger,
+  BotRun,
+  BotTriggerDraft,
+  RunTrigger,
+  ThreadItem,
+} from './types/bots'
+import { BOT_GROUND_FLOOR, BOT_LIMITS, BOT_RUN_STATUS_LABEL, SENSITIVE_LABEL } from './types/bots'
 import type { PermissionRequest } from './types/conversation'
-import type { Schedule } from './types/routines'
+import type { MissedPolicy, Routine, RoutineDraft, Schedule } from './types/routines'
+import { ROUTINE_LIMITS } from './types/routines'
 import type { TicketStatus } from './types/tickets'
 
 const MIN = 60_000
@@ -88,16 +101,21 @@ export function scheduleLabel(s: Schedule): string {
   }
 }
 
-const COLUMN_LABEL: Record<TicketStatus, string> = {
+/** The board's columns, as the trigger form and its sentence name them. */
+export const TICKET_COLUMN_LABEL: Record<TicketStatus, string> = {
   backlog: 'Backlog',
   todo: 'A fazer',
   doing: 'Fazendo',
   review: 'Revisão',
   done: 'Feito',
 }
+const COLUMN_LABEL = TICKET_COLUMN_LABEL
 
-/** An office event as a short sentence: "Quando nasce um ticket #bug", "Quando uma ata fica pronta". */
-export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter'] = {}): string {
+/**
+ * An office event as a short sentence: "Quando nasce um ticket #bug", "Quando uma ata fica pronta".
+ * `botName` names the bot of "bot-done" ("Quando Relator termina"); without it, any other bot.
+ */
+export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter'] = {}, botName?: string): string {
   const tags = filter.tags?.length ? ` ${filter.tags.map((t) => `#${t}`).join(' ')}` : ''
   switch (kind) {
     case 'ticket-created':
@@ -107,7 +125,7 @@ export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter']
     case 'meeting-ata':
       return 'Quando uma ata fica pronta'
     case 'bot-done':
-      return filter.onlyOk ? 'Quando outro bot termina bem' : 'Quando outro bot termina'
+      return `Quando ${filter.botId && botName ? botName : 'outro bot'} termina${filter.onlyOk ? ' bem' : ''}`
   }
 }
 
@@ -770,4 +788,464 @@ export function threadMarkdown(botName: string, items: readonly ThreadItem[], no
     }
   }
   return `${out.join('\n')}\n`
+}
+
+// ---------- automations: the screen, the week and the forms (phase 2: CB-14 to CB-16) ----------
+
+type RoutineLike = Pick<Routine, 'id' | 'name' | 'who' | 'schedule' | 'enabled' | 'nextAt'>
+type TriggerLike = Pick<BotEventTrigger, 'id' | 'botId' | 'name' | 'kind' | 'filter' | 'enabled'>
+/** A bot's name by id, so "bot-done" reads "Quando Relator termina". */
+type BotNameOf = (botId: string) => string | undefined
+
+const eventTriggerLabel = (t: TriggerLike, nameOf?: BotNameOf) =>
+  eventLabel(t.kind, t.filter, t.filter.botId ? nameOf?.(t.filter.botId) : undefined)
+
+const byName = (a: { name: string; id: string }, b: { name: string; id: string }) =>
+  a.name.localeCompare(b.name, 'pt-BR') || a.id.localeCompare(b.id)
+
+/** The bot that runs a routine (RoutineWho `{ kind: 'bot' }`), or null for any other runner. */
+export function routineBotId(r: Pick<Routine, 'who'>): string | null {
+  return r.who.kind === 'bot' ? r.who.botId : null
+}
+
+/**
+ * The routines and event triggers of the bots in view: the bots of one floor ('all' = every
+ * floor) and, when `botId` is set, only that bot. Routines run by anything else stay out.
+ */
+export function scopeAutomations<R extends Pick<Routine, 'who'>, T extends Pick<BotEventTrigger, 'botId'>>(
+  routines: readonly R[],
+  triggers: readonly T[],
+  bots: readonly Pick<Bot, 'id' | 'floor'>[],
+  scope: { floor: string; botId?: string | null },
+): { routines: R[]; triggers: T[] } {
+  const ids = new Set(
+    bots.filter((b) => (scope.floor === 'all' || b.floor === scope.floor) && (!scope.botId || b.id === scope.botId)).map((b) => b.id),
+  )
+  return {
+    routines: routines.filter((r) => {
+      const id = routineBotId(r)
+      return id !== null && ids.has(id)
+    }),
+    triggers: triggers.filter((t) => ids.has(t.botId)),
+  }
+}
+
+/** One automation as the list, the profile and the header show it: a schedule (routine) or an event trigger. */
+export interface AutomationEntry {
+  kind: 'schedule' | 'event'
+  /** Routine.id or BotEventTrigger.id. */
+  id: string
+  botId: string
+  name: string
+  /** "Dias úteis às 07:30", "Quando nasce um ticket #bug". */
+  label: string
+  enabled: boolean
+  /** The next run of an active schedule; null for events and paused ones. */
+  nextAt: number | null
+}
+
+/** The bots' automations, active first; schedules by their next run, then events, then by name. */
+export function automationEntries(
+  routines: readonly RoutineLike[],
+  triggers: readonly TriggerLike[],
+  nameOf?: BotNameOf,
+): AutomationEntry[] {
+  const out: AutomationEntry[] = []
+  for (const r of routines) {
+    const botId = routineBotId(r)
+    if (!botId) continue
+    out.push({
+      kind: 'schedule',
+      id: r.id,
+      botId,
+      name: r.name,
+      label: scheduleLabel(r.schedule),
+      enabled: r.enabled,
+      nextAt: r.enabled ? r.nextAt : null,
+    })
+  }
+  for (const t of triggers) {
+    out.push({
+      kind: 'event',
+      id: t.id,
+      botId: t.botId,
+      name: t.name,
+      label: eventTriggerLabel(t, nameOf),
+      enabled: t.enabled,
+      nextAt: null,
+    })
+  }
+  const kindRank = (e: AutomationEntry) => (e.kind === 'schedule' ? 0 : 1)
+  return out.sort(
+    (a, b) =>
+      Number(b.enabled) - Number(a.enabled) ||
+      kindRank(a) - kindRank(b) ||
+      (a.nextAt ?? Number.MAX_SAFE_INTEGER) - (b.nextAt ?? Number.MAX_SAFE_INTEGER) ||
+      byName(a, b),
+  )
+}
+
+/** How many automations of a bot are on and how many are paused ("Pausar automações" in the header). */
+export function automationCounts(
+  botId: string,
+  routines: readonly Pick<Routine, 'who' | 'enabled'>[],
+  triggers: readonly Pick<BotEventTrigger, 'botId' | 'enabled'>[],
+): { active: number; paused: number } {
+  const out = { active: 0, paused: 0 }
+  for (const r of routines) if (routineBotId(r) === botId) out[r.enabled ? 'active' : 'paused']++
+  for (const t of triggers) if (t.botId === botId) out[t.enabled ? 'active' : 'paused']++
+  return out
+}
+
+// ---------- the week ----------
+
+const WEEK_LABEL = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom']
+
+/** Monday 00:00 (local time) of the week `t` falls in. */
+export function weekStartOf(t: number): number {
+  const d = new Date(t)
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7)).getTime()
+}
+
+/** The Monday `weeks` weeks away (negative = back), by the calendar: a daylight-saving week keeps its Monday. */
+export function shiftWeek(weekStart: number, weeks: number): number {
+  const d = new Date(weekStartOf(weekStart))
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + 7 * weeks).getTime()
+}
+
+/** "Esta semana · 16 a 22 nov", "Semana que vem · 23 a 29 nov", "30 nov a 6 dez 2027". */
+export function weekTitle(weekStart: number, now = Date.now()): string {
+  const start = weekStartOf(weekStart)
+  const s = new Date(start)
+  const e = new Date(shiftWeek(start, 1) - 1)
+  const year = e.getFullYear() === new Date(now).getFullYear() ? '' : ` ${e.getFullYear()}`
+  const range =
+    s.getMonth() === e.getMonth()
+      ? `${s.getDate()} a ${e.getDate()} ${MONTH_SHORT[e.getMonth()]}${year}`
+      : `${s.getDate()} ${MONTH_SHORT[s.getMonth()]} a ${e.getDate()} ${MONTH_SHORT[e.getMonth()]}${year}`
+  const diff = Math.round((start - weekStartOf(now)) / (7 * DAY))
+  const prefix = diff === 0 ? 'Esta semana' : diff === 1 ? 'Semana que vem' : diff === -1 ? 'Semana passada' : ''
+  return prefix ? `${prefix} · ${range}` : range
+}
+
+/** One automation on the week: in a cell (a run), on the "A cada…" strip or on the "Em eventos" strip. */
+export interface WeekChip {
+  kind: 'schedule' | 'event'
+  id: string
+  /** null: a routine run by something other than a bot. */
+  botId: string | null
+  name: string
+  /** "Dias úteis às 07:30", "A cada 30 min", "Quando nasce um ticket #bug". */
+  label: string
+  /** Paused: drawn dimmed. */
+  paused: boolean
+  /** Cells only: the run in this week, and whether it is already behind `now`. */
+  at?: number
+  past?: boolean
+}
+
+export interface WeekDay {
+  /** 00:00 of the day. */
+  date: number
+  /** "Seg 16". */
+  label: string
+  today: boolean
+}
+
+export interface WeekRow {
+  /** "07:30". */
+  time: string
+  /** Monday first; each cell sorted by name. */
+  cells: WeekChip[][]
+}
+
+export interface WeekGrid {
+  /** Monday 00:00. */
+  start: number
+  days: WeekDay[]
+  /** By time of day. */
+  rows: WeekRow[]
+  /** Interval schedules, and any schedule running more than WEEK_CELL_MAX_PER_DAY times a day. */
+  every: WeekChip[]
+  /** Event triggers. */
+  events: WeekChip[]
+}
+
+/** A schedule that runs more often than this on one day goes to the "A cada…" strip instead of filling the grid. */
+export const WEEK_CELL_MAX_PER_DAY = 4
+
+/** "Roda a cada 30 minutos." → "A cada 30 minutos", for the strip. */
+function frequentLabel(s: Schedule): string {
+  const text = describeSchedule(s)
+    .replace(/^Roda /, '')
+    .replace(/\.$/, '')
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+/**
+ * The week calendar of Automações: every run of a daily, weekly, cron or "uma vez" schedule
+ * inside the week becomes a chip in its day's column, on the row of its time. Interval
+ * schedules (and crons that run more than WEEK_CELL_MAX_PER_DAY times a day) go to the "A
+ * cada…" strip, event triggers to the "Em eventos" strip. Paused automations stay, flagged.
+ */
+export function weekGrid(
+  routines: readonly RoutineLike[],
+  triggers: readonly TriggerLike[],
+  weekStart: number,
+  now = Date.now(),
+  nameOf?: BotNameOf,
+): WeekGrid {
+  const start = weekStartOf(weekStart)
+  const end = shiftWeek(start, 1)
+  const first = new Date(start)
+  const days: WeekDay[] = WEEK_LABEL.map((label, i) => {
+    const date = new Date(first.getFullYear(), first.getMonth(), first.getDate() + i).getTime()
+    return { date, label: `${label} ${new Date(date).getDate()}`, today: sameDay(date, now) }
+  })
+  const dayOf = (t: number) => Math.round((startOfDay(t) - start) / DAY)
+  const byTime = new Map<string, WeekChip[][]>()
+  const every: WeekChip[] = []
+  for (const r of routines) {
+    const base = { kind: 'schedule' as const, id: r.id, botId: routineBotId(r), name: r.name, paused: !r.enabled }
+    if (r.schedule.kind === 'interval') {
+      every.push({ ...base, label: scheduleLabel(r.schedule) })
+      continue
+    }
+    const runs: number[] = []
+    for (let t = nextRun(r.schedule, start - 1); t !== null && t < end; t = nextRun(r.schedule, t)) {
+      runs.push(t)
+      // past this, some day surely has more than the cap
+      if (runs.length > 7 * WEEK_CELL_MAX_PER_DAY) break
+    }
+    const perDay = new Array<number>(7).fill(0)
+    for (const t of runs) perDay[dayOf(t)]++
+    if (perDay.some((n) => n > WEEK_CELL_MAX_PER_DAY)) {
+      every.push({ ...base, label: frequentLabel(r.schedule) })
+      continue
+    }
+    for (const t of runs) {
+      const time = clockTime(t)
+      let row = byTime.get(time)
+      if (!row) byTime.set(time, (row = Array.from({ length: 7 }, () => [])))
+      row[dayOf(t)].push({ ...base, label: scheduleLabel(r.schedule), at: t, past: t < now })
+    }
+  }
+  const rows = [...byTime.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([time, cells]) => ({ time, cells: cells.map((c) => c.sort(byName)) }))
+  const events: WeekChip[] = triggers
+    .map((t) => ({
+      kind: 'event' as const,
+      id: t.id,
+      botId: t.botId,
+      name: t.name,
+      label: eventTriggerLabel(t, nameOf),
+      paused: !t.enabled,
+    }))
+    .sort(byName)
+  return { start, days, rows, every: every.sort(byName), events }
+}
+
+// ---------- the forms ----------
+
+/** A routine run by the bot: where and how come from the bot, so the routine checks pass as for any runner. */
+export function botRoutineDraft(
+  bot: Pick<Bot, 'id' | 'floor' | 'cwd' | 'permissionMode'>,
+  a: { id?: string; name: string; prompt: string; schedule: Schedule; enabled?: boolean; missed?: MissedPolicy },
+): RoutineDraft {
+  return {
+    ...(a.id ? { id: a.id } : {}),
+    name: a.name.trim(),
+    prompt: a.prompt.trim(),
+    who: { kind: 'bot', botId: bot.id },
+    ...(bot.floor === BOT_GROUND_FLOOR ? (bot.cwd ? { cwd: bot.cwd } : {}) : { floor: bot.floor }),
+    permissionMode: bot.permissionMode,
+    schedule: a.schedule,
+    enabled: a.enabled ?? true,
+    missed: a.missed ?? 'run',
+  }
+}
+
+function nameAndTaskError(name: string, prompt: string, what: string): string | null {
+  const n = name.trim()
+  if (!n) return 'Dê um nome à automação.'
+  if (n.length > ROUTINE_LIMITS.name) return `O nome cabe em ${ROUTINE_LIMITS.name} caracteres. Encurte um pouco.`
+  if (!prompt.trim()) return `Escreva a tarefa: o que o bot faz ${what}.`
+  if (prompt.length > ROUTINE_LIMITS.prompt)
+    return `A tarefa passa de ${ROUTINE_LIMITS.prompt.toLocaleString('pt-BR')} caracteres. Corte o que não é essencial.`
+  return null
+}
+
+/** What a schedule automation is missing, in a sentence that says how to fix it; null when fine. */
+export function scheduleDraftError(d: Pick<RoutineDraft, 'name' | 'prompt' | 'schedule'>): string | null {
+  return nameAndTaskError(d.name, d.prompt, 'em cada rodada') ?? scheduleError(d.schedule)
+}
+
+/** "bug, #urgente  api" → ['bug', 'urgente', 'api']: no '#', no repeats, at most 10 of up to 40 letters. */
+export function parseTags(text: string): string[] {
+  const out: string[] = []
+  for (const raw of text.split(/[\s,;]+/)) {
+    const tag = raw.replace(/^#+/, '').trim().slice(0, 40)
+    if (tag && !out.some((t) => t.toLocaleLowerCase('pt-BR') === tag.toLocaleLowerCase('pt-BR'))) out.push(tag)
+    if (out.length === 10) break
+  }
+  return out
+}
+
+/** Runs per hour an event trigger may take: a whole number from 1 to BOT_LIMITS.perHourMax (never more: loop guard). */
+export function clampPerHour(n: number): number {
+  if (!Number.isFinite(n)) return BOT_LIMITS.perHourDefault
+  return Math.min(BOT_LIMITS.perHourMax, Math.max(1, Math.round(n)))
+}
+
+/** What an event trigger draft is missing, in a sentence that says how to fix it; null when fine. */
+export function triggerDraftError(d: Pick<BotTriggerDraft, 'botId' | 'name' | 'kind' | 'filter' | 'prompt' | 'maxPerHour'>): string | null {
+  if (!d.botId) return 'Escolha o bot que roda esta automação.'
+  const base = nameAndTaskError(d.name, d.prompt, 'quando o evento acontece')
+  if (base) return base
+  // no bot chosen = any other bot (the main process never lets a bot trigger itself)
+  if (d.kind === 'bot-done' && d.filter.botId === d.botId) return 'Um bot nunca dispara a si mesmo. Escolha outro bot.'
+  const cap = d.maxPerHour
+  if (cap !== undefined && (!Number.isInteger(cap) || cap < 1 || cap > BOT_LIMITS.perHourMax))
+    return `O limite vai de 1 a ${BOT_LIMITS.perHourMax} rodadas por hora.`
+  return null
+}
+
+/** "21/11". */
+function shortDate(t: number): string {
+  const d = new Date(t)
+  return `${d.getDate()}/${pad(d.getMonth() + 1)}`
+}
+
+/** "Automação a partir de uma frase": what the preview shows before anything is saved. */
+export interface AutomationPreview {
+  /** "Roda toda sexta às 17:00." or "Quando nasce um ticket #bug". */
+  when: string
+  /** The next 3 runs of a schedule; [] for an event or a schedule with a problem. */
+  next: number[]
+  /** "Roda toda sexta às 17:00 · próximas: 21/11, 28/11, 5/12". */
+  line: string
+  /** Why it cannot be saved as it is (adjust it in the form); null when fine. */
+  error: string | null
+}
+
+export function automationPreview(d: AutomationDraft, now = Date.now()): AutomationPreview {
+  const botErr = d.bot.kind === 'new' ? draftError(d.bot.draft) : null
+  const bot = botErr ? `O bot novo não fecha: ${botErr.charAt(0).toLowerCase()}${botErr.slice(1)}` : null
+  if (d.when.kind === 'schedule') {
+    const s = d.when.schedule
+    const problem =
+      scheduleError(s) ?? (s.kind === 'once' && nextRun(s, now) === null ? 'Esse horário já passou. Ajuste a data no formulário.' : null)
+    // a new interval counts from the moment it is saved, as in the routine form
+    const shown: Schedule = s.kind === 'interval' && s.anchor === undefined ? { ...s, anchor: Math.floor(now / MIN) * MIN } : s
+    const next = problem ? [] : nextRuns(shown, now, 3)
+    const when = describeSchedule(s)
+    const line = next.length ? `${when.replace(/\.$/, '')} · próximas: ${next.map(shortDate).join(', ')}` : when
+    return { when, next, line, error: problem ?? nameAndTaskError(d.name, d.prompt, 'em cada rodada') ?? bot }
+  }
+  const when = eventLabel(d.when.event, d.when.filter)
+  const selfLoop = d.when.event === 'bot-done' && d.bot.kind === 'existing' && d.when.filter.botId === d.bot.botId
+  const error =
+    nameAndTaskError(d.name, d.prompt, 'quando o evento acontece') ??
+    (selfLoop ? 'Um bot nunca dispara a si mesmo. Escolha outro bot no formulário.' : null) ??
+    bot
+  return { when, next: [], line: when, error }
+}
+
+// ---------- unread and the last line, from the list (Bot.unread, Bot.last) ----------
+
+/**
+ * The sidebar's unread count. The main process sends Bot.unread with the list (counted when it
+ * arrived, at `listedAt`): that number plus what came after it. Without it, the items at hand
+ * count. `override` is the lastReadAt set here before the list confirms it: read now (the items
+ * after it count) or marked unread (0: the larger of the two counts until the list comes back).
+ */
+export function unreadFor(o: {
+  listed: number | undefined
+  listedAt: number
+  items: readonly ThreadItem[]
+  lastReadAt: number
+  override?: number
+}): number {
+  if (o.override === 0) return Math.max(o.listed ?? 0, unreadCount(o.items, 0))
+  if (o.override !== undefined) return unreadCount(o.items, o.override)
+  if (o.listed === undefined) return unreadCount(o.items, o.lastReadAt)
+  let n = Math.max(0, o.listed)
+  for (const it of o.items) if (it.t > o.listedAt && it.t > o.lastReadAt && countsAsUnread(it)) n++
+  return n
+}
+
+/** Bot.last as a thread item, for the sidebar's line when the thread's own items are not at hand. */
+export function listedLastItem(botId: string, last: Bot['last']): ThreadItem | undefined {
+  if (!last) return undefined
+  const id = `listed-last-${botId}`
+  if (last.from === 'user') return { id, t: last.t, kind: 'user', text: last.text }
+  if (last.from === 'bot') return { id, t: last.t, kind: 'bot', botId, text: last.text }
+  return { id, t: last.t, kind: 'notice', text: last.text }
+}
+
+/** The newer of two items; on a tie, the first (the live one). */
+export function newerItem(a: ThreadItem | undefined, b: ThreadItem | undefined): ThreadItem | undefined {
+  if (!a) return b
+  if (!b) return a
+  return b.t > a.t ? b : a
+}
+
+// ---------- connections (MCP servers) ----------
+
+/** The office's own server (board, minutes, the Chat's tools): always on for every bot. */
+export const OFFICE_MCP = 'office'
+
+export function isOfficeServer(m: Pick<McpServerView, 'name' | 'locked'>): boolean {
+  return !!m.locked || m.name === OFFICE_MCP
+}
+
+export type McpTone = 'ok' | 'warn' | 'fail' | 'off' | 'idle'
+
+/** A server's state in a few words, as Conexões shows it. */
+export function mcpStatus(m: Pick<McpServerView, 'status' | 'error' | 'off'>): { text: string; tone: McpTone } {
+  if (m.off) return { text: 'Desligado no escritório', tone: 'off' }
+  switch (m.status) {
+    case 'connected':
+      return { text: 'Conectado', tone: 'ok' }
+    case 'failed':
+      return { text: m.error ? `Falhou: ${snippet(m.error, 90)}` : 'Falhou ao conectar', tone: 'fail' }
+    case 'needs-auth':
+      return { text: 'Pede login', tone: 'warn' }
+    case 'pending':
+      return { text: 'Conectando…', tone: 'warn' }
+    case 'disabled':
+      return { text: 'Desligado no Claude Code', tone: 'off' }
+    default:
+      return { text: 'Sem status: nenhum agente rodando agora', tone: 'idle' }
+  }
+}
+
+/** The bots that see a server: every bot for the office's; none for one turned off in the office; else by Bot.apps. */
+export function botsSeeing<T extends Pick<Bot, 'apps'>>(bots: readonly T[], server: Pick<McpServerView, 'name' | 'locked' | 'off'>): T[] {
+  if (isOfficeServer(server)) return [...bots]
+  if (server.off) return []
+  return bots.filter((b) => b.apps === 'all' || b.apps.includes(server.name))
+}
+
+/** "Todos os servidores", "Só o office", "office + github e linear". */
+export function appsLabel(apps: Bot['apps']): string {
+  if (apps === 'all') return 'Todos os servidores'
+  const list = apps.filter((a) => a !== OFFICE_MCP)
+  if (!list.length) return 'Só o office'
+  const names = list.length === 1 ? list[0] : `${list.slice(0, -1).join(', ')} e ${list[list.length - 1]}`
+  return `office + ${names}`
+}
+
+/** What the profile saves: 'all', or the servers picked without the office's (always on), no repeats. */
+export function cleanApps(mode: 'all' | 'list', picked: readonly string[]): Bot['apps'] {
+  if (mode === 'all') return 'all'
+  return [...new Set(picked.map((p) => p.trim()).filter((p) => p && p !== OFFICE_MCP))]
+}
+
+/** Servers in the bot's list that Claude Code does not know any more (removed or renamed). */
+export function missingApps(apps: Bot['apps'], servers: readonly Pick<McpServerView, 'name'>[]): string[] {
+  if (apps === 'all') return []
+  const known = new Set(servers.map((s) => s.name))
+  return apps.filter((a) => a !== OFFICE_MCP && !known.has(a))
 }

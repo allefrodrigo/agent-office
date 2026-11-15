@@ -2160,6 +2160,917 @@
   padding: 4px 2px;
 }
 
+/* ---------- Automações e Conexões (fase 2) ---------- */
+
+/* the header and the sidebar footer, when a screen (not a bot) is on */
+.ch-head-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--ch-raise-2);
+  color: var(--ch-accent-text);
+}
+
+.ch-foot-btn[aria-current='true'] {
+  background: var(--ch-raise);
+  color: var(--ch-text);
+  font-weight: 650;
+}
+
+.ch-foot-btn[aria-current='true'] svg {
+  color: var(--ch-accent-text);
+}
+
+/* the "previous" chevron: the "next" one, mirrored */
+.ch-flip {
+  display: inline-grid;
+  transform: scaleX(-1);
+}
+
+.ch-center.mode-automations,
+.ch-center.mode-connections {
+  overflow-y: auto;
+}
+
+.ch-autos-screen,
+.ch-conn {
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 28px 40px;
+}
+
+.ch-autos-screen.with-form {
+  max-width: none;
+  padding: 0;
+}
+
+/* Lista | Semana, filters and "＋ Nova": stays on top while the list scrolls */
+.ch-autos-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 0 14px;
+  background: var(--ch-bg);
+}
+
+.ch-autos-bar:empty,
+.ch-autos-panel:empty,
+.ch-proposal-slot:empty {
+  display: none;
+}
+
+.ch-autos-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ch-autos-gap {
+  flex: 1;
+}
+
+.ch-autos-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ch-autos-empty {
+  margin-top: 24px;
+}
+
+/* a segmented choice made of radios: Lista | Semana, Agenda | Evento */
+.ch-seg {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  border: 1px solid var(--ch-line-strong);
+  border-radius: 999px;
+  background: var(--ch-raise);
+}
+
+.ch-seg-opt {
+  position: relative;
+  display: flex;
+}
+
+.ch-seg-opt input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ch-seg-opt input:disabled {
+  cursor: default;
+}
+
+.ch-seg-opt span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 999px;
+  color: var(--ch-muted);
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ch-seg-opt input:checked + span {
+  background: rgba(217, 119, 87, 0.2);
+  color: var(--ch-text);
+}
+
+.ch-seg-opt input:not(:checked):not(:disabled):hover + span {
+  color: var(--ch-text);
+}
+
+.ch-seg-opt input:focus-visible + span {
+  outline: 2px solid var(--ch-accent-text);
+  outline-offset: 1px;
+}
+
+/* a line above the list: something did not load */
+.ch-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(245, 165, 36, 0.3);
+  border-radius: 12px;
+  background: rgba(245, 165, 36, 0.08);
+  color: var(--ch-amber-text);
+  font-size: 13.5px;
+}
+
+.ch-banner > svg {
+  flex: none;
+}
+
+.ch-banner > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.ch-banner .btn {
+  flex: none;
+}
+
+.ch-banner.err {
+  border-color: rgba(239, 91, 91, 0.3);
+  background: rgba(239, 91, 91, 0.1);
+  color: var(--ch-red-text);
+}
+
+/* "＋ Nova": the sentence, then the proposal to review */
+.ch-autos-panel {
+  margin-bottom: 14px;
+}
+
+.ch-sentence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--ch-line-strong);
+  border-radius: 18px;
+  background: var(--ch-raise);
+}
+
+.ch-sentence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: -6px -8px -4px 0;
+}
+
+.ch-sentence-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ch-sentence-row {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-screen .ch-sentence-input {
+  flex: 1;
+  min-width: 0;
+  height: 40px;
+  padding: 0 14px;
+  font-size: 14.5px;
+}
+
+.ch-sentence-row .btn {
+  flex: none;
+  height: 40px;
+}
+
+.ch-sentence-alt {
+  margin: 0;
+  font-size: 13px;
+}
+
+.ch-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(217, 119, 87, 0.4);
+  border-radius: 14px;
+  background: var(--ch-bg);
+}
+
+.ch-proposal-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.ch-proposal-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.ch-proposal-row {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ch-proposal-row dt {
+  color: var(--ch-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.ch-proposal-row dd {
+  margin: 0;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.ch-proposal-bot {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.ch-proposal-bot small {
+  flex-basis: 100%;
+  color: var(--ch-muted);
+  font-size: 12.5px;
+}
+
+.ch-proposal-task {
+  display: block;
+  max-height: 140px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.ch-proposal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Lista: one row per automation, the main button opens the form */
+.ch-auto-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ch-auto-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid var(--ch-line);
+  border-radius: 16px;
+  background: var(--ch-raise);
+}
+
+.ch-auto-row:hover,
+.ch-auto-row:focus-within {
+  border-color: var(--ch-line-strong);
+}
+
+.ch-auto-row.paused {
+  border-style: dashed;
+  background: transparent;
+}
+
+.ch-auto-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--ch-text);
+  text-align: left;
+}
+
+.ch-auto-main:hover {
+  background: var(--ch-raise-2);
+}
+
+.ch-auto-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--ch-raise-2);
+  color: var(--ch-accent-text);
+}
+
+.ch-auto-icon.k-event {
+  color: var(--ch-blue-text);
+}
+
+.ch-auto-row.paused .ch-auto-icon {
+  color: var(--ch-muted);
+}
+
+.ch-auto-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.ch-auto-name,
+.ch-auto-when,
+.ch-auto-next {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ch-auto-name {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.ch-auto-when {
+  font-size: 13.5px;
+}
+
+.ch-auto-next {
+  color: var(--ch-muted);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-auto-row.paused .ch-auto-name,
+.ch-auto-row.paused .ch-auto-when {
+  color: var(--ch-muted);
+}
+
+.ch-auto-bot {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  max-width: 180px;
+  color: var(--ch-muted);
+  font-size: 13px;
+}
+
+.ch-auto-bot span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ch-auto-acts {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+
+.ch-auto-act {
+  width: 34px;
+  height: 34px;
+}
+
+.ch-auto-act.danger:hover {
+  background: rgba(239, 91, 91, 0.12);
+  color: var(--ch-red-text);
+}
+
+/* Semana: days in columns, times in rows; one chip per run, in the bot's color */
+.ch-week {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ch-week-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ch-week-title {
+  margin: 0 6px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.ch-week-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--ch-line);
+  border-radius: 16px;
+  background: var(--ch-raise);
+}
+
+.ch-week-grid {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.ch-week-grid th,
+.ch-week-grid td {
+  padding: 6px;
+  border-bottom: 1px solid var(--ch-line);
+  border-left: 1px solid var(--ch-line);
+  text-align: left;
+  vertical-align: top;
+}
+
+.ch-week-grid tr > :first-child {
+  border-left: 0;
+}
+
+.ch-week-grid tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.ch-week-grid thead th {
+  padding: 10px 8px;
+  color: var(--ch-muted);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.ch-week-grid thead th.today {
+  color: var(--ch-accent-text);
+}
+
+.ch-week-grid td.today {
+  background: rgba(217, 119, 87, 0.06);
+}
+
+.ch-week-grid th.ch-week-time {
+  width: 64px;
+  color: var(--ch-muted);
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.ch-week-grid td.ch-week-none {
+  padding: 28px 16px;
+  color: var(--ch-muted);
+  text-align: center;
+}
+
+.ch-wchip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 4px;
+  padding: 4px 8px;
+  border: 0;
+  border-left: 3px solid var(--av);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--av) 16%, var(--ch-raise-2));
+  color: var(--ch-text);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-align: left;
+}
+
+.ch-wchip:last-child {
+  margin-bottom: 0;
+}
+
+.ch-wchip:hover {
+  background: color-mix(in srgb, var(--av) 26%, var(--ch-raise-2));
+}
+
+.ch-wchip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ch-wchip > svg {
+  flex: none;
+}
+
+/* paused: dimmed but readable (dashed edge, no fill, muted text) */
+.ch-wchip.paused {
+  border-left-style: dashed;
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--ch-line-strong);
+  color: var(--ch-muted);
+}
+
+.ch-wchip.past:not(.paused) {
+  background: var(--ch-raise-2);
+  color: var(--ch-muted);
+}
+
+.ch-week-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ch-week-strip-title {
+  margin: 0;
+  color: var(--ch-muted);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ch-week-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ch-week-chips .ch-wchip {
+  width: auto;
+  max-width: 100%;
+  margin: 0;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+/* the form: schedule (the routines' fields, in the Chat's colors) or event */
+.chat-screen .ch-auto-form {
+  --text: var(--ch-text);
+  --muted: var(--ch-muted);
+  --dim: var(--ch-muted);
+  --line-strong: var(--ch-line-strong);
+  --red-text: var(--ch-red-text);
+}
+
+.ch-auto-part {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* the "Quando" legend above already names the schedule */
+.ch-sched > .field > .field-label {
+  display: none;
+}
+
+.ch-auto-form .field-hint {
+  font-size: 12.5px;
+}
+
+.ch-auto-form .rt-row .input {
+  height: 34px;
+}
+
+.ch-auto-form .rt-preview {
+  border: 1px solid var(--ch-line);
+  background: var(--ch-raise);
+}
+
+.chat-screen .ch-auto-prompt {
+  min-height: 120px;
+  font: 13.5px/1.55 var(--font);
+  resize: vertical;
+}
+
+.ch-auto-sentence {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ch-line);
+  border-radius: 10px;
+  background: var(--ch-raise);
+  color: var(--ch-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ch-form-foot .ch-foot-left {
+  margin-right: auto;
+}
+
+/* the profile: its automations, its connections */
+.ch-autos li .ch-auto-link {
+  flex: 1;
+}
+
+.ch-auto-link {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: none;
+  color: var(--ch-text);
+  text-align: left;
+}
+
+.ch-auto-link:hover {
+  background: var(--ch-raise);
+}
+
+.ch-auto-link > svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--ch-accent-text);
+}
+
+.ch-auto-link.paused > svg {
+  color: var(--ch-muted);
+}
+
+.ch-auto-link-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.ch-auto-link-text span {
+  color: var(--ch-muted);
+  font-size: 12.5px;
+}
+
+.ch-profile-autos {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.ch-profile-autos .ch-autos {
+  align-self: stretch;
+}
+
+.ch-apps-mode,
+.ch-apps {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ch-apps {
+  padding: 10px 12px;
+  border: 1px solid var(--ch-line);
+  border-radius: 12px;
+  background: var(--ch-raise);
+}
+
+.ch-apps .ch-check input:disabled {
+  opacity: 0.7;
+}
+
+/* Conexões */
+.ch-conn-body {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding-top: 22px;
+}
+
+.ch-conn-intro {
+  max-width: 720px;
+  margin: 0;
+  color: var(--ch-muted);
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.ch-conn-servers,
+.ch-conn-bots,
+.ch-conn-how {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ch-conn-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ch-conn-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ch-conn-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--ch-line);
+  border-radius: 14px;
+  background: var(--ch-raise);
+}
+
+.ch-conn-row.off {
+  border-style: dashed;
+  background: transparent;
+}
+
+.ch-led {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ch-dim);
+}
+
+.ch-led.tone-ok {
+  background: var(--ch-green);
+  box-shadow: 0 0 0 3px rgba(62, 207, 142, 0.16);
+}
+
+.ch-led.tone-warn {
+  background: var(--ch-amber);
+}
+
+.ch-led.tone-fail {
+  background: var(--ch-red);
+}
+
+.ch-led.tone-off {
+  border: 2px solid var(--ch-dim);
+  background: transparent;
+}
+
+.ch-conn-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ch-conn-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 14.5px;
+}
+
+.ch-conn-name .ch-chip {
+  align-self: auto;
+}
+
+.ch-conn-status {
+  color: var(--ch-muted);
+  font-size: 13px;
+}
+
+.ch-conn-status.tone-ok {
+  color: var(--ch-green);
+}
+
+.ch-conn-status.tone-warn,
+.ch-conn-status .tone-warn {
+  color: var(--ch-amber-text);
+}
+
+.ch-conn-status.tone-fail {
+  color: var(--ch-red-text);
+}
+
+.ch-conn-facts {
+  color: var(--ch-muted);
+}
+
+.ch-conn-who {
+  display: flex;
+  flex: none;
+  align-items: center;
+  max-width: 45%;
+  color: var(--ch-muted);
+  font-size: 13px;
+}
+
+.ch-conn-all {
+  color: var(--ch-text);
+}
+
+.ch-conn-faces {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.ch-conn-face {
+  display: inline-grid;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+.ch-conn-face:hover {
+  box-shadow: 0 0 0 2px var(--ch-line-strong);
+}
+
+.ch-conn-count {
+  margin-left: 4px;
+  color: var(--ch-muted);
+}
+
+.ch-conn-row > .btn {
+  flex: none;
+}
+
+.ch-conn-how p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--ch-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ch-conn-how p code {
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--ch-raise-2);
+  color: var(--ch-text);
+  font: 13px var(--mono);
+}
+
+.ch-conn-code {
+  margin: 0;
+  padding: 10px 14px;
+  overflow-x: auto;
+  border: 1px solid var(--ch-line);
+  border-radius: 12px;
+  background: var(--ch-raise);
+  color: var(--ch-text);
+  font: 13px/1.5 var(--mono);
+  white-space: pre;
+  user-select: text;
+}
+
+.ch-conn-actions {
+  display: flex;
+  gap: 8px;
+}
+
 /* ---------- narrow windows ---------- */
 
 @media (max-width: 1180px) {
@@ -2180,6 +3091,44 @@
 
   .ch-form-grid {
     grid-template-columns: 1fr;
+  }
+
+  .ch-autos-screen,
+  .ch-conn {
+    padding: 0 18px 32px;
+  }
+
+  /* the avatar is enough; the name is in the row's label */
+  .ch-auto-bot span {
+    display: none;
+  }
+
+  .ch-conn-row {
+    flex-wrap: wrap;
+  }
+
+  .ch-conn-who {
+    max-width: none;
+    flex-basis: 100%;
+    padding-left: 22px;
+  }
+}
+
+@media (max-width: 760px) {
+  .ch-autos-gap {
+    display: none;
+  }
+
+  .ch-auto-row {
+    flex-wrap: wrap;
+  }
+
+  .ch-auto-main {
+    flex-basis: 100%;
+  }
+
+  .ch-auto-acts {
+    margin-left: auto;
   }
 }
 

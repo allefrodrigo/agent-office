@@ -31,6 +31,10 @@ export interface SidebarCtx extends ChatCtx {
   newBot(): void
   /** The selected bot went away (deleted, hidden). */
   removed(botId: string): void
+  /** The footer's screens (phase 2), and which one is on. */
+  openAutomations(): void
+  openConnections(): void
+  screen(): 'automations' | 'connections' | null
 }
 
 /** Search waits this long after the last key before asking the main process. */
@@ -44,6 +48,8 @@ export class ChatSidebar {
   private botsEl: HTMLDivElement
   private hitsEl: HTMLDivElement
   private channelsEl: HTMLElement
+  private autosBtn: HTMLButtonElement
+  private connBtn: HTMLButtonElement
   private showHidden = false
   private hits: ThreadHit[] | null = null
   private searchTimer = 0
@@ -87,6 +93,18 @@ export class ChatSidebar {
         'Canais com vários bots e você, como #lançamento, chegam na próxima fase.',
       ),
     )
+    this.autosBtn = h(
+      'button',
+      { type: 'button', class: 'ch-foot-btn', title: 'A agenda e os eventos de todos os bots', onclick: () => ctx.openAutomations() },
+      icon('spark', 16),
+      'Automações',
+    )
+    this.connBtn = h(
+      'button',
+      { type: 'button', class: 'ch-foot-btn', title: 'Quais servidores MCP cada bot enxerga', onclick: () => ctx.openConnections() },
+      icon('plug', 16),
+      'Conexões',
+    )
     this.el = h(
       'aside',
       { class: 'ch-side', 'aria-label': 'Bots e canais' },
@@ -107,20 +125,8 @@ export class ChatSidebar {
       h(
         'div',
         { class: 'ch-side-foot' },
-        h(
-          'button',
-          { type: 'button', class: 'ch-foot-btn', disabled: true, title: 'Em breve: a agenda e os eventos de todos os bots' },
-          icon('spark', 16),
-          'Automações',
-          h('small', {}, 'Em breve'),
-        ),
-        h(
-          'button',
-          { type: 'button', class: 'ch-foot-btn', disabled: true, title: 'Em breve: quais servidores MCP cada bot enxerga' },
-          icon('plug', 16),
-          'Conexões',
-          h('small', {}, 'Em breve'),
-        ),
+        this.autosBtn,
+        this.connBtn,
         h('button', { type: 'button', class: 'ch-foot-btn ch-new', onclick: () => ctx.newBot() }, icon('plus', 16), 'Novo bot'),
       ),
     )
@@ -143,6 +149,9 @@ export class ChatSidebar {
       this.floorSel.replaceChildren(...opts.map((o) => h('option', { value: o.id }, o.name)))
     }
     this.floorSel.value = opts.some((o) => o.id === want) ? want : 'all'
+    const on = this.ctx.screen()
+    this.autosBtn.setAttribute('aria-current', String(on === 'automations'))
+    this.connBtn.setAttribute('aria-current', String(on === 'connections'))
     keepFocus(this.botsEl, () => this.drawBots())
     if (this.hits) this.drawHits()
   }

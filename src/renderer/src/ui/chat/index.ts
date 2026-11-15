@@ -9,7 +9,9 @@ import { saveMarkdown } from '../export'
 import { confirmDialog, modal } from '../modals'
 import { OPEN_AGENT_EVENT, openAgentPanel } from '../meetings/office'
 import { entryView } from '../panel/entries'
-import { ChatHeader } from './header'
+import { AutomationsView, type AutomationTarget } from './automations'
+import { ConnectionsView } from './connections'
+import { ChatHeader, type HeaderScreen } from './header'
 import { closeMenu } from './menu'
 import { botForm, botGallery } from './new-bot'
 import { OPEN_CHAT_EVENT, type OpenChatDetail } from './open'
@@ -78,7 +80,7 @@ export function mountChat(root: HTMLElement, state: State, opts: ChatOptions): v
   window.addEventListener(OPEN_AGENT_EVENT, () => screen?.close())
 }
 
-type Mode = 'thread' | 'gallery' | 'form' | 'empty-floor' | 'error'
+type Mode = 'thread' | 'gallery' | 'form' | 'empty-floor' | 'error' | 'automations' | 'connections'
 
 function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, threadId?: string): void {
   if (screen) {
@@ -104,22 +106,46 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   const el = h('div', { class: 'backdrop chat-backdrop' }, box)
   const ctx = { root: el, state, toast }
 
+  /** A real floor (never 'all'): where a sentence is read and a new bot lands. */
+  const homeFloor = () => (floor === 'all' ? opts.currentFloor() : floor)
+  const automations = new AutomationsView({
+    ...ctx,
+    floor: () => floor,
+    setFloor: (f) => setFloor(f),
+    homeFloor,
+    openBot: (id) => void select(id),
+  })
+  const connections = new ConnectionsView({
+    ...ctx,
+    floor: () => floor,
+    editBot: (id) =>
+      void select(id).then(() => {
+        if (selected !== id || mode !== 'thread') return
+        setProfile(true)
+        profile.showConnections()
+      }),
+  })
   const sidebar = new ChatSidebar({
     ...ctx,
     host: box,
-    selected: () => selected,
+    // a bot row is "current" only while its thread is on screen
+    selected: () => (mode === 'thread' ? selected : null),
     floor: () => floor,
     setFloor: (f) => setFloor(f),
     select: (id, itemId) => void select(id, itemId),
     newBot: () => void showGallery(),
     removed: (id) => {
-      if (id === selected) pickFirst()
+      if (id === selected && mode === 'thread') pickFirst()
     },
+    openAutomations: () => void showAutomations(),
+    openConnections: () => void showConnections(),
+    screen: () => (mode === 'automations' || mode === 'connections' ? mode : null),
   })
   const header = new ChatHeader({
     ...ctx,
     host: box,
     bot,
+    screen: () => headerScreen(),
     profileOpen: () => profileOpen && mode === 'thread',
     toggleProfile: () => setProfile(!profileOpen),
     runNow: () => void runNow(),
@@ -163,6 +189,7 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
       })
     },
     close: () => setProfile(false),
+    editAutomation: (target) => void showAutomations(target),
   })
 
   main.append(header.el, center)
@@ -242,6 +269,48 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     form.focus()
   }
 
+  // ---------- Automações and Conexões (phase 2) ----------
+  function headerScreen(): HeaderScreen | null {
+    const where = floor === 'all' ? 'de todos os andares' : `do andar ${floorName(state, floor)}`
+    if (mode === 'automations') return { title: 'Automações', sub: `A agenda e os eventos dos bots ${where}.`, icon: 'spark' }
+    if (mode === 'connections') return { title: 'Conexões', sub: 'Os servidores MCP que cada bot enxerga.', icon: 'plug' }
+    return null
+  }
+
+  /** An automation form with changes is open: leaving it asks first. */
+  async function leaveAutomations(): Promise<boolean> {
+    if (mode !== 'automations' || !automations.hasChanges) return true
+    return confirmDialog(el, {
+      title: 'Descartar a automação?',
+      text: 'O que você preencheu no formulário e não salvou vai se perder.',
+      confirm: 'Descartar',
+      cancel: 'Continuar editando',
+      danger: true,
+    })
+  }
+
+  /**
+   * The Automações screen: the list or the week, or a form when `target` is set (the profile's
+   * "＋ Automação" or an automation of the bot); the form then goes back to the bot's thread.
+   */
+  async function showAutomations(target?: AutomationTarget): Promise<void> {
+    if (closed || !(await leaveAutomations())) return
+    const from = mode === 'thread' ? selected : null
+    showCenter('automations', automations.el)
+    if (target) automations.edit(target, from ? () => void select(from) : undefined)
+    else {
+      automations.show()
+      automations.focus()
+    }
+  }
+
+  async function showConnections(): Promise<void> {
+    if (closed || !(await leaveAutomations())) return
+    showCenter('connections', connections.el)
+    connections.load()
+    connections.focus()
+  }
+
   function showEmptyFloor(): void {
     selected = null
     showCenter(
@@ -295,11 +364,17 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     const b = bot()
     if (mode === 'thread' && b && (f === 'all' || b.floor === f)) return sidebar.render()
     if (mode === 'form' || mode === 'gallery') return sidebar.render()
+    if (mode === 'automations' || mode === 'connections') {
+      sidebar.render()
+      header.render()
+      return mode === 'automations' ? automations.refresh() : connections.refresh()
+    }
     pickFirst()
   }
 
   async function select(id: string, itemId?: string): Promise<void> {
     if (closed) return
+    if (!(await leaveAutomations())) return
     if (id !== selected && profile.hasChanges && !(await discardProfile())) return
     await chatStore.start()
     const b = chatStore.bot(id)
@@ -438,6 +513,8 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     header.render()
     composer.sync()
     if (!profile.el.hidden) profile.show(bot())
+    if (mode === 'automations') automations.refresh()
+    else if (mode === 'connections') connections.refresh()
   })
   const offItems = chatStore.onItem((threadId, item, added) => {
     if (closed || threadId !== selected || mode !== 'thread') return
@@ -457,6 +534,9 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
       header.render()
       composer.sync()
       if (mode === 'thread') thread.refresh()
+      // the routines live in the office's state: the screen and the profile follow them
+      if (mode === 'automations') automations.refresh()
+      if (!profile.el.hidden) profile.refresh()
     })
   })
   const onVisible = () => {
@@ -468,8 +548,10 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   async function close(): Promise<void> {
     if (closed) return
     if (profile.hasChanges && !(await discardProfile())) return
+    if (!(await leaveAutomations())) return
     closed = true
     screen = null
+    automations.dispose()
     clearTimeout(readTimer)
     cancelAnimationFrame(frame)
     offStore()
