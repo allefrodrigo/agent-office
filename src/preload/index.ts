@@ -170,6 +170,18 @@ const api: OfficeAPI = {
   configureBot: (botId, patch) => ipcRenderer.invoke('office:configureBot', botId, patch),
   botMemory: (botId) => ipcRenderer.invoke('office:botMemory', botId),
   saveBotMemory: (botId, text) => ipcRenderer.invoke('office:saveBotMemory', botId, text),
+  botSpend: (botId) => ipcRenderer.invoke('office:botSpend', botId),
+  listBotTriggers: () => ipcRenderer.invoke('office:listBotTriggers'),
+  saveBotTrigger: (draft) => ipcRenderer.invoke('office:saveBotTrigger', draft),
+  deleteBotTrigger: (id) => ipcRenderer.invoke('office:deleteBotTrigger', id),
+  setBotTriggerEnabled: (id, enabled) => ipcRenderer.invoke('office:setBotTriggerEnabled', id, enabled),
+  setBotAutomationsEnabled: (botId, enabled) => ipcRenderer.invoke('office:setBotAutomationsEnabled', botId, enabled),
+  draftAutomation: (text, floor) => ipcRenderer.invoke('office:draftAutomation', text, floor),
+  listChannels: () => ipcRenderer.invoke('office:listChannels'),
+  saveChannel: (draft) => ipcRenderer.invoke('office:saveChannel', draft),
+  deleteChannel: (id) => ipcRenderer.invoke('office:deleteChannel', id),
+  postToChannel: (channelId, text, attachments) => ipcRenderer.invoke('office:postToChannel', channelId, text, attachments ?? []),
+  rerouteChannelMessage: (channelId, itemId, botId) => ipcRenderer.invoke('office:rerouteChannelMessage', channelId, itemId, botId),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)
