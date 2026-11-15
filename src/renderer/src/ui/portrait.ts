@@ -1,12 +1,13 @@
+import { hairShape } from '@shared/describe'
 import type { Look } from '@shared/types'
-import { whenLoaded } from '../pixel/assets'
-import { drawEyes } from '../pixel/eyes'
-import { BUST, lookSheet } from '../pixel/look'
+import { CELL, dressLook, onPeopleArt } from '../pixel/people'
+
+/** The bust: a square of the front pose, from just above the head down to the chest. */
+const BUST = 44
 
 /**
- * Pixel-art bust of an avatar, scaled up with nearest-neighbour. In the 2D view it is cut from the
- * character's own sheet (head and shoulders of the front pose); before the sheets load, and in 3D,
- * it is the hand-drawn 16x16 one.
+ * Pixel-art bust of an avatar, scaled up with nearest-neighbour: head and shoulders cut from the
+ * look's own 2D sheet (pixel/people.ts). Until the sheets load it is the hand-drawn 16x16 one.
  */
 export function portrait(look: Look, size = 32): HTMLCanvasElement {
   const c = document.createElement('canvas')
@@ -14,23 +15,26 @@ export function portrait(look: Look, size = 32): HTMLCanvasElement {
   c.style.width = `${size}px`
   c.style.height = `${size}px`
   c.style.background = look.shirt + '55'
-  if (!document.body.classList.contains('view-2d') || !drawBust(c, look)) {
+  if (!drawBust(c, look)) {
     drawSimple(c, look)
-    if (document.body.classList.contains('view-2d')) whenLoaded(() => drawBust(c, look))
+    const off = onPeopleArt(() => {
+      if (drawBust(c, look)) off()
+    })
   }
   return c
 }
 
-/** The bust from the look's sheet; false when there is no sheet (yet). */
+/** The bust from the look's sheet; false when the sheets are not in (yet). */
 function drawBust(c: HTMLCanvasElement, look: Look): boolean {
-  const sheet = lookSheet(look)
+  const sheet = dressLook(look)
   if (!sheet) return false
-  c.width = BUST.size
-  c.height = BUST.size
+  const top = sheet.tops[CELL.front]
+  c.width = BUST
+  c.height = BUST
   const ctx = c.getContext('2d')!
   ctx.imageSmoothingEnabled = false
-  ctx.drawImage(sheet.image, BUST.x, BUST.y, BUST.size, BUST.size, 0, 0, BUST.size, BUST.size)
-  drawEyes(ctx, sheet.eyes, 0, -BUST.x, -BUST.y, 1)
+  // the front cell is the first one: x 0-63, y 0-99
+  ctx.drawImage(sheet.image, 32 - BUST / 2, Math.max(0, top - 2), BUST, BUST, 0, 0, BUST, BUST)
   return true
 }
 
@@ -51,7 +55,9 @@ function drawSimple(c: HTMLCanvasElement, look: Look): void {
   px(12, 6, 1, 2, look.skin)
   // hair
   const hc = look.hair
-  switch (look.hairStyle % 6) {
+  switch (hairShape(look.hairStyle)) {
+    case null: // bald
+      break
     case 2: // long
       px(3, 2, 10, 3, hc)
       px(3, 5, 1, 8, hc)

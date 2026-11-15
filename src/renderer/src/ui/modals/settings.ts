@@ -1,4 +1,4 @@
-import { HAIR_COLORS, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
+import { HAIR_COLORS, HAIR_STYLE_INFO, HAIR_STYLES, PANTS_COLORS, SHIRT_COLORS, SKIN_TONES } from '@shared/describe'
 import { canAddFloor, floorNameFor } from '@shared/projects'
 import type { Look, OfficePermissionMode, ProjectFloor } from '@shared/types'
 import type { State } from '../../state'
@@ -8,6 +8,7 @@ import { dataSection } from '../data'
 import { h, icon } from '../dom'
 import { portrait } from '../portrait'
 import { updateSettingsBox } from '../updates'
+import { in2d, wardrobe } from '../wardrobe'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { AUTOSTOP_MIN_RANGE, DEFAULT_MEETING_SETTINGS, LOW_MEMORY_GB, RETENTION_DAYS_RANGE } from '@shared/meetings'
 import type { MeetingSettings } from '@shared/types'
@@ -21,6 +22,8 @@ import { brandFields } from './brand'
 export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge'; tour?: () => void } = {}): void {
   const s = state.settings
   const look: Look = { ...s.playerLook }
+  // 2D view: the wardrobe edits the look; the plain fields below stay for the 3D view
+  const closet = in2d() ? wardrobe(s.playerLook) : null
   const name = h('input', { class: 'input', value: s.playerName, maxlength: 24 })
   const preview = h('div', { class: 'look-preview' })
   const renderPreview = () => preview.replaceChildren(portrait(look, 96))
@@ -44,7 +47,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   }
   const styles = h('div', { class: 'swatches' })
   for (let i = 0; i < HAIR_STYLES; i++) {
-    const b = h('button', { class: 'swatch swatch-style', type: 'button' }, String(i + 1))
+    const b = h('button', { class: 'swatch swatch-style', type: 'button', title: HAIR_STYLE_INFO[i].name, 'aria-label': HAIR_STYLE_INFO[i].name }, String(i + 1))
     b.classList.toggle('on', look.hairStyle === i)
     b.addEventListener('click', () => {
       look.hairStyle = i
@@ -136,7 +139,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   save.addEventListener('click', async () => {
     await window.office.saveSettings({
       playerName: name.value.trim() || 'Você',
-      playerLook: look,
+      playerLook: closet ? closet.value() : look,
       pixelSize: Number(pixel.value),
       notifications: notify.checked,
       defaultModel: brain.model.value,
@@ -161,21 +164,23 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const el = modal(
     'Configurações',
     [
-      h(
-        'div',
-        { class: 'look-editor' },
-        preview,
-        h(
-          'div',
-          { class: 'look-fields' },
-          field('Seu nome', name),
-          field('Pele', swatches('skin', SKIN_TONES)),
-          field('Cabelo', swatches('hair', HAIR_COLORS)),
-          field('Corte', styles),
-          field('Camiseta', swatches('shirt', SHIRT_COLORS)),
-          field('Calça', swatches('pants', PANTS_COLORS)),
-        ),
-      ),
+      closet
+        ? h('div', { class: 'look-editor-2d' }, field('Seu nome', name), closet.el)
+        : h(
+            'div',
+            { class: 'look-editor' },
+            preview,
+            h(
+              'div',
+              { class: 'look-fields' },
+              field('Seu nome', name),
+              field('Pele', swatches('skin', SKIN_TONES)),
+              field('Cabelo', swatches('hair', HAIR_COLORS)),
+              field('Corte', styles),
+              field('Camiseta', swatches('shirt', SHIRT_COLORS)),
+              field('Calça', swatches('pants', PANTS_COLORS)),
+            ),
+          ),
       h('div', { class: 'field-row' }, field('Pixel art', pixel), field('Modelo padrão', brain.model), field('Permissão padrão', mode)),
       meterField('Esforço padrão', brain.meter),
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),

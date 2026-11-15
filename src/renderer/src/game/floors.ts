@@ -5,7 +5,6 @@ import { disposeTree } from '../world/dispose'
 import * as L from '../world/layout'
 import { buildUpperFloor } from '../world/upper-floor'
 import { Tag } from '../world/overlays'
-import { adaptUpper } from '../pixel/layout2d'
 import { GameBase } from './base'
 import { RIDE_S, SPAWN_POINT, type Actor } from './types'
 
@@ -75,7 +74,6 @@ export abstract class GameFloors extends GameBase {
       const n = i + 1
       const plan = plans[i]
       const scene = buildUpperFloor(plan, brandOf(project))
-      if (this.flat) adaptUpper(scene)
       scene.reducedMotion = this.reducedEffects
       scene.setNight(this.engine.night)
       this.engine.scene.add(scene.group)

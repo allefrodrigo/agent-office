@@ -2,7 +2,7 @@ import { sfx } from '../world/effects'
 import { GameSquads } from './squads'
 import { STRIKE_AFTER_S, type Actor } from './types'
 
-/** The skull by the boss office: dismissing an agent. */
+/** The skull in the lounge's café corner: dismissing an agent. */
 export abstract class GameSkull extends GameSquads {
   // ---------- the skull ----------
 

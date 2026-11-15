@@ -33,7 +33,7 @@ O Agent Office troca os terminais por um escritório. Cada agente ganha mesa, co
 
 > *"Ninguém precisa vigiar terminais. Quem precisa de você vem até você."*
 
-Inspirado no Habbo Hotel (o visual isométrico) e no Gather (o escritório virtual).
+Inspirado nos jogos isométricos de pixel art e no Gather (o escritório virtual).
 
 <p align="center">
   <img src="docs/img/escritorio.jpg" alt="Visão geral do escritório: sua sala, a copa, o time de agentes e o lounge" width="100%">
@@ -145,8 +145,8 @@ O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew instal
 - **Andar = empresa** (Configurações → "Andares por projeto"): cada andar aceita um logo (PNG, JPG, WebP ou GIF, reduzido a 256 px) e uma cor; sem cor escolhida, vale a cor mais forte do logo. A placa da Diretoria mostra o logo e o nome, e o tapete dela ganha a cor da empresa. Marque "Agentes com a farda da empresa" para os agentes do andar usarem camisa na cor da empresa com o logo no peito; eles mantêm a farda quando descem até você.
 - **Painel de gasto**: cada andar tem um painel na parede com quanto os agentes dele gastaram nesta sessão (no térreo, o escritório inteiro). O valor sobe rolando a cada mudança, os maiores gastos passam embaixo, e a etiqueta acima mostra o valor exato (passe o mouse para ver por agente).
 - **Alarme de limite**: quando uma conta bate o limite do plano, o giroflex vermelho acima do painel acende e gira nos andares que usam essa conta (no térreo, com qualquer conta), com a etiqueta "Conta X no limite · volta 15:00".
-- **Visual 2D pixel art** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um RPG de 16 bits visto de cima, desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. No stress de 50 agentes, a página gasta cerca de 30% menos memória e um quarto da CPU. Sprites e como gerá-los com o Codex: [docs/arte-2d](docs/arte-2d/README.md).
-- **Mesas e áreas**: cada mesa tem um setup (um monitor, dois, ultrawide, notebook com monitor, monitor vertical) em mesas brancas, de madeira ou escuras. O térreo tem uma copa; nos andares de empresa, as salas da frente sem setor viram lounge, copa, jogos e canto de pufes.
+- **Visual 2D isométrico** (Configurações → Vídeo → Visual): para computador mais fraco, o escritório vira um quarto isométrico em pixel art própria (móveis e pessoas desenhados para o projeto, sem internet), desenhado num canvas 2D sem WebGL, sombra nem pós-processamento. Mesmo jogo, mesmos andares e cliques; o isométrico 3D continua o padrão. Detalhes: [docs/arte-2d](docs/arte-2d/README.md).
+- **Mesas e áreas**: cada mesa tem um setup (um monitor, dois, ultrawide, notebook com monitor, monitor vertical) em mesas brancas, de madeira ou escuras. No térreo, o canto do café fica na ponta do lounge; nos andares de empresa, ele fica no fim do corredor, e as salas da frente sem setor viram lounge, jogos e canto de pufes.
 - **Conta sobre a cabeça**: cada agente do escritório tem um diamante girando sobre a cabeça, como no The Sims, na cor da conta em que está rodando. Com duas ou mais contas, a etiqueta do nome mostra também o nome da conta.
 - **Contexto do agente**: o painel mostra quanto da janela de contexto a conversa ocupa (os mesmos números do `/context`), e a lista de agentes tem uma barrinha. **Compactar** resume a conversa (`/compact`); **Limpar** começa uma conversa nova com o mesmo agente (`/clear`), sem dispensar.
 - **Limites do plano**: no canto de cima, as janelas de 5h, da semana e por modelo (ex.: Fable), como no `/usage`, com o horário em que renovam. Contas e janelas sem uso não ocupam linha: ficam em "sem uso". Atualiza a cada 3 minutos e depois de cada tarefa, sem gastar tokens.
@@ -175,7 +175,7 @@ O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew instal
   - **Skills**: suas, do projeto, de plugins e do Claude Code, com descrição, usos em 7 dias e "Abrir" para ver o `SKILL.md`. A aba Plugins liga e desliga plugins (grava `enabledPlugins` no `~/.claude/settings.json`, que vale também para o terminal) e recarrega os agentes.
   - **Worktrees**: as cópias isoladas dos agentes, andar por andar, com o espaço em disco, a idade e o que cada uma guarda (mudança sem commit, commit que só existe nela). "Esquecida" é a cópia sem agente e sem trabalho só dela: "Limpar esquecidas" remove todas de uma vez, e "Remover" tira uma, sempre com confirmação. O branch só sai quando todos os commits dele estão em outro lugar. Pastas que o git esqueceu aparecem como "pasta solta". Cada andar tem um interruptor: desligado, os agentes novos dali mexem direto na pasta do projeto, sem worktree (no Novo agente dá para mudar caso a caso). Uns segundos depois de abrir, o app avisa se há cópias esquecidas ocupando espaço.
   - O uso de 7 dias sai dos transcripts, lidos junto com as estatísticas (só disco). Na primeira abertura depois de atualizar, o app relê os transcripts uma vez em segundo plano.
-- **Cantinho do café** (a cafeteira da Copa, no térreo): mantém a tela acordada, como o `caffeinate`, no Mac e no Windows. Três modos: desligada, enquanto algum agente trabalha (ou espera você) e sempre ligada. A luz da cafeteira fica âmbar armada, verde com vapor quando segura a tela.
+- **Cantinho do café** (a cafeteira do lounge, no térreo): mantém a tela acordada, como o `caffeinate`, no Mac e no Windows. Três modos: desligada, enquanto algum agente trabalha (ou espera você) e sempre ligada. A luz da cafeteira fica âmbar armada, verde com vapor quando segura a tela.
 - **Sair** (botão de desligar no fim do dock): pergunta antes. Sem ninguém trabalhando, sai, e os agentes voltam na próxima abertura com a conversa onde parou. Com agente trabalhando: "Esperar terminarem e sair" (um aviso no topo mostra quem falta, e nenhuma rotina nova começa), "Interromper e sair" (cada um para onde está, a conversa fica salva) ou cancelar. Uma caixa marcada para também os servidores e vigias que os agentes deixaram em segundo plano. ⌘Q e fechar a janela no Windows passam pela mesma pergunta quando há agente trabalhando.
 - **Sobre e atualização** (clique na versão, ao lado do nome, no canto de cima): versão, autor, licença, Claude Code, sistema, onde o app está instalado e a pasta de dados, lidos do `package.json` e da máquina. "Copiar diagnóstico" põe versão, sistema e o fim do log no clipboard, para mandar ao suporte. **Pedir para um agente me atualizar** é para quem baixou o app e não usa GitHub: um agente baixa a versão mais nova das releases (repositório público, sem conta) e instala. No Mac ele deixa o app novo pronto e a troca acontece quando você fecha o Agent Office (⌘Q), que abre de novo sozinho; no Windows ele abre o instalador. Rodando do código-fonte, faz `git pull` e `npm install`. Um agente por vez, e nunca no modo "Sem pedir nada".
 
@@ -396,7 +396,7 @@ src/
       office.ts         monta o térreo e a grade de colisão
       upper-floor.ts    monta um andar de projeto: Diretoria, salas do time e setores dos squads
       furniture.ts      móveis em voxel (mesa, monitor, cadeira, plantas, sofá, elevador...)
-      avatar.ts         personagens estilo Habbo com animação procedural
+      avatar.ts         personagens em blocos com animação procedural
       screens.ts        telas dos computadores (canvas pixel art que reflete o status)
       pathfinding.ts    A* em 8 direções com paredes finas
       overlays.ts       crachás com nome e balões de fala (HTML sobre o canvas)
@@ -404,13 +404,12 @@ src/
       props.ts          placar de gastos, quadro de rotinas (canvas redesenhado só quando muda, e o LED) e alarme de limite
       effects.ts        golpe da caveira, fumaça, faíscas, fantasma e efeitos sonoros
       viewport.ts       o que o jogo pede de quem desenha (3D isométrico ou 2D)
-    pixel/              visual 2D pixel art (Configurações → Vídeo → Visual), sem WebGL
-      engine.ts         canvas 2D em resolução de arte, ampliado pelo CSS; zoom, cliques, projeção
+    pixel/              visual 2D isométrico (Configurações → Vídeo → Visual), sem WebGL
+      engine.ts         canvas 2D em resolução de arte, ampliado pelo CSS; zoom, cliques, projeção isométrica
       painter.ts        assa cada andar (piso, paredes, móveis) e desenha tudo de trás para a frente
-      voxel.ts          achata as peças dos modelos 3D em pixel art (vale para o que ainda não tem sprite)
-      objects.ts        qual sprite do catálogo substitui cada móvel, conforme o lado para onde olha
-      people.ts         personagens pelas folhas 4x3 (de pé, andando, sentado, caído)
-      layout2d.ts       muda de lugar o que ficaria de perfil na parede lateral
+      iso-art.ts        sprite de cada px() tag (assets/iso/, npm run arte:iso), frente ou costas, e a máscara da tela
+      voxel.ts          projeta as peças dos modelos 3D em isométrico 2:1 (paredes, vidro, o que não tem sprite)
+      people.ts         pessoas das folhas recoloríveis (assets/iso/people/, npm run arte:pessoas): direção e pose
     assets/pixel/       sprites prontos (npm run pixel); o catálogo é src/shared/pixel-catalog.json
     game/               comportamento: status do agente -> onde ele vai e o que faz
                         (cada parte estende a anterior: base, floors, boards, actors, lounge,

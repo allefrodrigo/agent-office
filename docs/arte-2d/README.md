@@ -1,6 +1,6 @@
-# Modo 2D pixel art
+# Modo 2D
 
-O escritório pode ser desenhado em 2D, em pixel art com vista de cima 3/4, como um RPG de 16 bits. É uma opção para computadores mais fracos: não usa WebGL, sombra nem pós-processamento. O isométrico 3D continua como padrão.
+O escritório pode ser desenhado em 2D isométrico, em pixel art própria. É uma opção para computadores mais fracos: não usa WebGL, sombra nem pós-processamento, nem internet. O isométrico 3D continua como padrão.
 
 ## Ligar
 
@@ -11,10 +11,49 @@ Em dev, `AGENT_OFFICE_VIEW=2d npm run dev` abre em 2D sem mexer nas configuraç�
 ## Como funciona
 
 - O jogo é o mesmo: andares, agentes, caminhos, cliques e etiquetas. Muda só quem desenha (`src/renderer/src/pixel/`).
-- Cada móvel do 3D vira um sprite do catálogo (`src/shared/pixel-catalog.json`). O que ainda não tem sprite é desenhado a partir das peças do próprio modelo 3D, achatadas em pixel art. Por isso o 2D já sai completo e melhora a cada sprite novo.
-- Telas, céu das janelas, quadro de rotinas, painel de gastos e placas continuam ao vivo: o app pinta o conteúdo por cima da área magenta do sprite.
-- Personagens seguem o visual de cada um, como no 3D: pele, cor e estilo do cabelo, camisa (ou o uniforme do squad), calça e sapato. O seu muda em Configurações (Pele, Cabelo, Corte, Camiseta, Calça). Cada estilo de cabelo tem um molde (`personagens/molde-0` a `molde-5`), pintado em cores-chave que o app troca pelas cores do agente. Ajudantes (subagentes) saem iguais ao agente que os chamou, em tamanho menor. Sem os moldes, o app usa as folhas fixas `chefe` e `agente-NN`.
-- Móveis que mudam de cor no 3D fazem o mesmo: tecido do sofá, da poltrona, do pufe e das cadeiras, assento da banqueta, tampo e pés da mesa de trabalho.
+- Projeção: um tile é um losango de 64 x 32, x desce para a direita e z para a esquerda. As paredes do fundo (z = 0 e x = 0) fecham a sala por cima, como no 3D.
+- Cada móvel com px() tag que tem sprite vira a imagem de `src/renderer/src/assets/iso/<chave>.png`. A tabela fica em `pixel/iso-art.ts` (`BY_TAG`, `PLANTS`, `SOFAS`).
+- O resto (paredes, vidro, quadros, elevador, TVs, painéis) é desenhado a partir das peças do modelo 3D, projetadas em isométrico (`pixel/voxel.ts`). Telas, céu das janelas e placas continuam ao vivo.
+- Pessoas: `pixel/people.ts`, com as cores do visual de cada um (Configurações → Você e o editor de modelo dos agentes: cores e corte de cabelo). Enquanto as folhas carregam, o avatar 3D aparece desenhado plano.
+
+## Móveis
+
+```sh
+npm run arte:iso                       # desenha os que faltam (usa sua conta ChatGPT)
+npm run arte:iso -- desk sofa3         # redesenha estes, pela chave
+npm run arte:iso -- --process [chaves] # só recorta de novo os brutos de arte-2d/iso/
+npm run arte:iso -- --list             # os jobs e quais já estão prontos
+```
+
+- Os prompts e o tamanho 3D de cada móvel (comprimento, profundidade, altura, em tiles) ficam em `scripts/iso/prompts.mjs` (`ISO_JOBS`). A largura do sprite sai do tamanho: (comprimento + profundidade) x 32 px.
+- Para cada job, o script desenha uma caixa cinza em isométrico 2:1 exato (`arte-2d/iso/_blockout-<chave>.png`) e manda junto com o prompt, para o Codex manter o ângulo do piso. A mesa (`desk`) sai primeiro e vai junto como régua de estilo.
+- O bruto vai para `arte-2d/iso/` (fora do git); o sprite pronto, para `src/renderer/src/assets/iso/<chave>.png`.
+- Direção: a arte de frente olha para baixo-direita (direção 2); espelhada, vira a 4. A arte `<chave>-back` mostra o móvel de costas (direção 6); espelhada, a 0. Sem `-back`, o móvel mostra a frente também de costas.
+- Móvel novo: crie o job em `ISO_JOBS`, rode `npm run arte:iso -- <chave>` e ligue a tag em `BY_TAG` (`pixel/iso-art.ts`).
+
+## Pessoas
+
+```sh
+npm run arte:pessoas                       # desenha as folhas que faltam (molde-0 primeiro: a régua)
+npm run arte:pessoas -- molde-3            # redesenha esta
+npm run arte:pessoas -- --process [chaves] # só recorta de novo os brutos de arte-2d/iso/people/
+```
+
+- Uma folha por corte de cabelo (`Look.hairStyle` 0 a 5): `src/renderer/src/assets/iso/people/molde-N.png`. Prompts em `scripts/iso/people.mjs`.
+- Grade de 4 x 3 células de 64 x 100. Linha 1, três-quartos de frente: em pé, andando, andando, acenando. Linha 2, três-quartos de costas: em pé, andando, andando, sentado. Linha 3: sentado de frente, caído, falando, sentado falando. Espelhadas, cobrem as outras duas diagonais.
+- Cada parte é pintada na sua cor-chave, em 5 tons; `pixel/tint.ts` troca pela cor do visual de cada um: amarelo `#FFFF00` pele, verde `#00FF00` cabelo, vermelho `#FF0000` camisa, azul `#0000FF` calça, ciano `#00FFFF` sapato. Contorno, olhos e boca ficam como estão.
+
+## Telas
+
+A tela do monitor é pintada em magenta `#FF00FF`. O app transforma esses pixels numa máscara e desenha ali a tela ao vivo do agente (ou o código rolando, nos monitores extras). De costas, o monitor usa `monitor-back`.
+
+## Direitos
+
+Toda a arte 2D é original, desenhada para este projeto com o Codex a partir dos nossos prompts. Não há sprite de terceiros.
+
+## Sprites do catálogo (retrato e pet)
+
+O retrato do agente e o pet da área de trabalho ainda usam os sprites pixel art do catálogo (`src/renderer/src/assets/pixel/`). As regras abaixo valem para eles.
 
 ## Pastas
 

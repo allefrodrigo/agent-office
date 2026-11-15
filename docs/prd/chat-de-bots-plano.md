@@ -2,7 +2,7 @@
 
 - **Spec:** [chat-de-bots.md](chat-de-bots.md)
 - **Status:** rascunho de 2026-11-15. A fase 1 começa por ondas de agentes em worktrees (veja "Como os agentes dividem o trabalho").
-- **Branch:** `feat/chat-bots`, a partir do `main` (0.3.9). A 0.4.0-beta.4 mexe em `portrait.ts` e `describe.ts`; o Chat só chama `portrait(look)`, então o conflito esperado é pequeno.
+- **Branch:** `feat/chat-bots`, a partir do `main` (0.3.9) com a `release/0.4.0-beta.4` já juntada (arte própria na vista 2D). A fase 1 sai na **0.4.0-beta.5**, com tudo junto; a 0.4.0 final fecha quando as fases 1 e 2 estiverem estáveis.
 - **Estimativa:** 22 a 27 dias de dev para uma pessoa (fases 1 a 4). Com dois agentes por onda, a fase 1 cai para uns 4 dias de calendário.
 
 ## Como ler

@@ -35,7 +35,7 @@ import type {
   WhisperModelsInfo,
 } from './meetings'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
-import type { Bot, BotDraft, BotEventTrigger, Channel, ThreadHit, ThreadItem, ThreadPage } from './bots'
+import type { AutomationDraft, Bot, BotDraft, BotEventTrigger, BotSpend, BotTriggerDraft, Channel, ChannelDraft, ThreadHit, ThreadItem, ThreadPage } from './bots'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
 export interface SystemStats {
@@ -519,6 +519,27 @@ export interface OfficeAPI {
   botMemory(botId: string): Promise<string>
   /** Saves memoria.md (cut at BOT_LIMITS.memoryBytes). */
   saveBotMemory(botId: string, text: string): Promise<void>
+  /** What the bot spent today, in 7 and in 30 days, from the cost book. */
+  botSpend(botId: string): Promise<BotSpend>
+  // Phase 2 (automations). Schedules are routines with who { kind: 'bot' }: use saveRoutine & co.
+  listBotTriggers(): Promise<BotEventTrigger[]>
+  /** Creates (no id) or replaces an event trigger; throws a message for the form. */
+  saveBotTrigger(draft: BotTriggerDraft): Promise<BotEventTrigger>
+  deleteBotTrigger(id: string): Promise<void>
+  setBotTriggerEnabled(id: string, enabled: boolean): Promise<BotEventTrigger>
+  /** Pauses or resumes every automation of the bot (its routines and its event triggers). */
+  setBotAutomationsEnabled(botId: string, enabled: boolean): Promise<void>
+  /** Reads a sentence ("toda sexta às 17h, resuma a semana") into a proposal; saves nothing. */
+  draftAutomation(text: string, floor: string): Promise<AutomationDraft>
+  // Phase 3 (channels). A channel's thread uses botThread, markBotRead and searchBots with the channel id.
+  listChannels(): Promise<Channel[]>
+  /** Creates (no id) or replaces a channel; throws a message for the form. */
+  saveChannel(draft: ChannelDraft): Promise<Channel>
+  deleteChannel(id: string): Promise<void>
+  /** The player wrote in a channel: @mentions go to those bots, otherwise the router picks. */
+  postToChannel(channelId: string, text: string, attachments?: AttachmentInput[]): Promise<void>
+  /** "→ Bot · trocar": sends that message to another member instead. */
+  rerouteChannelMessage(channelId: string, itemId: string, botId: string): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

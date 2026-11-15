@@ -97,6 +97,10 @@ export interface Bot {
   lastReadAt: number
   /** Newest first, at most BOT_LIMITS.runs. */
   runs: BotRun[]
+  /** Filled by the main process when it sends the list: thread items newer than lastReadAt (bot and approval). */
+  unread?: number
+  /** Filled by the main process: the thread's newest message, for the sidebar. */
+  last?: { t: number; text: string; from: 'user' | 'bot' | 'notice' }
   /** Demo mode: shown, never saved. */
   demo?: boolean
 }
@@ -184,7 +188,10 @@ export type ThreadItem =
       kind: 'user'
       text: string
       attachments?: AttachmentInfo[]
-      /** In channels: the bots it went to. */ to?: string[]
+      /** In channels: the bots it went to. */
+      to?: string[]
+      /** In channels: how they were picked (an @mention, the router with its one-line reason, or the player's "trocar"). */
+      route?: { by: 'mention' | 'router' | 'player'; why?: string }
     }
   | {
       id: string
@@ -327,4 +334,55 @@ export const BOT_RUN_STATUS_LABEL: Record<BotRunStatus, string> = {
   ok: 'pronto',
   failed: 'falhou',
   skipped: 'pulada',
+}
+
+// ---------- phase 2: automations (CB-12 to CB-16) ----------
+
+/** What the event-trigger form sends. With `id` it edits that trigger. */
+export interface BotTriggerDraft {
+  id?: string
+  botId: string
+  name: string
+  kind: BotEventKind
+  filter: BotEventTrigger['filter']
+  prompt: string
+  enabled?: boolean
+  maxPerHour?: number
+}
+
+/** "Automação a partir de uma frase": a proposal to review in the form; nothing is saved yet. */
+export interface AutomationDraft {
+  /** An existing bot of the floor, or a new one to create first. */
+  bot: { kind: 'existing'; botId: string } | { kind: 'new'; draft: BotDraft }
+  name: string
+  prompt: string
+  when: { kind: 'schedule'; schedule: Schedule } | { kind: 'event'; event: BotEventKind; filter: BotEventTrigger['filter'] }
+  /** One line, pt-BR: how the sentence was read. */
+  why: string
+}
+
+/** What a bot spent, from the cost book (local days). */
+export interface BotSpend {
+  today: number
+  week: number
+  month: number
+}
+
+export const BOT_EVENT_LABEL: Record<BotEventKind, string> = {
+  'ticket-created': 'Ticket criado',
+  'ticket-moved': 'Ticket mudou de coluna',
+  'meeting-ata': 'Ata pronta',
+  'bot-done': 'Outro bot terminou',
+}
+
+// ---------- phase 3: channels (CB-17 to CB-20) ----------
+
+/** What the channel form sends. With `id` it edits that channel. */
+export interface ChannelDraft {
+  id?: string
+  name: string
+  floor: string
+  topic?: string
+  /** Bot ids of the same floor. */
+  members: string[]
 }

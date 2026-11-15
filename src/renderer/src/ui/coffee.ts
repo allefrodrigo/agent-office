@@ -4,7 +4,7 @@ import type { State } from '../state'
 import { h, icon } from './dom'
 import { cleanError, modal } from './modals'
 
-// The café corner (Copa): keep the screen from going dark while agents work, or always.
+// The café corner (lounge): keep the screen from going dark while agents work, or always.
 
 const OPTIONS: [CaffeineMode, string, string][] = [
   ['off', 'Desligada', 'A tela apaga e o computador dorme como sempre.'],
