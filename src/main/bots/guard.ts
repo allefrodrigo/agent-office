@@ -63,13 +63,15 @@ function namedServer(input: unknown): string {
 /**
  * Whether a bot with these connections may call this tool. Fails closed: an MCP call whose
  * server cannot be worked out, or a resource list over every server, is denied unless the bot
- * sees them all. The office's own server always passes (by provenance for mcp__ tools).
+ * sees them all. The office's own tools always pass, by provenance (mcp__office__*, source sdk).
  */
 export function appAllowed(apps: 'all' | readonly string[], tool: string, input: unknown, mcp?: { name: string; source: string }): boolean {
   if (apps === 'all') return true
   if (isMcpBuiltin(tool)) {
+    // No exception for "office": the app's server has tools only, no resources, so a resource
+    // call naming office reaches a configured server with that name.
     const server = namedServer(input)
-    return !!server && (server === 'office' || apps.includes(server))
+    return !!server && apps.includes(server)
   }
   const server = mcp?.name ?? serverOf(tool)
   if (server === null) return true

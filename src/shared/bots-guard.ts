@@ -31,7 +31,8 @@ export function sensitiveKinds(tool: string, input: unknown, opts: GuardOptions 
   if (tool === 'Bash' || tool === 'Monitor' || tool === 'PowerShell') {
     const command = typeof args.command === 'string' ? args.command : ''
     if (command.length > MAX_COMMAND) all(found)
-    else shellKinds(command, found, 0, tool === 'PowerShell')
+    else if (tool === 'PowerShell') psKinds(command, found)
+    else shellKinds(command, found, 0)
   } else if (tool.startsWith('mcp__')) {
     mcpKinds(tool, args, opts, found)
   }
@@ -54,6 +55,8 @@ export function guardReason(kind: SensitiveKind, tool: string, input: unknown): 
     const { server, name } = splitMcp(tool)
     what = `${server} › ${name}`
   }
+  // Every kind at once means the guard could not read the call: say so instead of "Pagar".
+  if (sensitiveKinds(tool, input).length === SENSITIVE_KINDS.length) return `Conferir: ${what} (o guarda não conseguiu ler o que isto faz)`
   return `${SENSITIVE_LABEL[kind]}: ${what}`
 }
 
@@ -93,7 +96,7 @@ const MAKE = new Set(['create', 'new', 'write', 'compose', 'add', 'post', 'submi
 const MESSAGE = new Set(['message', 'messages', 'email', 'emails', 'mail', 'comment', 'comments', 'reply', 'post', 'tweet', 'chat'])
 /** Tools that run whatever their input says: nothing in the name tells what they will do. */
 const EXECUTOR = new Set(['execute', 'exec', 'run', 'shell', 'command', 'commands', 'cmd', 'script', 'eval', 'bash', 'sh', 'terminal', 'powershell', 'pwsh', 'invoke', 'repl'])
-const SQLISH = new Set(['sql', 'query', 'statement'])
+const SQLISH = new Set(['sql', 'query', 'queries', 'statement', 'statements', 'execute'])
 
 function mcpKinds(tool: string, input: Record<string, unknown>, opts: GuardOptions, found: Set<SensitiveKind>): void {
   const { server, name } = splitMcp(tool)
@@ -105,11 +108,13 @@ function mcpKinds(tool: string, input: Record<string, unknown>, opts: GuardOptio
   // A tool that runs what it is given (execute, run_command, eval, execute_sql): its name says
   // nothing of what it will do, so it asks, whatever its input looks like.
   if (!reads && w.some((x) => EXECUTOR.has(x))) return all(found)
-  const { strings, complete } = inputStrings(input)
-  if (w.some((x) => SQLISH.has(x))) {
-    // A query tool: every text that could be SQL must be one plain read. Input not read to the end asks.
-    if (!complete || strings.some((s) => maybeSql(s) && !readOnlySql(s))) return all(found)
-    if (!reads && (w.includes('sql') || w.includes('statement')) && !strings.some(maybeSql)) return all(found)
+  const { strings, keys, complete } = inputStrings(input)
+  // A query tool (by its name or an argument called sql, query, statement, execute): every text
+  // must be one plain read, or clearly not SQL (an identifier, a number, a date). Anything else,
+  // or input not read to the end, asks.
+  if (w.some((x) => SQLISH.has(x)) || keys.some((k) => words(k).some((x) => SQLISH.has(x)))) {
+    if (!complete || strings.some((s) => !notSql(s) && !readOnlySql(s))) return all(found)
+    if (!reads && (w.includes('sql') || w.includes('statement')) && !strings.some(readOnlySql)) return all(found)
   }
   nameKinds(w, reads, found)
   // What the call carries counts too (a remote shell's host({ cmd: 'git push' }) under any name).
@@ -136,11 +141,12 @@ function nameKinds(w: string[], reads: boolean, found: Set<SensitiveKind>): void
 const MCP_DEPTH = 8
 
 /**
- * String values of an MCP input. `complete` is false when something was left out
+ * String values and keys of an MCP input. `complete` is false when something was left out
  * (too many strings, too deep, a string past MAX_COMMAND): the caller asks instead of guessing.
  */
-function inputStrings(input: Record<string, unknown>): { strings: string[]; complete: boolean } {
+function inputStrings(input: Record<string, unknown>): { strings: string[]; keys: string[]; complete: boolean } {
   const strings: string[] = []
+  const keys: string[] = []
   let complete = true
   const walk = (v: unknown, depth: number) => {
     if (!complete) return
@@ -150,28 +156,37 @@ function inputStrings(input: Record<string, unknown>): { strings: string[]; comp
       else strings.push(v)
     } else if (v && typeof v === 'object') {
       if (depth >= MCP_DEPTH) complete = false
-      else for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x, depth + 1)
+      else if (Array.isArray(v)) for (const x of v) walk(x, depth + 1)
+      else
+        for (const [k, x] of Object.entries(v)) {
+          keys.push(k)
+          walk(x, depth + 1)
+        }
     }
   }
   walk(input, 0)
-  return { strings, complete }
+  return { strings, keys, complete }
 }
 
-/** A text that could be SQL: a statement verb anywhere, or a statement that starts like one. */
-const maybeSql = (s: string) =>
-  /\b(select|insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|exec|execute|copy|replace|upsert|vacuum|attach|detach|lock|pragma|reindex|cluster|rename|load|prepare|listen|notify|refresh|import|unload|reset|discard|checkpoint)\b/i.test(s) ||
-  /^\s*\(?\s*(do|set|begin|commit|rollback|with|explain|show|describe|desc|table|values)\b/i.test(s)
+/** Clearly not SQL: an identifier (users, public.orders, abc-123), a number or an ISO date. */
+const notSql = (s: string) =>
+  /^[A-Za-z_][\w.-]*$/.test(s) || /^-?\d+(\.\d+)?$/.test(s) || /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(s)
+/** PRAGMAs that only read, with no argument or one identifier: anything else (an =, a value) asks. */
+const READ_PRAGMAS = new Set(['table_info', 'table_xinfo', 'index_list', 'index_info', 'index_xinfo', 'foreign_key_list', 'database_list', 'compile_options', 'user_version', 'schema_version', 'page_count', 'page_size', 'journal_mode'])
 /** Writes, or reads with side effects (SELECT INTO, nextval, pg_terminate_backend, dblink…). */
 const SQL_WRITE = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|exec|execute|copy|replace|upsert|attach|detach|vacuum|set|reindex|cluster|lock|comment|rename|do|into|load|nextval|setval|set_config|load_file|outfile|dumpfile|sleep|benchmark)\b|\b(pg_|dblink|lo_|xp_|sp_)\w*/i
 /**
- * One plain read: starts with SELECT, WITH, EXPLAIN, SHOW, DESCRIBE or PRAGMA (no =), writes
+ * One plain read: starts with SELECT, WITH, EXPLAIN, SHOW, DESCRIBE or a read PRAGMA, writes
  * nothing, has no comment (--, /*, #) and no second statement. Comments are not stripped: inside
  * a string literal ('--') they would hide the rest, so any of them asks.
  */
 function readOnlySql(s: string): boolean {
   const t = s.trim().replace(/;\s*$/, '')
   if (/--|\/\*|#|;/.test(t)) return false
-  if (/^pragma\b/i.test(t)) return !/[=(]/.test(t.replace(/^pragma\s+\w+\s*\(\s*\w+\s*\)$/i, 'pragma x'))
+  if (/^pragma\b/i.test(t)) {
+    const m = /^pragma\s+(\w+)\s*(\(\s*[A-Za-z_]\w*\s*\))?$/i.exec(t)
+    return !!m && READ_PRAGMAS.has(m[1].toLowerCase())
+  }
   return /^\(?\s*(select|with|explain|show|describe|desc)\b/i.test(t) && !SQL_WRITE.test(t)
 }
 
@@ -181,8 +196,6 @@ interface Token {
   text: string
   /** Starts inside quotes ("if", "A=1"): a plain word, never a keyword or an assignment. */
   quoted: boolean
-  /** Every character came from inside quotes ('git push'): a literal, nothing expands in it. */
-  whole?: boolean
   /** Has an unquoted brace expansion ({push,status}, {1..3}): bash makes several words of it. */
   brace?: boolean
 }
@@ -204,7 +217,7 @@ const BRACE = /(^|[^$])\{[^{}]*(,|\.\.)[^{}]*\}/
  * too, so `$(echo git) push` keeps a command that comes from an expansion. Close enough to sh
  * for this purpose; the literal patterns of rawKinds catch what it gets wrong.
  */
-function tokenize(cmd: string, powershell = false): Parsed {
+function tokenize(cmd: string): Parsed {
   const segments: Token[][] = []
   const piped: boolean[] = []
   const subs: string[] = []
@@ -213,15 +226,13 @@ function tokenize(cmd: string, powershell = false): Parsed {
   /** The word as the shell sees its structure: unquoted characters as they are, quoted ones as 'x'. */
   let bare = ''
   let quoted = false
-  let mixed = false
   let inWord = false
   let pipeIn = false
   const endWord = () => {
-    if (inWord) seg.push({ text: cur, quoted, whole: quoted && !mixed, brace: BRACE.test(bare) })
+    if (inWord) seg.push({ text: cur, quoted, brace: BRACE.test(bare) })
     cur = ''
     bare = ''
     quoted = false
-    mixed = false
     inWord = false
   }
   /** `pipe`: the next segment reads this one's output. */
@@ -241,7 +252,6 @@ function tokenize(cmd: string, powershell = false): Parsed {
   const raw = (text: string) => {
     cur += text
     bare += text
-    mixed = true
   }
   /** Reads $( … ) from i (pointing at '('), returns the index after ')'. */
   const readParen = (i: number): number => {
@@ -303,7 +313,6 @@ function tokenize(cmd: string, powershell = false): Parsed {
       if (cmd[i + 1] === '\n') i += 2
       else {
         lit(cmd[i + 1] ?? '')
-        mixed = true
         inWord = true
         i += 2
       }
@@ -319,9 +328,8 @@ function tokenize(cmd: string, powershell = false): Parsed {
       inWord = true
     } else if (c === ';' || c === '|' || c === '&' || c === '\n' || c === '(' || c === ')' || c === '{' || c === '}') {
       // `{` and `}` only group when they stand alone ("{ cmd; }"); "a{b}", "{a,b}" and "${X}" are words.
-      // PowerShell has no brace expansion: there braces are script blocks, always split.
       const next = cmd[i + 1] ?? ' '
-      if (!powershell && ((c === '{' && (inWord || !/\s/.test(next))) || (c === '}' && inWord))) {
+      if ((c === '{' && (inWord || !/\s/.test(next))) || (c === '}' && inWord)) {
         raw(c)
         inWord = true
         i++
@@ -429,43 +437,49 @@ function unwrap(tokens: Token[]): Unwrapped {
   return out
 }
 
-function shellKinds(cmd: string, found: Set<SensitiveKind>, depth: number, powershell = false): void {
+function shellKinds(cmd: string, found: Set<SensitiveKind>, depth: number): void {
   if (depth > MAX_DEPTH) {
     // Nested this deep on purpose: it asks.
     all(found)
     return
   }
-  rawKinds(cmd, found, powershell)
-  // PowerShell's call operators run what a variable or an expression holds: & $cmd, . $script, & (…).
-  // .NET calls ((New-Object Net.WebClient).UploadString(…), [Diagnostics.Process]::Start(…)) are
-  // not read either: only a short list of string and math methods passes.
-  if (powershell && (/(^|[\s;|({])[&.]\s*[$(]/.test(cmd) || psCalls(cmd))) all(found)
-  const { segments, piped, subs } = tokenize(cmd, powershell)
-  for (const sub of subs) shellKinds(sub, found, depth + 1, powershell)
-  segments.forEach((seg, k) => simpleKinds(seg, found, depth, powershell, piped[k]))
+  rawKinds(cmd, found)
+  const { segments, piped, subs } = tokenize(cmd)
+  for (const sub of subs) shellKinds(sub, found, depth + 1)
+  segments.forEach((seg, k) => simpleKinds(seg, found, depth, piped[k]))
 }
 
-/** Methods that only compute (strings, numbers, paths, dates): any other .NET call asks. */
-const PS_SAFE_METHODS = new Set('tostring replace split trim trimstart trimend tolower toupper tolowerinvariant toupperinvariant substring contains startswith endswith join format round floor ceiling abs max min gettype indexof lastindexof padleft padright equals compareto isnullorempty isnullorwhitespace getfilename getfilenamewithoutextension getextension getdirectoryname combine getfullpath now adddays addhours addminutes addseconds parse tryparse newguid toint32 toarray'.split(' '))
+/** Read cmdlets that pass in PowerShell, with plain literal arguments. */
+const PS_READ = new Set(['get-childitem', 'get-content', 'get-location', 'test-path', 'select-string', 'get-date'])
 
-function psCalls(cmd: string): boolean {
-  for (const m of cmd.matchAll(/(?:\.|::)\s*([A-Za-z_]\w*)\s*\(/g)) if (!PS_SAFE_METHODS.has(m[1].toLowerCase())) return true
-  return false
+/**
+ * PowerShell is not parsed in depth: it has too many ways to build and run a command
+ * (iex, &, .NET calls, casts, Start-Process). Only the read cmdlets of PS_READ with plain
+ * arguments pass; anything with ( $ + [ & or a .Method call, or any other command, asks.
+ */
+function psKinds(cmd: string, found: Set<SensitiveKind>): void {
+  if (!cmd.trim()) return
+  if (/[($+[&`{}]|\.\s*\w+\s*\(|\biex\b|invoke-expression|start-process/i.test(cmd)) return all(found)
+  for (const seg of cmd.split(/[;|\n]/)) {
+    const words = seg.trim().split(/\s+/).filter(Boolean)
+    if (!words.length) continue
+    if (!PS_READ.has(words[0].toLowerCase()) || words.slice(1).some((w) => !/^[\w./\\:*'"-]+$/.test(w))) return all(found)
+  }
 }
 
 /** One simple command: what wraps it, the code hidden in its environment, then the command itself. */
-function simpleKinds(seg: Token[], found: Set<SensitiveKind>, depth: number, powershell: boolean, piped = false): void {
+function simpleKinds(seg: Token[], found: Set<SensitiveKind>, depth: number, piped = false): void {
   // git {push,status}, rm -{r,f}: bash turns one word into several; which ones is not read here.
-  if (!powershell && seg.some((t) => t.brace)) return all(found)
+  if (seg.some((t) => t.brace)) return all(found)
   const u = unwrap(seg)
   u.piped = piped
   if (u.unknown) all(found)
   for (const code of u.code) shellKinds(code, found, depth + 1)
-  segmentKinds(u, found, depth, powershell)
+  segmentKinds(u, found, depth)
 }
 
 /** Literal patterns over the whole text: they catch what hides in quotes, heredocs and scripts. */
-function rawKinds(cmd: string, found: Set<SensitiveKind>, powershell: boolean): void {
+function rawKinds(cmd: string, found: Set<SensitiveKind>): void {
   const raw: [RegExp, SensitiveKind][] = [
     [/\bgit\s+push\b/i, 'push'],
     [/\bgit\s+(send-pack|http-push)\b/i, 'push'],
@@ -487,14 +501,6 @@ function rawKinds(cmd: string, found: Set<SensitiveKind>, powershell: boolean): 
     // A proxy set in the command sends even a request to localhost through someone else.
     [/\b(https?|all|ftp|socks)_proxy\s*=/i, 'send'],
   ]
-  if (powershell) {
-    raw.push(
-      [/\bRemove-Item\b[^\n;|]*-Recurse\b/i, 'delete'],
-      [/\b(rd|rmdir)\s+\/s\b/i, 'delete'],
-      [/\bdel\s+[^\n;|]*\/s\b/i, 'delete'],
-      [/\bSend-MailMessage\b/i, 'send'],
-    )
-  }
   for (const [re, kind] of raw) if (re.test(cmd)) found.add(kind)
 }
 
@@ -515,18 +521,9 @@ function subcommand(args: string[], withValue: string[] = []): { sub: string; re
   return { sub: '', rest: [] }
 }
 
-function segmentKinds(u: Unwrapped, found: Set<SensitiveKind>, depth: number, powershell: boolean): void {
-  let tokens = u.tokens
+function segmentKinds(u: Unwrapped, found: Set<SensitiveKind>, depth: number): void {
+  const tokens = u.tokens
   if (!tokens.length) return
-  if (powershell && !tokens[0].quoted && tokens[0].text.startsWith('$')) {
-    // PowerShell: `$x = git push` assigns what the command on the right returns; `$x=1` too.
-    const head = /^\$[\w:]+=(.*)$/.exec(tokens[0].text)
-    if (/^\$[\w:]+$/.test(tokens[0].text) && tokens[1]?.text === '=') tokens = tokens.slice(2)
-    else if (head) tokens = head[1] ? [{ text: head[1], quoted: false }, ...tokens.slice(1)] : tokens.slice(1)
-    // Anything else starting with $ is an expression ($_.Length -gt 1), not a command: & $x is caught above.
-    else return
-    if (!tokens.length) return
-  }
   // The command itself comes from an expansion ($CMD, "$(echo git)", ${X}): no way to read it.
   if (expands(tokens[0].text)) return all(found)
   const p = prog(tokens[0].text)
@@ -539,14 +536,8 @@ function segmentKinds(u: Unwrapped, found: Set<SensitiveKind>, depth: number, po
     if (expands(r.sub)) unknown = true
     return r
   }
-  programKinds(p, args, found, depth, powershell, sc, { tokens: tokens.slice(1), piped: !!u.piped })
+  programKinds(p, args, found, depth, sc, !!u.piped)
   if (unknown) all(found)
-}
-
-/** What a program sees besides its words: the tokens (quoting) and whether stdin is a pipe. */
-interface Ctx {
-  tokens: Token[]
-  piped: boolean
 }
 
 type Sub = (a: string[], withValue?: string[]) => { sub: string; rest: string[] }
@@ -555,47 +546,6 @@ type Sub = (a: string[], withValue?: string[]) => { sub: string; rest: string[] 
 const NPM_KNOWN = new Set(
   'access adduser audit bugs cache ci completion config dedupe deprecate diff dist-tag docs doctor edit exec explain explore find-dupes fund get help help-search hook init install install-ci-test install-test link ll login logout ls org outdated owner pack ping pkg prefix profile prune publish query rebuild repo restart root run run-script sbom search set shrinkwrap star stars start stop team test token uninstall unpublish unstar update version view whoami i add c ci cit it ln list la rm r un unlink remove t tst up upgrade v info show home issues x create innit s se find author why clean-install ic install-clean urn rum ddp isntall'.split(' '),
 )
-
-const START_VALUE = ['filepath', 'argumentlist', 'workingdirectory', 'verb', 'windowstyle', 'credential', 'redirectstandardoutput', 'redirectstandardinput', 'redirectstandarderror', 'environment']
-const START_SWITCH = ['wait', 'nonewwindow', 'passthru', 'loaduserprofile', 'usenewenvironment']
-const START_ALIAS: Record<string, string> = { path: 'filepath', pspath: 'filepath', lp: 'filepath', args: 'argumentlist', rso: 'redirectstandardoutput', rsi: 'redirectstandardinput', rse: 'redirectstandarderror', lup: 'loaduserprofile', nnw: 'nonewwindow' }
-
-/** A PowerShell parameter name from a unique prefix (-Arg -> argumentlist); null when unknown or ambiguous. */
-function psParam(name: string, known: string[]): string | null {
-  const n = name.toLowerCase()
-  if (START_ALIAS[n]) return START_ALIAS[n]
-  const hits = known.filter((k) => k.startsWith(n))
-  return hits.includes(n) ? n : hits.length === 1 ? hits[0] : null
-}
-
-/**
- * Start-Process [-FilePath] prog [[-ArgumentList] 'a','b']: read by name and by position.
- * An unknown parameter, a third positional or anything that expands asks.
- */
-function startProcessKinds(tokens: Token[], found: Set<SensitiveKind>, depth: number): void {
-  let file: string | undefined
-  let list: string | undefined
-  const positional: string[] = []
-  for (let k = 0; k < tokens.length; k++) {
-    const t = tokens[k].text
-    if (!tokens[k].quoted && t.startsWith('-') && t.length > 1) {
-      const [rawName, inline] = t.slice(1).split(/:(.*)/s)
-      const name = psParam(rawName, [...START_VALUE, ...START_SWITCH])
-      if (!name) return all(found)
-      if (START_SWITCH.includes(name)) continue
-      const value = inline !== undefined && inline !== '' ? inline : tokens[++k]?.text
-      if (value === undefined) return all(found)
-      if (name === 'filepath') file = value
-      else if (name === 'argumentlist') list = value
-      continue
-    }
-    positional.push(t)
-  }
-  if (file === undefined) file = positional.shift()
-  if (list === undefined) list = positional.shift()
-  if (positional.length || file === undefined || expands(file) || (list !== undefined && expands(list))) return all(found)
-  shellKinds([file, ...(list ? list.split(',') : [])].join(' '), found, depth + 1)
-}
 
 /** git subcommands that touch nothing remote (and, for the ones with rules below, how). Anything else may be an alias. */
 const GIT_LOCAL = new Set(
@@ -606,7 +556,7 @@ const GIT_SAFE_CONFIG = /^(user\.(name|email|signingkey)|color\.[\w.-]+|core\.(q
 /** Keys that make git run a command or send somewhere else: setting them is a way around the guard. */
 const GIT_CODE_CONFIG = /^(alias\.|core\.(sshcommand|pager|editor|fsmonitor|hookspath|askpass|gitproxy)|credential\.|sequence\.editor|diff\.external|diff\.[\w.-]+\.(command|textconv)|merge\.[\w.-]+\.driver|filter\.|gpg\.|uploadpack\.|receive\.|url\.|remote\.|include|protocol\.|pager\.)/i
 
-function programKinds(p: string, args: string[], found: Set<SensitiveKind>, depth: number, powershell: boolean, sc: Sub, ctx: Ctx): void {
+function programKinds(p: string, args: string[], found: Set<SensitiveKind>, depth: number, sc: Sub, piped: boolean): void {
   // Commands that run other commands: read what they run.
   if (SHELLS.has(p)) {
     // bash -c 'cmd' is read; bash script.sh, bash <(curl …) and curl … | bash (a script on stdin) are not.
@@ -618,26 +568,13 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
   if (PS.has(p)) {
     // -Command (and its prefixes -c, -co…) is read; -EncodedCommand, -File, a script or stdin are not.
     const c = args.findIndex((a) => /^-(c|co|com|comm|comma|comman|command)$/i.test(a))
-    if (c >= 0 && args[c + 1] !== undefined && args[c + 1] !== '-') shellKinds(args.slice(c + 1).join(' '), found, depth + 1, true)
+    if (c >= 0 && args[c + 1] !== undefined && args[c + 1] !== '-') psKinds(args.slice(c + 1).join(' '), found)
     else all(found)
     return
   }
   if (p === 'eval') {
     if (args.some(expands)) return all(found)
-    return shellKinds(args.join(' '), found, depth + 1, powershell)
-  }
-  if (p === 'invoke-expression' || p === 'iex') {
-    // Only one literal in single quotes (or double quotes with nothing to expand) is read.
-    // A variable, a sum, a cast, [char] codes or the pipeline ('…' | iex): it asks.
-    const only = ctx.tokens.length === 1 ? ctx.tokens[0] : undefined
-    if (!only?.whole || expands(only.text) || ctx.piped) return all(found)
-    return shellKinds(only.text, found, depth + 1, true)
-  }
-  if (p === 'start-process' || p === 'saps' || (powershell && p === 'start')) return startProcessKinds(ctx.tokens, found, depth)
-  if (p === 'invoke-command' || p === 'icm' || p === 'start-job' || p === 'sajb' || p === 'start-threadjob') {
-    // The script block's commands are segments of their own (braces split them); a file or a variable is not readable.
-    if (args.some((a) => expands(a) || /^-(f|fi|fil|file|filep|filepa|filepat|filepath)$/i.test(a))) all(found)
-    return
+    return shellKinds(args.join(' '), found, depth + 1)
   }
   if (p === 'alias') {
     // alias p='git push': what the alias will run.
@@ -753,7 +690,7 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
         while (end < args.length && args[end] !== ';' && args[end] !== '+') end++
         const inner = args.slice(k + 1, end)
         if (inner.length && prog(inner[0]) === 'rm') found.add('delete')
-        else if (inner.length) simpleKinds(inner.map((text) => ({ text, quoted: false })), found, depth + 1, powershell)
+        else if (inner.length) simpleKinds(inner.map((text) => ({ text, quoted: false })), found, depth + 1)
         k = end
       }
       return
@@ -793,25 +730,13 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
     case 'xh':
     case 'xhs':
     case 'httpie':
-      if (httpieSends(args, ctx.piped)) found.add('send')
+      if (httpieSends(args, piped)) found.add('send')
       return
     case 'scp':
     case 'rsync':
     case 'sftp':
       // A copy to another machine (host:path, user@host:path, rsync://).
       if (args.some((a) => !a.startsWith('-') && (/^[^/\s:]+:/.test(a) || /^rsync:\/\//.test(a)) && !/^[A-Za-z]:[\\/]/.test(a))) found.add('send')
-      return
-    case 'invoke-webrequest':
-    case 'invoke-restmethod':
-    case 'iwr':
-    case 'irm':
-      if (psWebSends(ctx.tokens)) found.add('send')
-      return
-    case 'remove-item':
-      if (args.some((a) => /^-recurse$/i.test(a))) found.add('delete')
-      return
-    case 'send-mailmessage':
-      found.add('send')
       return
     default:
       return
@@ -1089,45 +1014,6 @@ function httpieSends(args: string[], piped = false): boolean {
   // :3000/x and :/x are httpie's shorthand for localhost.
   if (/^:(\d+)?(\/|$)/.test(url)) return false
   return !allLocal([url])
-}
-
-const IWR_VALUE = ['uri', 'method', 'custommethod', 'body', 'infile', 'outfile', 'headers', 'contenttype', 'credential', 'websession', 'sessionvariable', 'timeoutsec', 'maximumredirection', 'proxy', 'proxycredential', 'useragent', 'transferencoding', 'certificate', 'certificatethumbprint', 'form', 'authentication', 'token', 'retryintervalsec', 'maximumretrycount', 'sslprotocol', 'httpversion', 'connectiontimeoutseconds', 'operationtimeoutseconds', 'responseheadersvariable', 'statuscodevariable']
-const IWR_SWITCH = ['usebasicparsing', 'usedefaultcredentials', 'disablekeepalive', 'passthru', 'proxyusedefaultcredentials', 'allowunencryptedauthentication', 'skipcertificatecheck', 'skipheadervalidation', 'skiphttperrorcheck', 'resume', 'noproxy', 'preservehttpmethodonredirect', 'preserveauthorizationonredirect', 'allowinsecureredirect']
-
-/** Invoke-WebRequest / Invoke-RestMethod: parameters by unique prefix, as PowerShell reads them; an unknown one asks. */
-function psWebSends(tokens: Token[]): boolean {
-  let method: string | undefined
-  let write = false
-  let unknown = false
-  const urls: string[] = []
-  for (let k = 0; k < tokens.length; k++) {
-    const t = tokens[k].text
-    if (!tokens[k].quoted && t.startsWith('-') && t.length > 1) {
-      const [rawName, inline] = t.slice(1).split(/:(.*)/s)
-      const name = psName(rawName, IWR_VALUE, IWR_SWITCH)
-      if (!name) {
-        unknown = true
-        continue
-      }
-      if (IWR_SWITCH.includes(name)) continue
-      const value = inline !== undefined && inline !== '' ? inline : tokens[++k]?.text
-      if (name === 'method') method = value?.toUpperCase()
-      else if (name === 'custommethod' || name === 'body' || name === 'infile' || name === 'form') write = true
-      else if (name === 'proxy' || name === 'proxycredential') unknown = true
-      else if (name === 'uri') urls.push(value ?? '')
-      continue
-    }
-    urls.push(t)
-  }
-  if (!write && !unknown && reads(method)) return false
-  return unknown || !allLocal(urls)
-}
-
-/** A PowerShell parameter from its name or a unique prefix of it; null when unknown or ambiguous. */
-function psName(raw: string, values: string[], switches: string[]): string | null {
-  const n = raw.toLowerCase()
-  const hits = [...values, ...switches].filter((k) => k.startsWith(n))
-  return hits.includes(n) ? n : hits.length === 1 ? hits[0] : null
 }
 
 /**

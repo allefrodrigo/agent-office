@@ -9,16 +9,16 @@ Um bot roda sozinho: por mensagem, por "Rodar agora" e, na fase 2, por horário 
 
 ## Decisão
 
-Duas linhas de defesa.
+O guarda é defesa em profundidade, por cima do modo de permissão. Não é a única barreira.
 
-1. **Primeira linha: o modo de permissão.** Bot novo nasce em "Pedir permissão". Nunca roda em "Sem pedir nada": a validação recusa, o store converte ao carregar, o gerente converte de novo ao rodar e ao configurar, e o CLI do bot sempre recebe `allowDangerouslySkipPermissions: false`.
-2. **Segunda linha: o guarda.** `sensitiveKinds(tool, input)` (`src/shared/bots-guard.ts`) é uma função pura com um parser que **falha fechado**: o que ele não entende por inteiro devolve todos os tipos (pede). Só passa o que ele entende como inofensivo. Exemplos do que pede tudo:
+1. **Primeira linha: o modo de permissão.** Bot novo nasce em "Pedir permissão". Nunca roda em "Sem pedir nada": a validação recusa, o store converte ao carregar, o gerente converte de novo ao rodar e ao configurar, e o CLI do bot sempre recebe `allowDangerouslySkipPermissions: false`. No modo "Automático" do Claude Code, o classificador do próprio CLI também roda.
+2. **Segunda linha: o guarda.** `sensitiveKinds(tool, input)` (`src/shared/bots-guard.ts`) é uma função pura com um parser que **falha fechado**: o que ele não entende por inteiro devolve todos os tipos (pede), e o cartão diz "Conferir: … (o guarda não conseguiu ler o que isto faz)". Só passa o que ele entende como inofensivo. Exemplos do que pede tudo:
    - comando, subcomando ou opção que vem de uma expansão (`$X`, `$(…)`, `` `…` ``, `{a,b}`, `eval "$X"`, `sh -c "$X"`, `xargs git`, `curl … | bash`);
    - `git -c` fora de uma lista segura, `--config-env`, alias desconhecido, `git config` que grava alias ou comando, `--upload-pack` e afins (também abreviados), `ext::`;
    - `npm` com comando fora da lista (o npm aceita abreviações: `npm pu` publica);
    - opção longa de `curl`, `wget`, `httpie` ou `Invoke-WebRequest` que ele não reconhece por inteiro (eles aceitam prefixos: `--post-d`), proxy, `--resolve`, arquivo de configuração;
-   - PowerShell: `iex` com qualquer coisa além de um texto literal, `Start-Process` que ele não resolve, `& $x`, chamada .NET fora de uma lista curta de métodos de texto e número, `-EncodedCommand`, `-File`;
-   - MCP: executor (`execute`, `run`, `eval`, `shell`…), ferramenta de SQL com texto que não é uma leitura simples (comentário, mais de uma instrução, não começa com `SELECT`/`WITH`/`EXPLAIN`/`SHOW`/`DESCRIBE`/`PRAGMA` sem `=`), entrada que não foi lida até o fim (mais de 100 textos, mais de 8 níveis, texto com mais de 20.000 caracteres).
+   - PowerShell não é lido a fundo: só passam `Get-ChildItem`, `Get-Content`, `Get-Location`, `Test-Path`, `Select-String` e `Get-Date` com argumentos simples. Qualquer `(`, `$`, `+`, `[`, `&`, `{`, crase, chamada `.Metodo(`, `iex`, `Start-Process` ou outro comando pede tudo. `-EncodedCommand` e `-File` também;
+   - MCP: executor (`execute`, `run`, `eval`, `shell`…); ferramenta de consulta (pelo nome ou por um argumento chamado `sql`, `query`, `statement` ou `execute`) com algum texto que não é uma leitura simples nem claramente outra coisa (identificador, número, data). Leitura simples: começa com `SELECT`, `WITH`, `EXPLAIN`, `SHOW` ou `DESCRIBE`, sem comentário, sem segunda instrução, sem verbo de escrita; ou um `PRAGMA` de uma lista de leitura, sem argumento ou com um identificador. Também pede a entrada que não foi lida até o fim (mais de 100 textos, mais de 8 níveis, texto com mais de 20.000 caracteres).
    - "localhost" só vale para `localhost`, `::1` e `127.x.x.x` escrito por extenso. `127.evil.com`, `*.localhost`, `0.0.0.0`, userinfo e fragmento não enganam.
 
 O guarda entra de dois jeitos:
@@ -26,7 +26,7 @@ O guarda entra de dois jeitos:
 - **Hook `PreToolUse`** (`src/main/bots/guard.ts`, `guardHook`): responde `permissionDecision: 'ask'` com o motivo ("Publicar: npm publish"). Soma-se ao hook do squad.
 - **`askPlayer`**: reconhece o pedido sensível, marca `canAlwaysAllow: false` (sem "Sempre permitir") e não aplica as sugestões de regra.
 
-As conexões do bot (`apps`) seguem a mesma regra: o hook `appsHook` nega `mcp__<servidor>__*` fora da lista e as ferramentas embutidas de recursos (`ListMcpResourcesTool`, `ReadMcpResourceTool`…) quando o servidor que elas nomeiam não está na lista ou não dá para saber qual é. O `office` do próprio app passa sempre, pela procedência (`source: 'sdk'`).
+As conexões do bot (`apps`) seguem a mesma regra: o hook `appsHook` nega `mcp__<servidor>__*` fora da lista e as ferramentas embutidas de recursos (`ListMcpResourcesTool`, `ReadMcpResourceTool`…) quando o servidor que elas nomeiam não está na lista ou não dá para saber qual é. As ferramentas do `office` do próprio app passam sempre, pela procedência (`source: 'sdk'`). Recurso nomeando `office` não passa: o servidor do app só tem ferramentas, então esse é outro servidor com o mesmo nome.
 
 ## O que foi verificado
 
@@ -44,7 +44,12 @@ Se uma versão do CLI deixar de levar o "ask" ao `canUseTool`, `AGENT_OFFICE_BOT
 - O guarda lê o comando, não o que ele executa. Script (`./deploy.sh`, `npm run x`, `make`), código de interpretador (`python -c`, `node -e`) e binário próprio podem enviar ou apagar sem que o texto diga. A primeira linha (o modo) cobre esses casos.
 - Arquivos de configuração escritos antes por outra ferramenta (`.git/config` com alias, `~/.curlrc` com proxy) mudam o que um comando inofensivo faz.
 - Um servidor MCP com nome inocente e efeito colateral (`mcp__x__sync`) só pede quando o que ele carrega parece um comando.
-- O guarda pede mais do que precisa: `git push --dry-run`, `$EDITOR arquivo`, SQL com `;` dentro de um texto. Um falso positivo custa um clique.
+- O guarda pede mais do que precisa: `git push --dry-run`, `$EDITOR arquivo`, SQL com `;` dentro de um texto, busca com `query` em texto livre, quase todo comando PowerShell. Um falso positivo custa um clique.
+- Pedido que o guarda não leu chega com o tipo `pay` no campo `sensitive` (o primeiro da ordem); o motivo do cartão diz "Conferir".
+
+## Congelado nesta fase
+
+Depois de três rodadas de revisão, o guarda fica congelado na fase 1. Achado novo de severidade alta é corrigido; médio ou baixo entra nos limites acima e no CB-29 ("Endurecer o guarda") do plano.
 
 ## Consequências
 

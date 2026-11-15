@@ -78,7 +78,10 @@ describe('appsHook', () => {
     expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'github', uri: 'x' })).toBe(true)
     expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'gmail', uri: 'x' })).toBe(false)
     expect(appAllowed(['github'], 'ReadMcpResourceDirTool', { server: 'drive', uri: 'x' })).toBe(false)
-    expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'office', uri: 'x' })).toBe(true)
+    // The app's office server has no resources: a resource call naming office is someone else's server.
+    expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'office', uri: 'x' })).toBe(false)
+    expect(appAllowed(['github'], 'ListMcpResourcesTool', { server: 'office' })).toBe(false)
+    expect(appAllowed(['github', 'office'], 'ListMcpResourcesTool', { server: 'office' })).toBe(true)
     // A list over every server, or no server it can read: denied unless the bot sees them all.
     expect(appAllowed(['github'], 'ListMcpResourcesTool', {})).toBe(false)
     expect(appAllowed(['github'], 'ListMcpResourcesTool', { server: 42 })).toBe(false)

@@ -255,6 +255,8 @@ describe('sensitiveKind: details', () => {
     expect(guardReason('publish', 'Bash', { command: 'npm publish\n  --access public' })).toBe('Publicar: npm publish --access public')
     expect(guardReason('send', 'mcp__gmail__send_email', {})).toBe('Enviar: gmail › send_email')
     expect(guardReason('delete', 'Bash', { command: 'rm -rf ' + 'x'.repeat(300) }).length).toBeLessThan(140)
+    // A call it could not read is not labelled with the first kind ("Pagar").
+    expect(guardReason('pay', 'Bash', { command: 'eval "$CMD"' })).toBe('Conferir: eval "$CMD" (o guarda não conseguiu ler o que isto faz)')
   })
 })
 
@@ -368,7 +370,6 @@ describe('sensitiveKind: brechas fechadas', () => {
       bash('http https://e.com'),
       bash('http GET e.com q==1 Accept:application/json'),
       bash('xh e.com/api'),
-      ['PowerShell', { command: 'Invoke-WebRequest https://e.com -OutFile x.zip' }],
     ])
   })
 
@@ -446,9 +447,6 @@ describe('sensitiveKind: brechas fechadas', () => {
       bash('find . -name "*.ts" -exec grep -l TODO {} +'),
       bash('git ls-files | xargs wc -l'),
       bash('gh run list'),
-      ['PowerShell', { command: 'Get-ChildItem | Where-Object { $_.Length -gt 1kb }' }],
-      ['PowerShell', { command: '$files = Get-ChildItem src; foreach ($f in $files) { Write-Host $f }' }],
-      ['PowerShell', { command: '$env:NODE_ENV="test"; npm test' }],
     ])
   })
 
@@ -483,7 +481,6 @@ describe('sensitiveKind: brechas fechadas', () => {
       ['mcp__github__get_workflow_run', { run_id: 1 }],
       ['mcp__x__list_commands', {}],
       ['mcp__linear__update_issue', { id: 'X-1', title: 'Corrige o login' }],
-      ['mcp__notion__search', { query: 'drop table' }],
       ['mcp__office__ticket_comment', { text: 'rodei git push e npm publish' }],
     ])
   })
@@ -590,11 +587,6 @@ describe('sensitiveKind: falha fechado', () => {
       ['PowerShell', { command: 'pwsh -Comm "git push"' }, 'push'],
     ])
     passes([
-      ['PowerShell', { command: "iex 'Get-ChildItem'" }],
-      ['PowerShell', { command: 'Start-Process notepad -ArgumentList readme.txt' }],
-      ['PowerShell', { command: '"a,b".Split(",").Trim()' }],
-      ['PowerShell', { command: '[Math]::Round(2.5)' }],
-      ['PowerShell', { command: 'Get-ChildItem | ForEach-Object { $_.Name.ToUpper() }' }],
     ])
   })
 
@@ -653,7 +645,85 @@ describe('sensitiveKind: falha fechado', () => {
       bash('git log --color'),
       bash('npm i'),
       bash('npm ci'),
-      ['PowerShell', { command: 'iwr https://e.com -UseB -OutF x.zip' }],
+    ])
+  })
+})
+
+// Terceira revisão: PRAGMA por lista, SQL por argumento e PowerShell só com leituras simples.
+describe('sensitiveKind: terceira revisão', () => {
+  const asksAll = (cases: (readonly [string, Record<string, unknown>])[]) => {
+    for (const [tool, input] of cases) {
+      it(`pede tudo: ${tool} ${JSON.stringify(input).slice(0, 80)}`, () => {
+        expect(sensitiveKinds(tool, input)).toHaveLength(5)
+      })
+    }
+  }
+  const passes = (cases: (readonly [string, Record<string, unknown>])[]) => {
+    for (const [tool, input] of cases) {
+      it(`passa: ${tool} ${JSON.stringify(input).slice(0, 80)}`, () => {
+        expect(sensitiveKind(tool, input)).toBeNull()
+      })
+    }
+  }
+
+  describe('1. PRAGMA só de leitura, por lista', () => {
+    asksAll([
+      ['mcp__sqlite__query', { sql: 'PRAGMA writable_schema' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA journal_mode = DELETE' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA journal_mode=WAL' }],
+      ['mcp__sqlite__query', { sql: "PRAGMA table_info('users')" }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA table_info(users, x)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA wal_checkpoint(TRUNCATE)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA main.table_info(users)' }],
+    ])
+    passes([
+      ['mcp__sqlite__query', { sql: 'PRAGMA table_info(users)' }],
+      ['mcp__sqlite__query', { sql: 'pragma index_list(orders);' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA journal_mode' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA user_version' }],
+    ])
+  })
+
+  describe('2. SQL: toda string de uma ferramenta de consulta é uma leitura ou claramente não é SQL', () => {
+    asksAll([
+      ['mcp__notion__search', { query: 'drop table' }],
+      ['mcp__notion__search', { query: 'plano do trimestre' }],
+      ['mcp__db__find', { query: 'UPSERT INTO t VALUES (1)' }],
+      ['mcp__db__fetch_rows', { statement: 'MERGE INTO t USING s ON 1=1' }],
+      ['mcp__db__fetch_rows', { args: { sql: 'REFRESH MATERIALIZED VIEW v' } }],
+      ['mcp__postgres__query', { sql: 'SELECT 1', note: 'tudo certo' }],
+      ['mcp__postgres__query', { sql: 'LISTEN canal' }],
+    ])
+    passes([
+      ['mcp__notion__search', { query: 'roadmap' }],
+      ['mcp__db__fetch_rows', { sql: 'SELECT * FROM orders', table: 'public.orders', limit: '10', since: '2026-11-01', at: '2026-11-15T07:30:00Z' }],
+      ['mcp__notion__query_database', { database_id: 'abc-123', filter: { property: 'Status', status: { equals: 'Done' } } }],
+      ['mcp__gmail__search_emails', { from: 'ana@x.com', subject: 'relatório' }],
+    ])
+  })
+
+  describe('3. PowerShell: só leituras simples passam', () => {
+    asksAll([
+      ['PowerShell', { command: 'git status' }],
+      ['PowerShell', { command: 'npm test' }],
+      ['PowerShell', { command: 'Get-ChildItem $env:TEMP' }],
+      ['PowerShell', { command: 'Get-Content (Resolve-Path x)' }],
+      ['PowerShell', { command: 'Get-ChildItem | Remove-Item' }],
+      ['PowerShell', { command: 'Get-Date; & git push' }],
+      ['PowerShell', { command: 'Get-Content x.txt + y' }],
+      ['PowerShell', { command: '[IO.File]::Delete("x")' }],
+      ['PowerShell', { command: 'Get-ChildItem {x}' }],
+      ['PowerShell', { command: 'Write-Output hi' }],
+      ['PowerShell', { command: 'Get-ChildItem `\n; git push' }],
+      [...bash('pwsh -c "Get-ChildItem; git status"')],
+    ])
+    passes([
+      ['PowerShell', { command: 'Get-ChildItem -Recurse src' }],
+      ['PowerShell', { command: 'Get-Content README.md | Select-String TODO' }],
+      ['PowerShell', { command: "Test-Path 'C:\\Users\\ana\\x.txt'; Get-Location" }],
+      ['PowerShell', { command: 'Get-Date' }],
+      ['PowerShell', { command: '' }],
+      [...bash('pwsh -c "Get-ChildItem -Force"')],
     ])
   })
 })
