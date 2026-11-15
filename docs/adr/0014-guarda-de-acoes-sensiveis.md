@@ -20,6 +20,7 @@ O guarda é defesa em profundidade, por cima do modo de permissão. Não é a ú
    - PowerShell não é lido: toda chamada da ferramenta PowerShell e toda linha com `pwsh` ou `powershell` (`-Command`, `-EncodedCommand`, `-File`, script, entrada padrão) pede tudo, sem exceção. Texto de shell ou de MCP com cara de PowerShell também: um cmdlet (`Remove-Item`, `Invoke-WebRequest`, `Send-MailMessage`; em minúsculas, quando o substantivo é conhecido), `iex`, `iwr`, `irm`, `saps`;
    - comando com CR solto ou quebra de linha Unicode (U+0085, U+2028, U+2029): o shell e o guarda poderiam ver comandos diferentes. CRLF conta como uma quebra comum;
    - MCP: executor (`execute`, `run`, `eval`, `shell`…); ferramenta de consulta (pelo nome ou por um argumento chamado `sql`, `query`, `statement` ou `execute`) com algum texto que não é uma leitura simples nem claramente outra coisa (identificador que não é verbo SQL, número, data). `vacuum`, `commit` ou `checkpoint` sozinhos são instruções, então pedem. Leitura simples: começa com `SELECT`, `WITH`, `EXPLAIN`, `SHOW` ou `DESCRIBE`, sem comentário, sem segunda instrução, sem verbo de escrita; ou um `PRAGMA` de leitura. Os de tabela e índice (`table_info`, `index_list`, `foreign_key_list`…) aceitam um identificador; os de ajuste (`journal_mode`, `user_version`, `page_size`…) só passam sem argumento, porque com argumento eles gravam. Também pede a entrada que não foi lida até o fim (mais de 100 textos, mais de 8 níveis, texto com mais de 20.000 caracteres).
+   - código de interpretador na própria linha, na entrada padrão ou numa URL `data:` (`python -c`, `node -e`, `perl -ne`, `ruby -e`, `php -r`, `deno eval`, `bun -e`, `curl … | python`, `python - <<EOF`); `osascript` e `shortcuts run`, que comandam outros apps; `sed` com o comando ou a opção `e`; `awk` com `system()`, `|` ou `/inet/`;
    - "localhost" só vale para `localhost`, `::1` e `127.x.x.x` escrito por extenso. `127.evil.com`, `*.localhost`, `0.0.0.0`, userinfo e fragmento não enganam.
 
 O guarda entra de dois jeitos:
@@ -44,7 +45,7 @@ Se uma versão do CLI deixar de levar o "ask" ao `canUseTool`, `AGENT_OFFICE_BOT
 
 ## Limites conhecidos
 
-- O guarda lê o comando, não o que ele executa. Script (`./deploy.sh`, `npm run x`, `make`), código de interpretador (`python -c`, `node -e`) e binário próprio podem enviar ou apagar sem que o texto diga. A primeira linha (o modo) cobre esses casos.
+- O guarda lê o comando, não o que ele executa. Arquivo de script (`./x.sh`, `node x.js`, `python x.py`, `sed -f`, `awk -f`), `npm run x`, `make x` e binário próprio podem enviar ou apagar sem que o texto diga. Só o nome conta: script ou alvo chamado `deploy`, `release`, `publish` ou `ship` pede "Publicar". A primeira linha (o modo) cobre o resto.
 - Arquivos de configuração escritos antes por outra ferramenta (`.git/config` com alias, `~/.curlrc` com proxy) mudam o que um comando inofensivo faz.
 - Um servidor MCP com nome inocente e efeito colateral (`mcp__x__sync`) só pede quando o que ele carrega parece um comando.
 - O guarda pede mais do que precisa: `git push --dry-run`, `$EDITOR arquivo`, SQL com `;` dentro de um texto, busca com `query` em texto livre, todo comando PowerShell, mensagem de commit que cita `powershell` ou um cmdlet. Um falso positivo custa um clique.
@@ -53,7 +54,7 @@ Se uma versão do CLI deixar de levar o "ask" ao `canUseTool`, `AGENT_OFFICE_BOT
 
 ## Congelado nesta fase
 
-Depois de quatro rodadas de revisão, o guarda fica congelado na fase 1. Achado novo de severidade alta é corrigido; médio ou baixo entra nos limites acima e no CB-29 ("Endurecer o guarda") do plano.
+Depois de quatro rodadas de revisão, o guarda fica congelado na fase 1. Achado novo de severidade alta é corrigido; médio ou baixo entra nos limites acima e no CB-29 ("Endurecer o guarda") do plano. Exceção: código de interpretador na própria linha (achado médio da quinta revisão) foi corrigido, porque a correção é pequena e fecha uma rota óbvia.
 
 ## Consequências
 

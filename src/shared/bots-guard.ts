@@ -609,7 +609,37 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
     return
   }
 
+  // AppleScript and Shortcuts drive other apps (Mail, Messages): nothing in the line says what they do.
+  if (p === 'osascript' || (p === 'shortcuts' && sc(args).sub === 'run')) return all(found)
+  if (interpreterKinds(p, args, found, piped)) return
+  if (p === 'bun' && args.some((a) => /^(-e|--eval|-p|--print)(=|$)/.test(a))) return all(found)
+
   switch (p) {
+    case 'sed':
+    case 'gsed':
+      if (sedScripts(args).some(sedRuns)) all(found)
+      return
+    case 'awk':
+    case 'gawk':
+    case 'mawk':
+    case 'nawk':
+      // system(), print | "cmd", "cmd" | getline and /inet/ (gawk's sockets) leave the program.
+      if (awkPrograms(args).some((s) => /\bsystem\s*\(|\||\/inet/.test(s.replace(/\|\|/g, '')))) all(found)
+      return
+    case 'deno': {
+      const { sub, rest } = sc(args, ['-c', '--config', '--import-map', '--lock', '--cert', '--location', '--env-file'])
+      if (sub === 'eval') return all(found)
+      const script = sub === 'run' || sub === 'task' ? (rest.find((a) => !a.startsWith('-')) ?? '') : sub
+      // deno run - (stdin), deno run https://… (code from the network), or plain deno fed by a pipe.
+      if (script === '-' || /^https?:/i.test(script) || (!script && piped)) return all(found)
+      if (RELEASE_NAME.test(prog(script))) found.add('publish')
+      return
+    }
+    case 'make':
+    case 'gmake':
+    case 'just':
+      if (args.some((a) => !a.startsWith('-') && !a.includes('=') && RELEASE_NAME.test(a))) found.add('publish')
+      return
     case 'git':
     case 'hub':
       return gitKinds(args, found, sc)
@@ -759,8 +789,116 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
       if (args.some((a) => !a.startsWith('-') && (/^[^/\s:]+:/.test(a) || /^rsync:\/\//.test(a)) && !/^[A-Za-z]:[\\/]/.test(a))) found.add('send')
       return
     default:
+      // ./deploy.sh, release-it: the script is not read, but its name says what it is for.
+      if (RELEASE_NAME.test(p)) found.add('publish')
       return
   }
+}
+
+/** A script or target named for shipping: deploy.sh, release, publish-docs. */
+const RELEASE_NAME = /^(deploy|release|publish|ship)\b/
+
+/** Interpreters, and the options that hand each one code in the line itself (python -c, node -e, perl -ne…). */
+const INTERPRETERS: [RegExp, RegExp][] = [
+  [/^(python|pypy)[\d.]*$/, /^-[A-Za-z]*c/],
+  [/^(node|nodejs|tsx|ts-node)$/, /^(-[A-Za-z]*[ep]|--eval|--print)/],
+  // perl -M'strict; system …' turns into `use strict; system …;`.
+  [/^(perl|ruby|lua|luajit|julia|rscript|tclsh)[\d.]*$/, /^-[A-Za-z]*[eE]|^-[mM].*[^\w:=,.-]/],
+  [/^php[\d.]*$/, /^(-[A-Za-z]*[rBRE]|--run|--process-)/],
+]
+/** Options of those interpreters whose value is the next word, not the script. */
+const INTERPRETER_VALUE = new Set(['-W', '-X', '-I', '-r', '-l', '-d', '-c', '-C', '--require', '--import', '--loader', '--experimental-loader', '--conditions', '--env-file', '--input-type'])
+
+/**
+ * Code given to an interpreter in the line (python -c, node -e), on stdin (curl … | python,
+ * python - <<EOF) or as a data: URL is a program the guard cannot read: it asks for everything.
+ * A script file is read by its name only (see "Limites conhecidos" in ADR 0014).
+ * Returns false when `p` is not an interpreter.
+ */
+function interpreterKinds(p: string, args: string[], found: Set<SensitiveKind>, piped: boolean): boolean {
+  const entry = INTERPRETERS.find(([name]) => name.test(p))
+  if (!entry) return false
+  if (args.some((a) => /(^|=)data:/i.test(a))) {
+    all(found)
+    return true
+  }
+  let script = ''
+  let stdin = piped
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]
+    if (/^\d*</.test(a)) {
+      // <file, <<EOF, <<<"code", and a lone < (process substitution, <(curl …), ends up here too).
+      stdin = true
+      if (/^\d*<[<&-]*$/.test(a)) k++
+      continue
+    }
+    if (/^\d*&?>/.test(a)) {
+      if (/^\d*&?>[>&|]*$/.test(a)) k++
+      continue
+    }
+    if (entry[1].test(a)) {
+      all(found)
+      return true
+    }
+    // python -m pkg: an installed module, not code from here.
+    if (a === '-m' && /^(python|pypy)/.test(p)) return true
+    if (a === '--') {
+      script = args[k + 1] ?? ''
+      break
+    }
+    if (a.startsWith('-') && a !== '-') {
+      // A value never starts with a dash: perl -l -e … still sees the -e.
+      if (INTERPRETER_VALUE.has(a) && !(args[k + 1] ?? '-').startsWith('-')) k++
+      continue
+    }
+    script = a
+    break
+  }
+  // `-` names stdin as the script, whatever feeds it (a pipe, a heredoc, a file).
+  if (script === '-' || (!script && stdin)) all(found)
+  else if (script && RELEASE_NAME.test(prog(script))) found.add('publish')
+  return true
+}
+
+/** The scripts sed runs: what follows -e/--expression, or the first word (files after it are scanned too: it errs to asking). */
+function sedScripts(args: string[]): string[] {
+  const scripts: string[] = []
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]
+    if (a === '--expression' || /^-[A-Za-z]*e$/.test(a)) {
+      scripts.push(args[k + 1] ?? '')
+      k++
+    } else if (a.startsWith('--expression=')) scripts.push(a.slice('--expression='.length))
+    else if (/^-[A-Za-z]*e./.test(a) && !a.startsWith('--')) scripts.push(a.slice(a.indexOf('e') + 1))
+    else if (a === '-f' || a === '--file' || a === '-l' || a === '--line-length') k++
+    else if (!a.startsWith('-')) scripts.push(a)
+  }
+  return scripts
+}
+
+/** GNU sed's `e` command and the `e` flag of s/// run a shell command. */
+const sedRuns = (s: string) => /(?:^|[;\n{}\d$/,!])\s*[gpiImM\d]*e[gpiImM\dw]*(?:\s|;|}|$)/.test(s)
+
+/** The awk program text: -e/--source values, or the first word when there is no -f. */
+function awkPrograms(args: string[]): string[] {
+  const programs: string[] = []
+  let file = false
+  for (let k = 0; k < args.length; k++) {
+    const a = args[k]
+    if (a === '-f' || a === '--file' || a === '-E' || a === '--exec') {
+      file = true
+      k++
+    } else if (a === '-e' || a === '--source') {
+      programs.push(args[k + 1] ?? '')
+      k++
+    } else if (/^-[FvilW]$/.test(a)) k++
+    else if (a === '--') continue
+    else if (!a.startsWith('-')) {
+      if (!file && !programs.length) programs.push(a)
+      break
+    }
+  }
+  return programs
 }
 
 function gitKinds(args: string[], found: Set<SensitiveKind>, sc: Sub): void {
