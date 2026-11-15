@@ -39,6 +39,8 @@ import { mountMeetingRoom } from './ui/meetings'
 import { OPEN_AGENT_EVENT } from './ui/meetings/office'
 import { meetingLive, onMeetingLive, setMeetingLive } from './meetings/live'
 import { doNotDisturb, waitingSummary } from '@shared/meeting-map'
+import { chatShowsAgent, chatStore, mountChat, openChat } from './ui/chat'
+import { badgeText } from '@shared/bots-view'
 
 /** localStorage: '1' when the office lights are off (modo noturno). */
 const NIGHT_KEY = 'office.night'
@@ -195,9 +197,21 @@ async function boot(): Promise<void> {
   // Every floor has its Sala de reunião: "Reunião" (or M) opens the one of the floor on screen.
   const meetingLaunch = h('button', { class: 'studio-launch meeting-launch' }, icon('mic', 16), 'Reunião', h('small', {}, 'G'))
   meetingLaunch.addEventListener('click', () => openMeetingRoom(game.currentFloorId))
-  ui.append(h('div', { class: 'floor-launch' }, studioLaunch, meetingLaunch))
+  // Chat dos bots (CB-08): "Chat" (or C) opens the bots' DMs; the badge sums the unread over the bots.
+  const chatBadge = h('span', { class: 'chat-launch-badge', hidden: true, 'aria-hidden': 'true' })
+  const chatLaunch = h('button', { class: 'studio-launch chat-launch', 'aria-label': 'Chat dos bots' }, icon('message', 16), 'Chat', chatBadge, h('small', {}, 'C'))
+  chatLaunch.addEventListener('click', () => openChat())
+  ui.append(h('div', { class: 'floor-launch' }, studioLaunch, meetingLaunch, chatLaunch))
   // The Sala de reunião screen opens on openMeetingRoom (map label, M, this button) and follows the recording.
   mountMeetingRoom(ui, state, { toast })
+  // The Chat screen opens on openChat (C, this button, bot:open); its store loads now for the badge.
+  mountChat(ui, state, { toast, currentFloor: () => game.currentFloorId })
+  chatStore.on(() => {
+    const n = chatStore.totalUnread()
+    chatBadge.hidden = n === 0
+    chatBadge.textContent = badgeText(n)
+    chatLaunch.setAttribute('aria-label', n ? `Chat dos bots, ${n} ${n === 1 ? 'mensagem não lida' : 'mensagens não lidas'}` : 'Chat dos bots')
+  })
   const syncLaunch = () => (studioLaunch.hidden = !codexReady || !game.currentProject)
 
   const radio = new Radio(document.getElementById('overlay')!)
@@ -214,8 +228,9 @@ async function boot(): Promise<void> {
         for (const r of state.itemsFor(nearId).results) dismissed.delete(r.id)
       }
       nearId = id
-      // "Não perturbe" (RN-17): during a meeting the card waits in the inbox
-      if (!id || dialog.isOpen || quiet()) return
+      // "Não perturbe" (RN-17): during a meeting the card waits in the inbox.
+      // With the Chat on this bot's thread, the card is in the thread only (CB-08).
+      if (!id || dialog.isOpen || quiet() || chatShowsAgent(id)) return
       const items = state.itemsFor(id)
       const first = items.permissions[0] ?? items.results[0]
       if (first && !dismissed.has(first.id)) openItem(id, first.id)
@@ -358,6 +373,7 @@ async function boot(): Promise<void> {
     if (e.key.toLowerCase() === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && codexReady && game.currentProject) studio(game.currentProject)
     if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) setNight(!game.engine.night)
     if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openMeetingRoom(game.currentFloorId)
+    if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openChat()
     if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) void window.office.petEnter()
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
@@ -373,7 +389,8 @@ async function boot(): Promise<void> {
       if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping() || tour.showing) return
       e.preventDefault()
       e.stopPropagation()
-      openShortcuts(ui, state.platform, { tour: replayTour })
+      // over the Chat, the list opens inside it (the Chat sits above the other windows)
+      openShortcuts(ui.querySelector<HTMLElement>('.chat-backdrop') ?? ui, state.platform, { tour: replayTour })
     },
     true,
   )
@@ -495,6 +512,10 @@ async function boot(): Promise<void> {
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
     // "Abrir a sala" no ícone da barra de menus (RN-08)
     if (e.type === 'meeting:open') return openMeetingRoom(e.floor)
+    // Chat dos bots: the notification opens the thread; the store (ui/chat/store) follows the rest,
+    // and the HUD has nothing to redraw for them.
+    if (e.type === 'bot:open') return openChat(e.threadId)
+    if (e.type === 'bots' || e.type === 'bot:item' || e.type === 'botTriggers' || e.type === 'channels') return
     // Clique na notificação do sistema: o cartão abre na hora, sem esperar a caminhada.
     if (e.type === 'notice:open') {
       dismissed.delete(e.itemId)
@@ -524,9 +545,10 @@ async function boot(): Promise<void> {
       const a = state.agents.get(e.request.agentId)
       const hold = quiet()
       if (hold) held.add(e.request.id)
-      else if (a) toast(`${a.name} está indo até a sua sala.`, 'info')
+      else if (a && !chatShowsAgent(a.id)) toast(`${a.name} está indo até a sua sala.`, 'info')
       // Interrupts the screen reader: the agent is stopped until the player decides.
-      if (a) {
+      // The Chat announces its own cards when it shows this bot's thread.
+      if (a && !chatShowsAgent(a.id)) {
         const r = e.request
         const what = r.kind === 'question' ? 'tem uma pergunta' : r.kind === 'plan' ? 'trouxe um plano' : 'pede sua permissão'
         const detail = r.kind === 'tool' && r.detail ? ` ${r.detail.split('\n')[0].slice(0, 100)}.` : ''
