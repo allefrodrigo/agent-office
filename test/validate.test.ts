@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import type { Account, ProjectFloor, Settings } from '@shared/types'
+import { BOT_COLORS, CHAT_DEFAULTS, SENSITIVE_KINDS, type Account, type ProjectFloor, type Settings } from '@shared/types'
 import { DEFAULT_VIDEO, QUALITY_PRESETS } from '@shared/video'
 import { HAIR_STYLES } from '@shared/describe'
 import { DEFAULT_MEETING_SETTINGS } from '@shared/meetings'
@@ -11,12 +11,16 @@ import {
   attachmentsSchema,
   cleanAccountIds,
   cleanAccounts,
+  cleanBotDraft,
+  cleanBotFlags,
   cleanBrain,
+  cleanChatSettings,
   cleanDelegateTarget,
   cleanHire,
   cleanLedgerQuery,
   cleanProjects,
   cleanSettings,
+  cleanThreadId,
   cleanVideo,
   delegateMode,
   externalUrlSchema,
@@ -429,5 +433,56 @@ describe('schemas do IPC', () => {
     expect(assigneeSchema.parse(null)).toBeNull()
     expect(assigneeSchema.parse(undefined)).toBeUndefined()
     expect(assigneeSchema.safeParse('admin').success).toBe(false)
+  })
+})
+
+describe('Chat dos bots', () => {
+  const ctx = { settings: { projects: [{ id: 'loja', name: 'Loja', cwd: dir }] as ProjectFloor[], accounts: [main] } }
+  const draft = (extra: Record<string, unknown> = {}) => ({ name: '  Rita   Resumo ', role: ' Resume o dia. ', floor: 'loja', ...extra })
+
+  it('cleanBotDraft preenche os padrões e limpa o que veio', () => {
+    const out = cleanBotDraft(draft({ apps: ['office', 'github', 'github'], dailyBudgetUsd: '1.239', accounts: ['main', 'sumida'], color: '#000000' }), ctx)
+    expect(out).toMatchObject({ name: 'Rita Resumo', role: 'Resume o dia.', floor: 'loja', permissionMode: 'default', worktree: false, tagline: '' })
+    expect(out.apps).toEqual(['github'])
+    expect(out.askBefore).toEqual([...SENSITIVE_KINDS])
+    expect(out.dailyBudgetUsd).toBe(1.24)
+    expect(out.accounts).toEqual(['main'])
+    expect(out.color).toBe(BOT_COLORS[0])
+    expect(cleanBotDraft(draft({ askBefore: ['push', 'send'], color: BOT_COLORS[2] }), ctx)).toMatchObject({ askBefore: ['send', 'push'], color: BOT_COLORS[2] })
+  })
+
+  it('cleanBotDraft recusa "Sem pedir nada" e o que não fecha', () => {
+    expect(() => cleanBotDraft(draft({ permissionMode: 'bypassPermissions' }), ctx)).toThrow('Sem pedir nada')
+    expect(() => cleanBotDraft(draft({ permissionMode: 'turbo' }), ctx)).toThrow('Modo de permissão')
+    expect(() => cleanBotDraft(draft({ name: '' }), ctx)).toThrow('Dê um nome')
+    expect(() => cleanBotDraft(draft({ name: 'x'.repeat(41) }), ctx)).toThrow('Dê um nome')
+    expect(() => cleanBotDraft(draft({ role: '   ' }), ctx)).toThrow('trabalho')
+    expect(() => cleanBotDraft(draft({ floor: 'sumido' }), ctx)).toThrow()
+    expect(() => cleanBotDraft(draft({ floor: 'terreo' }), ctx)).toThrow()
+    expect(() => cleanBotDraft(draft({ floor: 'terreo', cwd: 'relativo' }), ctx)).toThrow()
+    expect(cleanBotDraft(draft({ floor: 'terreo', cwd: dir }), ctx)).toMatchObject({ floor: 'terreo', cwd: dir })
+    expect(() => cleanBotDraft(draft({ dailyBudgetUsd: -1 }), ctx)).toThrow()
+    expect(() => cleanBotDraft('bot', ctx)).toThrow()
+  })
+
+  it('cleanThreadId e cleanBotFlags', () => {
+    expect(cleanThreadId('gabi')).toBe('gabi')
+    for (const bad of ['', '../x', 'canais', 7, null]) expect(() => cleanThreadId(bad)).toThrow('não existe mais')
+    expect(cleanBotFlags({ pinned: true, order: 2 })).toEqual({ pinned: true, order: 2 })
+    expect(() => cleanBotFlags({ pinned: 1 })).toThrow('Ajuste inválido')
+    expect(() => cleanBotFlags({ demo: true })).toThrow('Ajuste inválido')
+  })
+
+  it('cleanChatSettings: um campo ruim fica como estava; chaves estranhas saem', () => {
+    const out = cleanChatSettings({ deliverInOffice: true, notify: 'tudo', maxEventRunsPerHour: 99, idleLeaveMin: -5, routerModel: 'haiku', evil: 1 }, CHAT_DEFAULTS)
+    expect(out).toEqual({ ...CHAT_DEFAULTS, deliverInOffice: true, maxEventRunsPerHour: 30, idleLeaveMin: 0 })
+    expect(cleanChatSettings('lixo', CHAT_DEFAULTS)).toEqual(CHAT_DEFAULTS)
+    expect(cleanChatSettings({ notify: 'off', routerModel: 'rm -rf' }, CHAT_DEFAULTS)).toEqual({ ...CHAT_DEFAULTS, notify: 'off' })
+  })
+
+  it('cleanSettings aceita a seção chat', () => {
+    const out = cleanSettings({ chat: { notify: 'all', idleLeaveMin: 0 } }, { ...settings(), chat: CHAT_DEFAULTS })
+    expect(out.chat).toEqual({ ...CHAT_DEFAULTS, notify: 'all', idleLeaveMin: 0 })
+    expect(cleanSettings({ chat: { notify: 'all' } }, settings()).chat?.notify).toBe('all')
   })
 })

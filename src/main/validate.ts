@@ -6,7 +6,7 @@ import { HAIR_STYLES } from '@shared/describe'
 import { canAddFloor, floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
-import { EFFORT_LEVELS, ROUTINE_LIMITS } from '@shared/types'
+import { BOT_COLORS, BOT_GROUND_FLOOR, BOT_LIMITS, CHAT_DEFAULTS, EFFORT_LEVELS, ROUTINE_LIMITS, SENSITIVE_KINDS } from '@shared/types'
 import type { VideoSettings } from '@shared/video'
 import { AUDIO_CHUNK_MAX_BYTES, AUTOSTOP_MIN_RANGE, RETENTION_DAYS_RANGE, WHISPER_MODEL_FILE } from '@shared/meetings'
 import { ATA_LIMITS, blockSchema } from '@shared/meetings-ata'
@@ -18,6 +18,9 @@ import type {
   AgentBrain,
   AgentSummary,
   AttachmentInput,
+  BotDraft,
+  BotPermissionMode,
+  ChatSettings,
   DelegateTarget,
   EffortLevel,
   HireRequest,
@@ -29,6 +32,7 @@ import type {
   RoutineDraft,
   RoutineWho,
   Schedule,
+  SensitiveKind,
   Settings,
   TicketDraft,
   TicketPatch,
@@ -404,6 +408,7 @@ export function cleanSettings(raw: unknown, current: Settings): Settings {
   if (Object.hasOwn(patch, 'projects')) next.projects = cleanProjects(patch.projects, current.projects)
   if (Object.hasOwn(patch, 'video')) next.video = cleanVideo(patch.video, current.video)
   if (Object.hasOwn(patch, 'meetings')) next.meetings = cleanMeetings(patch.meetings, current.meetings, next.projects)
+  if (Object.hasOwn(patch, 'chat')) next.chat = cleanChatSettings(patch.chat, { ...CHAT_DEFAULTS, ...current.chat })
   return next
 }
 
@@ -572,3 +577,142 @@ export const meetingTemplatesSchema = z.strictObject({ floor: meetingFloorSchema
 /** The item itself goes through cleanMeetingTemplate / cleanMeetingRecipe (fields, limits, floor). */
 export const meetingSaveTemplateSchema = z.strictObject({ kind: z.enum(['template', 'recipe']), item: z.record(z.string(), z.unknown()) })
 export const meetingAgentSchema = z.strictObject({ id: meetingIdSchema, agentId: idSchema, question: z.string().trim().min(1).max(MEETING_IPC_LIMITS.question) })
+
+// ---------- Chat dos bots (docs/prd/chat-de-bots.md) ----------
+
+/** Bots never run in "Sem pedir nada": the form cannot send it, and nothing else can either. */
+export const BOT_MODES: readonly BotPermissionMode[] = ['default', 'acceptEdits', 'auto', 'plan']
+/** A bot, channel or thread id that is safe as a file name ('canais' is the channels' folder). */
+const threadIdSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{1,64}$/)
+  .refine((s) => s !== 'canais')
+const serverNameSchema = z.string().regex(/^[\w.@-]{1,100}$/)
+
+export const botDraftSchema = z.object({
+  id: threadIdSchema.optional(),
+  name: z.string().max(2000),
+  tagline: z.string().max(2000).optional(),
+  role: z.string().max(BOT_LIMITS.role * 2),
+  color: z.string().max(20).optional(),
+  look: lookSchema.optional(),
+  floor: z.string().min(1).max(40),
+  cwd: pathSchema.optional(),
+  model: z.union([z.literal(''), z.string().regex(MODEL_RE)]).optional(),
+  effort: z.union([z.literal(''), z.enum(EFFORT_LEVELS as [EffortLevel, ...EffortLevel[]])]).optional(),
+  accounts: z.array(idSchema).max(50).optional(),
+  permissionMode: z.string().max(40).optional(),
+  askBefore: z.array(z.enum(SENSITIVE_KINDS as [SensitiveKind, ...SensitiveKind[]])).max(10).optional(),
+  apps: z.union([z.literal('all'), z.array(serverNameSchema).max(200)]).optional(),
+  worktree: z.boolean().optional(),
+  dailyBudgetUsd: numberField.pipe(z.number().finite().min(0).max(10_000)).optional(),
+  templateId: z.string().regex(/^[\w-]{1,64}$/).optional(),
+  schedule: scheduleSchema.optional(),
+})
+
+type BotDefaults = 'permissionMode' | 'askBefore' | 'apps' | 'worktree' | 'dailyBudgetUsd' | 'tagline' | 'color'
+/** A bot draft that passed every check, with the defaults filled. */
+export type CleanBotDraft = Omit<BotDraft, BotDefaults> & Required<Pick<BotDraft, BotDefaults>>
+
+/**
+ * A bot from the form (CB-07). Throws a message the form can show: a name, a job, a mode that
+ * is not "Sem pedir nada", a floor that exists (or a folder on the ground floor). The defaults:
+ * "Pedir permissão", every sensitive kind held, every connection, no daily cap.
+ */
+export function cleanBotDraft(raw: unknown, ctx: { settings: Pick<Settings, 'projects' | 'accounts'> }): CleanBotDraft {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const name = typeof r.name === 'string' ? r.name.trim().replace(/\s+/g, ' ') : ''
+  if (!name || name.length > BOT_LIMITS.name) throw new Error(`Dê um nome ao bot (até ${BOT_LIMITS.name} letras).`)
+  if (r.permissionMode === 'bypassPermissions') {
+    throw new Error('Bots nunca rodam em "Sem pedir nada". Escolha "Pedir permissão", "Aceitar edições", "Automático" ou "Planejar".')
+  }
+  const d = parse(botDraftSchema, raw, 'Bot inválido. Feche e abra o formulário de novo.')
+  const role = d.role.trim()
+  if (!role) throw new Error('Descreva o trabalho do bot: o que ele faz e o que nunca faz.')
+  if (role.length > BOT_LIMITS.role) throw new Error(`O trabalho do bot passou de ${BOT_LIMITS.role.toLocaleString('pt-BR')} letras. Encurte o texto.`)
+  const mode = d.permissionMode ?? 'default'
+  if (!BOT_MODES.includes(mode as BotPermissionMode)) throw new Error('Modo de permissão inválido. Escolha um da lista.')
+  if (d.schedule) {
+    const problem = scheduleError(d.schedule)
+    if (problem) throw new Error(problem)
+  }
+  const askBefore = d.askBefore
+  const out: CleanBotDraft = {
+    ...(d.id ? { id: d.id } : {}),
+    name,
+    tagline: (d.tagline ?? '').trim().replace(/\s+/g, ' ').slice(0, BOT_LIMITS.tagline),
+    role,
+    color: BOT_COLORS.includes(d.color as never) ? (d.color as string) : BOT_COLORS[0],
+    ...(d.look ? { look: d.look } : {}),
+    floor: d.floor,
+    ...(d.model ? { model: d.model } : {}),
+    ...(d.effort ? { effort: d.effort } : {}),
+    ...(d.accounts ? { accounts: cleanAccountIds(d.accounts, ctx.settings.accounts) } : {}),
+    permissionMode: mode as BotPermissionMode,
+    askBefore: askBefore ? SENSITIVE_KINDS.filter((k) => askBefore.includes(k)) : [...SENSITIVE_KINDS],
+    // The office server is always on: it is not a choice.
+    apps: d.apps === undefined || d.apps === 'all' ? 'all' : [...new Set(d.apps.filter((a) => a !== 'office'))],
+    worktree: d.worktree ?? false,
+    dailyBudgetUsd: Math.round((d.dailyBudgetUsd ?? 0) * 100) / 100,
+    ...(d.templateId ? { templateId: d.templateId } : {}),
+    ...(d.schedule ? { schedule: d.schedule } : {}),
+  }
+  if (d.floor === BOT_GROUND_FLOOR) {
+    if (!d.cwd || !isAbsolute(d.cwd) || !isDir(d.cwd)) throw new Error('Escolha a pasta onde o bot trabalha.')
+    return { ...out, cwd: d.cwd }
+  }
+  if (!ctx.settings.projects.some((p) => p.id === d.floor)) throw new Error('Esse andar não existe mais. Escolha outro.')
+  return out
+}
+
+/** A bot or channel id from the renderer. */
+export function cleanThreadId(raw: unknown): string {
+  return parse(threadIdSchema, raw, 'Essa conversa não existe mais.')
+}
+
+export const botFlagsSchema = z.strictObject({
+  pinned: z.boolean().optional(),
+  hidden: z.boolean().optional(),
+  order: z.number().finite().min(-1_000_000).max(1_000_000).optional(),
+})
+/** Fixar, Esconder and the sidebar order. */
+export function cleanBotFlags(raw: unknown): z.infer<typeof botFlagsSchema> {
+  return parse(botFlagsSchema, raw, 'Ajuste inválido do bot.')
+}
+
+/** botThread's options: an item id to page before, and how many. */
+export const threadPageSchema = z.strictObject({
+  before: z.string().min(1).max(200).optional(),
+  limit: z.number().int().min(1).max(BOT_LIMITS.page).optional(),
+})
+export const markReadAtSchema = z.number().finite().min(0).max(8_640_000_000_000).optional()
+export const botSearchQuerySchema = z.string().max(200)
+export const botSearchFloorSchema = z.string().min(1).max(40).optional()
+export const botConfigureSchema = z.strictObject({
+  model: z.union([z.literal(''), z.string().regex(MODEL_RE)]).optional(),
+  effort: z.union([z.literal(''), z.enum(EFFORT_LEVELS as [EffortLevel, ...EffortLevel[]])]).optional(),
+})
+/** memoria.md from the profile: cut to BOT_LIMITS.memoryBytes when saved; this only refuses absurd sizes. */
+export const botMemorySchema = z.string().max(BOT_LIMITS.memoryBytes * 4)
+
+/** Configurações → Chat, one schema per field: a bad one keeps its current value. */
+const chatFields = {
+  deliverInOffice: z.boolean(),
+  notify: z.enum(['all', 'approvals', 'off']),
+  maxEventRunsPerHour: clampedInt(1, BOT_LIMITS.perHourMax),
+  routerModel: z.string().regex(MODEL_RE),
+  idleLeaveMin: clampedInt(0, 24 * 60),
+} satisfies { [K in keyof ChatSettings]-?: z.ZodType<ChatSettings[K], unknown> }
+
+/** Chat settings from the renderer (or an old office.json) laid over `current`; unknown keys are dropped. */
+export function cleanChatSettings(raw: unknown, current: ChatSettings): ChatSettings {
+  const patch = (raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {}) as Record<string, unknown>
+  const next: ChatSettings = { ...current }
+  const put = next as unknown as Record<string, unknown>
+  for (const [key, schema] of Object.entries(chatFields)) {
+    if (!Object.hasOwn(patch, key)) continue
+    const r = (schema as z.ZodType<unknown, unknown>).safeParse(patch[key])
+    if (r.success) put[key] = r.data
+  }
+  return next
+}
