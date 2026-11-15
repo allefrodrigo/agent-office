@@ -8,7 +8,7 @@ import { type Accounts } from '../accounts'
 import type { CostBook } from '../ledger'
 import type { Store } from '../store'
 import { SubagentLogs } from '../subagent-log'
-import { LOG_LIMIT, PERSISTED_LOG, type Agent, type Pending, type Prompt } from './types'
+import { LOG_LIMIT, PERSISTED_LOG, type Agent, type BotHooks, type Pending, type Prompt } from './types'
 
 /**
  * State of the AgentManager, its queries and the bookkeeping helpers. Each part (office,
@@ -24,6 +24,8 @@ export abstract class AgentBase extends EventEmitter {
   accounts?: Accounts
   /** The cost book: every SDK result is booked there. */
   book?: CostBook
+  /** Chat dos bots: prompt, guard, connections and results of the agents that run a bot. */
+  botHooks?: BotHooks
   /**
    * Demo mode: plays office agents' runs instead of starting Claude Code, so hiring and
    * talking can be shown (and tested by keyboard, AO-38) without spending tokens.
@@ -183,7 +185,7 @@ export abstract class AgentBase extends EventEmitter {
     agent: Agent,
     tool: string,
     input: Record<string, unknown>,
-    opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; decisionReason?: string; agentID?: string },
+    opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; decisionReason?: string; agentID?: string; mcpServer?: { name: string; source: string } },
   ): Promise<PermissionResult>
   protected abstract overBudget(agent: Agent): boolean
   protected abstract budgetText(agent: Agent): string

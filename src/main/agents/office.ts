@@ -9,7 +9,8 @@ import { findSquad, readProgress, squadDir, type SquadDefinition } from '../squa
 import { createWorktree } from '../git'
 import { endSubagent } from '../subagent-log'
 import { runShell, shellContext, shellLogText, shellStatus } from '../shell-mode'
-import { type Agent, type Prompt } from './types'
+import { cliMode } from '../bots/guard'
+import { type Agent, type BotIdentity, type Prompt } from './types'
 import { AgentBase } from './base'
 
 /** Office agents: hire, summon, squads, messages, interrupt, fire. */
@@ -76,10 +77,11 @@ export abstract class AgentOffice extends AgentBase {
     defaults: AgentBrain & { permissionMode: OfficePermissionMode },
     worktree?: WorktreeInfo,
     helpers: { info: SubagentInfo; log: LogEntry[] }[] = [],
+    as?: BotIdentity,
   ): AgentSummary {
     for (const a of this.agents.values()) if (a.summary.sessionId === sessionId) return a.summary
     // started = true: the next message resumes the saved conversation.
-    const summary = this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults, worktree)
+    const summary = this.idleAgent(sessionId, cwd, log, true, 'De volta, esperando instruções', defaults, worktree, as?.name, as)
     const agent = this.agents.get(summary.id)
     if (agent && helpers.length) {
       // The helpers of the saved conversation come back as ended, each with its own log.
@@ -95,12 +97,15 @@ export abstract class AgentOffice extends AgentBase {
     return summary
   }
 
-  /** A new agent with no task yet, like typing `claude` in a folder: it waits for your first message. */
-  async summon(cwd: string, defaults: AgentBrain & { permissionMode: OfficePermissionMode }, wantWorktree?: boolean): Promise<AgentSummary> {
+  /**
+   * A new agent with no task yet, like typing `claude` in a folder: it waits for your first message.
+   * `as`: a bot's agent (Chat dos bots), with the bot's name and look.
+   */
+  async summon(cwd: string, defaults: AgentBrain & { permissionMode: OfficePermissionMode }, wantWorktree?: boolean, as?: BotIdentity): Promise<AgentSummary> {
     const sessionId = randomUUID()
-    const name = this.freeName(basename(cwd) || 'Agente')
+    const name = as?.name ?? this.freeName(basename(cwd) || 'Agente')
     const { worktree, note } = await this.isolate(cwd, name, sessionId, wantWorktree)
-    const summary = this.idleAgent(sessionId, cwd, [], false, 'Esperando a primeira instrução', defaults, worktree, name)
+    const summary = this.idleAgent(sessionId, cwd, [], false, 'Esperando a primeira instrução', defaults, worktree, name, as)
     const agent = this.agents.get(summary.id)
     if (agent && note) this.addLog(agent, 'system', note)
     return summary
@@ -173,8 +178,8 @@ export abstract class AgentOffice extends AgentBase {
     return summary
   }
 
-  /** Demo mode: an office agent with no session behind it; demo.ts plays its runs (routines). */
-  demoAgent(name: string, cwd: string): AgentSummary {
+  /** Demo mode: an office agent with no session behind it; demo.ts plays its runs (routines, bots). */
+  demoAgent(name: string, cwd: string, as?: BotIdentity): AgentSummary {
     const id = randomUUID()
     const summary: AgentSummary = {
       id,
@@ -185,9 +190,10 @@ export abstract class AgentOffice extends AgentBase {
       status: 'idle',
       activity: 'Aguardando instruções',
       ...this.seat(cwd),
-      look: lookFromSeed(`demo:${name}`),
+      look: as?.look ?? lookFromSeed(`demo:${name}`),
       costUsd: 0,
       createdAt: Date.now(),
+      ...(as ? { bot: as.bot } : {}),
     }
     const agent: Agent = { summary, log: [], started: true, demo: true }
     this.agents.set(id, agent)
@@ -196,16 +202,21 @@ export abstract class AgentOffice extends AgentBase {
   }
 
   /**
-   * A routine's own agent before its next run: freedom and brain as the routine says now.
-   * They count from the next start of the CLI (the routine clears the context first).
+   * A routine's or a bot's own agent before its next run: freedom and brain as the routine (or
+   * bot) says now. They count from the next start of the CLI (the routine clears the context
+   * first); a CLI still open between turns gets the model and the mode right away.
    */
   configure(id: string, patch: { permissionMode?: OfficePermissionMode; model?: string; effort?: AgentBrain['effort'] }): void {
     const agent = this.agents.get(id)
     if (!agent || agent.summary.source !== 'office' || this.busy(agent)) return
     const s = agent.summary
-    if (patch.permissionMode) s.permissionMode = patch.permissionMode
+    const before = { mode: s.permissionMode, model: s.model }
+    if (patch.permissionMode) s.permissionMode = s.bot && patch.permissionMode === 'bypassPermissions' ? 'default' : patch.permissionMode
     if ('model' in patch) s.model = patch.model || undefined
     if ('effort' in patch) s.effort = patch.effort || undefined
+    const q = agent.query
+    if (q && s.model !== before.model) q.setModel(s.model).catch(() => undefined)
+    if (q && s.permissionMode !== before.mode) q.setPermissionMode(s.bot ? cliMode(s.permissionMode) : s.permissionMode).catch(() => undefined)
     this.upsert(agent)
   }
 
@@ -254,6 +265,7 @@ export abstract class AgentOffice extends AgentBase {
     defaults: AgentBrain & { permissionMode: OfficePermissionMode },
     worktree?: WorktreeInfo,
     name?: string,
+    as?: BotIdentity,
   ): AgentSummary {
     const id = randomUUID()
     const summary: AgentSummary = {
@@ -268,11 +280,12 @@ export abstract class AgentOffice extends AgentBase {
       status: 'idle',
       activity,
       ...this.seat(cwd),
-      look: lookFromSeed(sessionId),
+      look: as?.look ?? lookFromSeed(sessionId),
       costUsd: 0,
       createdAt: Date.now(),
       sessionId,
       ...(worktree ? { worktree } : {}),
+      ...(as ? { bot: as.bot } : {}),
     }
     const agent: Agent = { summary, log, started }
     this.agents.set(id, agent)
