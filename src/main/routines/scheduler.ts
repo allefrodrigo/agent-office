@@ -1,8 +1,23 @@
 import { randomUUID } from 'node:crypto'
+import { scheduleLabel } from '@shared/bots-automation'
 import { isPast, nextRun, runsBetween } from '@shared/schedule'
 import { renderInstruction } from '@shared/templates'
 import { ROUTINE_LIMITS } from '@shared/types'
-import type { AgentResult, AgentSummary, EffortLevel, HireRequest, OfficeEvent, OfficePermissionMode, PermissionRequest, Routine, RoutineRun, Settings } from '@shared/types'
+import type {
+  AgentResult,
+  AgentSummary,
+  Bot,
+  BotRunStatus,
+  EffortLevel,
+  HireRequest,
+  OfficeEvent,
+  OfficePermissionMode,
+  PermissionRequest,
+  Routine,
+  RoutineRun,
+  RunTrigger,
+  Settings,
+} from '@shared/types'
 import { isDir } from '../squads'
 import type { CleanRoutineDraft } from '../validate'
 import type { RoutineStore } from './store'
@@ -26,9 +41,42 @@ export interface RoutineHost {
   pendingResults(): AgentResult[]
 }
 
+/** How a run asked of a bot began: its id, or why it did not start (the bot was busy, over its daily cap). */
+export type BotRunStart = { runId: string; queued?: boolean } | { skipped: string }
+
+/** A bot run ended (the runner's 'run:end'); skipped runs never start, so they never end. */
+export interface BotRunEnd {
+  botId: string
+  runId: string
+  threadId: string
+  trigger: RunTrigger
+  status: BotRunStatus
+  costUsd?: number
+  error?: string
+  /** The reply bubble's text, when there is one. */
+  text?: string
+}
+
+/**
+ * What the automations need from the Chat dos bots (the BotRunner fits; a fake one in the tests):
+ * the bots, a run with a fresh conversation, and the end of each run.
+ */
+export interface BotRunHost {
+  list(): Pick<Bot, 'id' | 'name' | 'floor'>[]
+  /** Never throws: a bot busy or over its daily cap answers { skipped }, a run that could not start ends as failed. */
+  runScheduled(botId: string, task: string, trigger: RunTrigger): Promise<BotRunStart>
+  on(event: 'run:end', listener: (e: BotRunEnd) => void): unknown
+}
+
+/** A bot routine with no task of its own: the bot does its job, as its role says. */
+export const BOT_DEFAULT_TASK = 'Faça agora o seu trabalho, como o seu papel descreve.'
+export const BOT_GONE = 'O bot desta rotina foi apagado. Edite a rotina ou apague-a.'
+
 export interface SchedulerDeps {
   store: RoutineStore
   manager: RoutineHost
+  /** Chat dos bots (CB-12): runs the routines whose runner is a bot. Without it, they fail with a message. */
+  bots?: BotRunHost
   settings(): Pick<Settings, 'projects' | 'templates'>
   /** The list changed: send it to the renderer. */
   broadcast(routines: Routine[]): void
@@ -43,6 +91,8 @@ interface Active {
   run: RoutineRun
   /** What the agent had spent before the run, to tell this run's cost. */
   spentBefore: number
+  /** A bot's run: its end comes as 'run:end' with this id, the cost with it. */
+  botRunId?: string
 }
 
 const stamp = (t: number) => new Date(t).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })
@@ -66,12 +116,15 @@ export class RoutineScheduler {
   /** routineId -> its run in progress. */
   private active = new Map<string, Active>()
   private now: () => number
+  /** Bot runs that ended before the scheduler knew their id (newest last, a few at most). */
+  private unclaimed = new Map<string, BotRunEnd>()
   /** Demo mode: plays the run instead of messaging a real agent. */
   demoSend?: (agentId: string, text: string) => void
 
   constructor(private d: SchedulerDeps) {
     this.now = d.now ?? (() => Date.now())
     d.manager.on('event', (e) => this.onEvent(e))
+    d.bots?.on('run:end', (e) => this.botEnded(e))
   }
 
   // ---------- reads ----------
@@ -198,6 +251,35 @@ export class RoutineScheduler {
     return r
   }
 
+  /** The bot was deleted: its routines go with it (CB-12). Returns how many went. */
+  removeForBot(botId: string): number {
+    const gone = this.list().filter((r) => r.who.kind === 'bot' && r.who.botId === botId)
+    if (!gone.length) return 0
+    for (const r of gone) this.active.delete(r.id)
+    this.d.store.routines = this.list().filter((r) => !gone.includes(r))
+    this.changed()
+    this.arm()
+    return gone.length
+  }
+
+  /** "Pausar automações" of a bot: pauses or resumes every routine it runs. Returns how many changed. */
+  setEnabledForBot(botId: string, enabled: boolean): number {
+    const now = this.now()
+    let n = 0
+    for (const r of this.list()) {
+      if (r.who.kind !== 'bot' || r.who.botId !== botId || r.enabled === enabled) continue
+      r.enabled = enabled
+      r.updatedAt = now
+      r.nextAt = enabled ? nextRun(r.schedule, now) : null
+      n++
+    }
+    if (!n) return 0
+    this.d.store.save()
+    this.changed()
+    this.arm()
+    return n
+  }
+
   /** A paused copy with no history: two copies of a routine never start running together by surprise. */
   duplicate(id: string): Routine {
     const r = this.must(id)
@@ -265,6 +347,8 @@ export class RoutineScheduler {
     const at = active.run.scheduledFor ?? active.run.startedAt
     const header = `Rotina "${r.name}" · execução de ${stamp(at)}${active.run.manual ? ' (rodada à mão)' : ''}`
 
+    if (r.who.kind === 'bot') return this.launchBot(r, r.who.botId, active)
+
     if (r.who.kind === 'agent') {
       const a = m.agent(r.who.agentId)
       if (!a) throw new Error('O agente desta rotina não está mais no escritório. Edite a rotina e escolha outro.')
@@ -304,6 +388,44 @@ export class RoutineScheduler {
     // A run that ended inside hire (no Claude Code, say) delivered before we knew the agent.
     const early = m.pendingResults().find((x) => x.agentId === a.id)
     if (early) this.delivered(early)
+  }
+
+  /**
+   * A bot's routine: the Chat runs it (fresh conversation, the thread's recent context) and the
+   * thread shows it. The run ends with the runner's 'run:end', which brings the cost.
+   */
+  private async launchBot(r: Routine, botId: string, active: Active): Promise<void> {
+    const host = this.d.bots
+    const bot = host?.list().find((b) => b.id === botId)
+    if (!host || !bot) throw new Error(BOT_GONE)
+    active.run.agentName = bot.name
+    this.changed()
+    const trigger: RunTrigger = { kind: 'schedule', routineId: r.id, label: active.run.manual ? `${r.name} (rodada à mão)` : scheduleLabel(r.schedule) }
+    const start = await host.runScheduled(bot.id, r.prompt || BOT_DEFAULT_TASK, trigger)
+    if ('skipped' in start) throw new Skip(start.skipped)
+    active.botRunId = start.runId
+    const early = this.unclaimed.get(start.runId)
+    if (early) {
+      this.unclaimed.delete(start.runId)
+      this.botEnded(early)
+    }
+  }
+
+  private botEnded(e: BotRunEnd): void {
+    const a = [...this.active.values()].find((x) => x.botRunId === e.runId)
+    if (!a) {
+      // Its routine may still be waiting for runScheduled to answer.
+      if (e.trigger.kind === 'schedule') {
+        this.unclaimed.set(e.runId, e)
+        for (const id of [...this.unclaimed.keys()].slice(0, -20)) this.unclaimed.delete(id)
+      }
+      return
+    }
+    const status: RoutineRun['status'] = e.status === 'ok' ? 'ok' : e.status === 'skipped' ? 'skipped' : 'failed'
+    this.finish(a, status, {
+      ...(e.costUsd && e.costUsd > 0 ? { costUsd: Math.round(e.costUsd * 10_000) / 10_000 } : {}),
+      ...(status !== 'ok' ? { error: firstLine(e.error ?? '') || 'O bot parou com um erro.' } : {}),
+    })
   }
 
   private send(active: Active, a: AgentSummary, text: string): void {

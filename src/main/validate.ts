@@ -433,6 +433,7 @@ const routineWhoSchema: z.ZodType<RoutineWho> = z.discriminatedUnion('kind', [
   }),
   z.object({ kind: z.literal('template'), templateId: idSchema }),
   z.object({ kind: z.literal('agent'), agentId: idSchema }),
+  z.object({ kind: z.literal('bot'), botId: idSchema }),
 ])
 
 export const routineDraftSchema = z.object({
@@ -456,7 +457,7 @@ export type CleanRoutineDraft = Required<Pick<RoutineDraft, 'name' | 'prompt' | 
  * schedule that runs, a runner that exists and a folder or floor for agents it hires.
  * Nothing says "Sem pedir nada" unless the form sent it (the default is "Pedir permissão").
  */
-export function cleanRoutineDraft(raw: unknown, ctx: { settings: Pick<Settings, 'projects' | 'templates'>; agents: AgentSummary[]; now?: number }): CleanRoutineDraft {
+export function cleanRoutineDraft(raw: unknown, ctx: { settings: Pick<Settings, 'projects' | 'templates'>; agents: AgentSummary[]; bots?: { id: string }[]; now?: number }): CleanRoutineDraft {
   const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
   const name = typeof r.name === 'string' ? r.name.trim() : ''
   if (!name || name.length > ROUTINE_LIMITS.name) throw new Error(`Dê um nome à rotina (até ${ROUTINE_LIMITS.name} letras).`)
@@ -465,7 +466,8 @@ export function cleanRoutineDraft(raw: unknown, ctx: { settings: Pick<Settings, 
   const prompt = d.prompt.trim()
   const template = who.kind === 'template' ? ctx.settings.templates.find((t) => t.id === who.templateId) : undefined
   if (who.kind === 'template' && !template) throw new Error('Esse modelo salvo não existe mais. Escolha outro.')
-  if (!prompt && !template?.instruction) throw new Error('Descreva a tarefa da rotina.')
+  // A bot with no task does its job, as its role says.
+  if (!prompt && !template?.instruction && who.kind !== 'bot') throw new Error('Descreva a tarefa da rotina.')
   const problem = scheduleError(d.schedule)
   if (problem) throw new Error(problem)
   const schedule: Schedule = d.schedule.kind === 'interval' ? { ...d.schedule, anchor: d.schedule.anchor ?? Math.floor((ctx.now ?? Date.now()) / 60_000) * 60_000 } : d.schedule
@@ -481,6 +483,11 @@ export function cleanRoutineDraft(raw: unknown, ctx: { settings: Pick<Settings, 
     schedule,
     enabled: d.enabled ?? true,
     missed: d.missed ?? 'run',
+  }
+  // A bot runs where the bot works: the routine keeps no folder of its own.
+  if (who.kind === 'bot') {
+    if (!ctx.bots?.some((b) => b.id === who.botId)) throw new Error('Esse bot não existe mais. Escolha outro.')
+    return out
   }
   if (who.kind === 'agent') {
     const a = ctx.agents.find((x) => x.id === who.agentId)
