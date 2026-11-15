@@ -111,8 +111,11 @@ export const TICKET_COLUMN_LABEL: Record<TicketStatus, string> = {
 }
 const COLUMN_LABEL = TICKET_COLUMN_LABEL
 
-/** An office event as a short sentence: "Quando nasce um ticket #bug", "Quando uma ata fica pronta". */
-export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter'] = {}): string {
+/**
+ * An office event as a short sentence: "Quando nasce um ticket #bug", "Quando uma ata fica pronta".
+ * `botName` names the bot of "bot-done" ("Quando Relator termina"); without it, any other bot.
+ */
+export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter'] = {}, botName?: string): string {
   const tags = filter.tags?.length ? ` ${filter.tags.map((t) => `#${t}`).join(' ')}` : ''
   switch (kind) {
     case 'ticket-created':
@@ -122,7 +125,7 @@ export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter']
     case 'meeting-ata':
       return 'Quando uma ata fica pronta'
     case 'bot-done':
-      return filter.onlyOk ? 'Quando outro bot termina bem' : 'Quando outro bot termina'
+      return `Quando ${filter.botId && botName ? botName : 'outro bot'} termina${filter.onlyOk ? ' bem' : ''}`
   }
 }
 
@@ -791,6 +794,11 @@ export function threadMarkdown(botName: string, items: readonly ThreadItem[], no
 
 type RoutineLike = Pick<Routine, 'id' | 'name' | 'who' | 'schedule' | 'enabled' | 'nextAt'>
 type TriggerLike = Pick<BotEventTrigger, 'id' | 'botId' | 'name' | 'kind' | 'filter' | 'enabled'>
+/** A bot's name by id, so "bot-done" reads "Quando Relator termina". */
+type BotNameOf = (botId: string) => string | undefined
+
+const eventTriggerLabel = (t: TriggerLike, nameOf?: BotNameOf) =>
+  eventLabel(t.kind, t.filter, t.filter.botId ? nameOf?.(t.filter.botId) : undefined)
 
 const byName = (a: { name: string; id: string }, b: { name: string; id: string }) =>
   a.name.localeCompare(b.name, 'pt-BR') || a.id.localeCompare(b.id)
@@ -837,7 +845,11 @@ export interface AutomationEntry {
 }
 
 /** The bots' automations, active first; schedules by their next run, then events, then by name. */
-export function automationEntries(routines: readonly RoutineLike[], triggers: readonly TriggerLike[]): AutomationEntry[] {
+export function automationEntries(
+  routines: readonly RoutineLike[],
+  triggers: readonly TriggerLike[],
+  nameOf?: BotNameOf,
+): AutomationEntry[] {
   const out: AutomationEntry[] = []
   for (const r of routines) {
     const botId = routineBotId(r)
@@ -858,7 +870,7 @@ export function automationEntries(routines: readonly RoutineLike[], triggers: re
       id: t.id,
       botId: t.botId,
       name: t.name,
-      label: eventLabel(t.kind, t.filter),
+      label: eventTriggerLabel(t, nameOf),
       enabled: t.enabled,
       nextAt: null,
     })
@@ -981,6 +993,7 @@ export function weekGrid(
   triggers: readonly TriggerLike[],
   weekStart: number,
   now = Date.now(),
+  nameOf?: BotNameOf,
 ): WeekGrid {
   const start = weekStartOf(weekStart)
   const end = shiftWeek(start, 1)
@@ -1026,7 +1039,7 @@ export function weekGrid(
       id: t.id,
       botId: t.botId,
       name: t.name,
-      label: eventLabel(t.kind, t.filter),
+      label: eventTriggerLabel(t, nameOf),
       paused: !t.enabled,
     }))
     .sort(byName)
@@ -1090,10 +1103,8 @@ export function triggerDraftError(d: Pick<BotTriggerDraft, 'botId' | 'name' | 'k
   if (!d.botId) return 'Escolha o bot que roda esta automação.'
   const base = nameAndTaskError(d.name, d.prompt, 'quando o evento acontece')
   if (base) return base
-  if (d.kind === 'bot-done') {
-    if (!d.filter.botId) return 'Escolha de qual bot esperar o fim.'
-    if (d.filter.botId === d.botId) return 'Um bot nunca dispara a si mesmo. Escolha outro bot.'
-  }
+  // no bot chosen = any other bot (the main process never lets a bot trigger itself)
+  if (d.kind === 'bot-done' && d.filter.botId === d.botId) return 'Um bot nunca dispara a si mesmo. Escolha outro bot.'
   const cap = d.maxPerHour
   if (cap !== undefined && (!Number.isInteger(cap) || cap < 1 || cap > BOT_LIMITS.perHourMax))
     return `O limite vai de 1 a ${BOT_LIMITS.perHourMax} rodadas por hora.`
@@ -1136,7 +1147,6 @@ export function automationPreview(d: AutomationDraft, now = Date.now()): Automat
   const selfLoop = d.when.event === 'bot-done' && d.bot.kind === 'existing' && d.when.filter.botId === d.bot.botId
   const error =
     nameAndTaskError(d.name, d.prompt, 'quando o evento acontece') ??
-    (d.when.event === 'bot-done' && !d.when.filter.botId ? 'Escolha no formulário de qual bot esperar o fim.' : null) ??
     (selfLoop ? 'Um bot nunca dispara a si mesmo. Escolha outro bot no formulário.' : null) ??
     bot
   return { when, next: [], line: when, error }

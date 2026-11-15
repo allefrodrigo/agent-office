@@ -337,7 +337,7 @@ export function automationForm(ctx: FormCtx, target: AutomationTarget): { el: HT
   const fillFromBots = () => {
     const keep = fromBot.value || ev.filter.botId || ''
     const others = bots.filter((b) => b.id !== botSel.value)
-    fromBot.replaceChildren(h('option', { value: '' }, 'Escolha um bot'), ...others.map((b) => h('option', { value: b.id }, b.name)))
+    fromBot.replaceChildren(h('option', { value: '' }, 'Qualquer outro bot'), ...others.map((b) => h('option', { value: b.id }, b.name)))
     fromBot.value = others.some((b) => b.id === keep) ? keep : ''
   }
   fillFromBots()
@@ -425,7 +425,7 @@ export function automationForm(ctx: FormCtx, target: AutomationTarget): { el: HT
     const f = filter()
     const where =
       k === 'bot-done' ? '' : ` · andar ${f.floor ? floorName(ctx.state, f.floor) : b ? floorName(ctx.state, b.floor) : 'do bot'}`
-    eventSentence.textContent = `${eventLabel(k, f)}${where} → ${who}`
+    eventSentence.textContent = `${eventLabel(k, f, f.botId ? chatStore.bot(f.botId)?.name : undefined)}${where} → ${who}`
     botHint.textContent =
       botSel.value === NEW_BOT
         ? 'Nasce com "Pedir permissão" e todas as ações sensíveis pedindo o seu sim. Ajuste depois no perfil.'

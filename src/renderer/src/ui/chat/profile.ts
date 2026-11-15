@@ -63,6 +63,9 @@ function loadServers(): Promise<ToolsView> {
 
 let appsSeq = 0
 
+/** "Quando Relator termina" instead of "Quando outro bot termina". */
+const botName = (id: string) => chatStore.bot(id)?.name
+
 /**
  * Conexões: the bot sees every MCP server of Claude Code, or only the ones checked. The office's
  * server (board, minutes, the Chat's tools) is always on and cannot be unchecked.
@@ -412,7 +415,7 @@ export class ProfilePanel {
     if (key.every((k, i) => k === this.autosKey[i])) return
     this.autosKey = key
     const { routines, triggers } = scopeAutomations(this.ctx.state.routines, chatStore.triggers, [bot], { floor: 'all', botId: bot.id })
-    const entries = automationEntries(routines, triggers)
+    const entries = automationEntries(routines, triggers, botName)
     const tpl = templateById(bot.templateId)
     // a bot from the gallery: "＋ Automação" comes filled with its template's suggestion
     const when: AutomationDraft['when'] | undefined = tpl?.schedule

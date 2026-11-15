@@ -1,4 +1,4 @@
-import { automationPreview } from '@shared/bots-view'
+import { automationPreview, eventLabel } from '@shared/bots-view'
 import { BOT_LIMITS, type AutomationDraft } from '@shared/types'
 import { h, icon } from '../../dom'
 import { botAvatar } from '../avatar'
@@ -88,6 +88,8 @@ export function sentencePanel(ctx: SentenceCtx): { el: HTMLElement; focus(): voi
       draft.when.kind === 'event' && draft.when.event !== 'bot-done'
         ? ` · andar ${draft.when.filter.floor ? floorName(ctx.state, draft.when.filter.floor) : 'do bot'}`
         : ''
+    const fromBot = draft.when.kind === 'event' && draft.when.filter.botId ? chatStore.bot(draft.when.filter.botId)?.name : undefined
+    const line = draft.when.kind === 'event' ? eventLabel(draft.when.event, draft.when.filter, fromBot) : p.line
     const row = (k: string, v: HTMLElement | string) => h('div', { class: 'ch-proposal-row' }, h('dt', {}, k), h('dd', {}, v))
     const save = h('button', { type: 'button', class: 'btn ch-btn-accent', disabled: !!error }, icon('check', 15), 'Salvar')
     const problem = h('p', { class: 'ch-form-error', role: 'alert', hidden: !error }, error ?? '')
@@ -138,7 +140,7 @@ export function sentencePanel(ctx: SentenceCtx): { el: HTMLElement; focus(): voi
           { class: 'ch-proposal-list' },
           row('Bot', bot),
           row('Nome', draft.name || '(sem nome)'),
-          row('Quando', `${p.line}${where}`),
+          row('Quando', `${line}${where}`),
           row('Tarefa', h('span', { class: 'ch-proposal-task' }, draft.prompt || '(sem tarefa)')),
         ),
         draft.why ? h('p', { class: 'ch-field-hint' }, `Como li a frase: ${draft.why}`) : null,

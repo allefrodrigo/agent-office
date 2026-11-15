@@ -44,6 +44,8 @@ type View = 'list' | 'week'
 const VIEW_KEY = 'agent-office:chat-autos-view'
 /** The countdowns ("em 2h14") move along without redrawing the rows. */
 const TICK_MS = 30_000
+/** "Quando Relator termina" instead of "Quando outro bot termina". */
+const botName = (id: string) => chatStore.bot(id)?.name
 
 export class AutomationsView {
   readonly el: HTMLElement
@@ -260,7 +262,7 @@ export class AutomationsView {
       : null
     if (this.view === 'week') {
       const now = Date.now()
-      const grid = weekGrid(routines, triggers, this.weekStart, now)
+      const grid = weekGrid(routines, triggers, this.weekStart, now, botName)
       keepFocus(this.body, () =>
         this.body.replaceChildren(
           ...[
@@ -284,7 +286,7 @@ export class AutomationsView {
       )
       return
     }
-    const entries = automationEntries(routines, triggers)
+    const entries = automationEntries(routines, triggers, botName)
     keepFocus(this.body, () =>
       this.body.replaceChildren(...[warn, entries.length ? this.list(entries) : this.empty()].filter((x): x is HTMLElement => !!x)),
     )
@@ -405,7 +407,7 @@ export class AutomationsView {
       if (!this.el.isConnected || this.form || this.view !== 'list') return
       const now = Date.now()
       const { routines, triggers } = this.scoped()
-      const byKey = new Map(automationEntries(routines, triggers).map((e) => [`${e.kind}:${e.id}`, e]))
+      const byKey = new Map(automationEntries(routines, triggers, botName).map((e) => [`${e.kind}:${e.id}`, e]))
       for (const span of this.body.querySelectorAll<HTMLElement>('[data-next]')) {
         const e = byKey.get(span.dataset.next ?? '')
         if (e) span.textContent = this.nextText(e, now)

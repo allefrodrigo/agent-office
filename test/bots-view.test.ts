@@ -189,6 +189,8 @@ describe('scheduleLabel e eventLabel', () => {
     expect(eventLabel('meeting-ata')).toBe('Quando uma ata fica pronta')
     expect(eventLabel('bot-done', { onlyOk: true })).toBe('Quando outro bot termina bem')
     expect(eventLabel('bot-done')).toBe('Quando outro bot termina')
+    expect(eventLabel('bot-done', { botId: 'b2', onlyOk: true }, 'Relator')).toBe('Quando Relator termina bem')
+    expect(eventLabel('bot-done', {}, 'Relator')).toBe('Quando outro bot termina')
   })
 
   it('junta as automações do bot e escolhe a próxima', () => {
@@ -856,6 +858,14 @@ describe('lista de automações', () => {
     expect(list[4].nextAt).toBeNull()
   })
 
+  it('dá nome ao bot de "quando outro bot termina"', () => {
+    const done = [trigger({ id: 't9', botId: 'b1', kind: 'bot-done', filter: { botId: 'b2' } })]
+    const names = (id: string) => ({ b2: 'Revisor' })[id]
+    expect(automationEntries([], done, names)[0].label).toBe('Quando Revisor termina')
+    expect(automationEntries([], done)[0].label).toBe('Quando outro bot termina')
+    expect(weekGrid([], done, MON16, NOW, names).events[0].label).toBe('Quando Revisor termina')
+  })
+
   it('conta as ativas e as pausadas de um bot', () => {
     expect(automationCounts('b1', routines, triggers)).toEqual({ active: 2, paused: 1 })
     expect(automationCounts('b2', routines, [])).toEqual({ active: 1, paused: 0 })
@@ -906,7 +916,8 @@ describe('formulários de automação', () => {
     expect(triggerDraftError(ok)).toBeNull()
     expect(triggerDraftError({ ...ok, botId: '' })).toBe('Escolha o bot que roda esta automação.')
     expect(triggerDraftError({ ...ok, prompt: ' ' })).toBe('Escreva a tarefa: o que o bot faz quando o evento acontece.')
-    expect(triggerDraftError({ ...ok, kind: 'bot-done' })).toBe('Escolha de qual bot esperar o fim.')
+    // no bot chosen = any other bot
+    expect(triggerDraftError({ ...ok, kind: 'bot-done' })).toBeNull()
     expect(triggerDraftError({ ...ok, kind: 'bot-done', filter: { botId: 'b1' } })).toBe(
       'Um bot nunca dispara a si mesmo. Escolha outro bot.',
     )
@@ -969,8 +980,8 @@ describe('automationPreview (automação a partir de uma frase)', () => {
     expect(ev).toEqual({ when: 'Quando nasce um ticket #bug', next: [], line: 'Quando nasce um ticket #bug', error: null })
     const self = automationPreview(draft({ when: { kind: 'event', event: 'bot-done', filter: { botId: 'b1' } } }), NOW)
     expect(self.error).toMatch(/nunca dispara a si mesmo/)
-    const none = automationPreview(draft({ when: { kind: 'event', event: 'bot-done', filter: {} } }), NOW)
-    expect(none.error).toMatch(/de qual bot/)
+    const any = automationPreview(draft({ when: { kind: 'event', event: 'bot-done', filter: {} } }), NOW)
+    expect(any).toMatchObject({ line: 'Quando outro bot termina', error: null })
   })
 
   it('aponta o que falta no bot novo proposto', () => {
