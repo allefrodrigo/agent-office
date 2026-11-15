@@ -5,6 +5,9 @@ import { RUN_STATUS_LABEL } from '@shared/types'
 import type { MacJob, ProjectFloor, Routine, RoutineRun } from '@shared/types'
 import type { State } from '../../state'
 import { arrowList, keepFocus } from '../a11y'
+import { openChat } from '../chat/open'
+import { chatStore } from '../chat/store'
+import { floorName } from '../chat/util'
 import { h, icon } from '../dom'
 import { cleanError, confirmDialog, modal } from '../modals/common'
 import { MODES } from '../modals/brain'
@@ -71,9 +74,20 @@ function macNextText(j: MacJob, now = Date.now()): string {
   return j.lastLogAt ? `Último registro no log: ${formatWhen(j.lastLogAt, now)}` : 'Sem próxima execução conhecida'
 }
 
+/** The bot that runs it ("bot · Chefe de gabinete"), for the list; null for any other runner. */
+function botChip(r: Routine): HTMLElement | null {
+  if (r.who.kind !== 'bot') return null
+  const name = chatStore.bot(r.who.botId)?.name
+  return h('span', { class: 'chip chip-muted', title: name ? `Roda pelo bot ${name}, no Chat` : 'O bot desta rotina foi apagado' }, name ? `bot · ${name}` : 'bot apagado')
+}
+
 /** Who runs it, in a few words. */
 function whoText(state: State, r: Routine): string {
   const who = r.who
+  if (who.kind === 'bot') {
+    const b = chatStore.bot(who.botId)
+    return b ? `Bot ${b.name}, com a memória e o fio dele no Chat · ${floorName(state, b.floor)}` : 'Um bot que foi apagado do Chat'
+  }
   const agentId = who.kind === 'agent' ? who.agentId : r.agentId
   const a = agentId ? state.agents.get(agentId) : undefined
   const where = r.floor ? `andar ${state.settings.projects.find((p) => p.id === r.floor)?.name ?? '(removido)'}` : r.cwd ? `…/${r.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join('/')}` : ''
@@ -264,7 +278,7 @@ export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHoo
           h(
             'span',
             { class: 'rt-item-text' },
-            h('span', { class: 'rt-item-name' }, r.name, r.demo ? h('span', { class: 'chip chip-muted' }, 'demo') : null),
+            h('span', { class: 'rt-item-name' }, r.name, botChip(r), r.demo ? h('span', { class: 'chip chip-muted' }, 'demo') : null),
             h('span', { class: 'rt-item-when' }, describeSchedule(r.schedule)),
             h('span', { class: 'rt-item-next', 'data-next': r.id }, nextText(r)),
           ),
@@ -321,6 +335,9 @@ export function openRoutines(root: HTMLElement, state: State, hooks: RoutinesHoo
         h('div', { class: 'rt-item-next', 'data-next': r.id }, nextText(r)),
         upcoming.length ? h('div', { class: 'field-hint' }, `Próximas: ${upcoming.map((t) => formatWhen(t)).join(' · ')}`) : null,
         h('div', { class: 'field-hint' }, whoText(state, r), ' · ', r.missed === 'run' ? 'Se o app estiver fechado, roda ao abrir.' : 'Se o app estiver fechado, pula.'),
+        r.who.kind === 'bot' && chatStore.bot(r.who.botId)
+          ? h('div', { class: 'rt-run-links' }, h('button', { class: 'rt-link', type: 'button', onclick: () => (close(), openChat(r.who.kind === 'bot' ? r.who.botId : undefined)) }, 'Abrir o fio do bot no Chat'))
+          : null,
         h('div', { class: 'rt-prompt' }, r.prompt || '(só a instrução do modelo)'),
         h('div', { class: 'rt-item-actions' }, ...actions(r, true, false)),
         h('div', { class: 'field-label' }, 'Histórico (últimas 20)'),
