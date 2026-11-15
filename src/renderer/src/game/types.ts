@@ -1,6 +1,7 @@
 import type * as THREE from 'three'
 import type { ProjectFloor, SquadMember, SubagentInfo, AgentSummary } from '@shared/types'
 import type { Avatar } from '../world/avatar'
+import type { BotTagInfo } from '../world/bot-tag'
 import * as L from '../world/layout'
 import type { Tag, BubbleKind } from '../world/overlays'
 import type { UpperFloor } from '../world/upper-floor'
@@ -123,6 +124,10 @@ export interface GameHooks {
   onRoutines(): void
   /** Player clicked the lounge's espresso machine: the café corner (keep the screen awake). */
   onCoffee(): void
+  /** The bot an agent runs (Chat dos bots): its name tag gets a "bot" chip; null for the others. */
+  botOf(agent: AgentSummary): BotTagInfo | null
+  /** Player clicked the "bot" chip on a name tag: open that bot's thread in the Chat. */
+  onBotTag(botId: string): void
 }
 
 /** Floor spot in the lounge's café corner where the skeleton stands. */

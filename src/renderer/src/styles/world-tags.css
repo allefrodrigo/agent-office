@@ -39,3 +39,25 @@
   background: #55efc4;
   box-shadow: 0 0 6px #55efc4;
 }
+
+/* Chat dos bots: the "bot" chip on the name of a bot's agent, in the bot's color; it opens the thread */
+.tag-bot {
+  padding: 0 5px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--bot, #d97757);
+  color: #14141f;
+  font-size: 9.5px;
+  font-weight: 700;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+}
+
+.tag-bot:hover {
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.35);
+}
+
+.tag-bot:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
