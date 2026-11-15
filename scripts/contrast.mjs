@@ -157,12 +157,33 @@ Object.assign(BG, {
   'chat: menu + hover': stack(MENU, css('.ch-menu-item:hover')),
 })
 
+// Automações e Conexões (CB-14 a CB-16): cartões opacos sobre o fio.
+const AUTO = stack(CHAT, css('.ch-auto-row'))
+const WEEK = stack(CHAT, css('.ch-week-scroll'))
+const SENTENCE = stack(CHAT, css('.ch-sentence'))
+Object.assign(BG, {
+  'chat: rodapé atual': stack(SIDE, css(".ch-foot-btn[aria-current='true']")),
+  'chat: escolha marcada': stack(CHAT, css('.ch-seg'), css('.ch-seg-opt input:checked + span')),
+  'chat: alerta': stack(CHAT, css('.ch-banner')),
+  'chat: alerta de erro': stack(CHAT, css('.ch-banner.err')),
+  'chat: frase': SENTENCE,
+  'chat: proposta': stack(SENTENCE, css('.ch-proposal')),
+  'chat: automação + hover': stack(AUTO, css('.ch-auto-main:hover')),
+  'chat: semana': WEEK,
+  'chat: semana + hoje': stack(WEEK, css('.ch-week-grid td.today')),
+  'chat: ficha que já passou': stack(WEEK, css('.ch-wchip.past:not(.paused)')),
+  'chat: perfil + automação': stack(CHAT, css('.ch-profile'), css('.ch-auto-link:hover')),
+  'chat: conexão': stack(CHAT, css('.ch-conn-row')),
+})
+
 // Etiqueta "bot" no nome do agente (CB-11): texto escuro sobre a cor do bot, uma por BOT_COLORS
 // (world/bot-tag.ts aceita só essas). A lista vem do contrato, para uma cor nova entrar sozinha.
 const BOTS_TS = join(CSS_DIR, '../../../shared/types/bots.ts')
 const BOT_COLORS = [...(/BOT_COLORS = \[([^\]]+)\]/.exec(readFileSync(BOTS_TS, 'utf8'))?.[1] ?? '').matchAll(/'(#[0-9a-f]{6})'/gi)].map((m) => m[1])
 if (!BOT_COLORS.length) throw new Error('não achei BOT_COLORS em src/shared/types/bots.ts')
 for (const c of BOT_COLORS) BG[`etiqueta bot ${c}`] = parseColor(c)
+// A ficha da Semana: 26% da cor do bot sobre --ch-raise-2 (o hover, o fundo mais claro).
+for (const c of BOT_COLORS) BG[`chat: ficha ${c}`] = over([...parseColor(c).slice(0, 3), 0.26], parseColor('var(--ch-raise-2)'))
 
 /** [what, text selector, background name or [selector, prop] over a named background]. */
 const PAIRS = [
@@ -343,6 +364,44 @@ const PAIRS = [
   ['Chat: menu', '.ch-menu-item', 'chat: menu + hover'],
   ['Chat: menu (perigo)', '.ch-menu-item.danger', 'chat: menu + hover'],
   ['Chat: menu (dica)', '.ch-menu-hint', 'chat: menu + hover'],
+  // Automações: barra, frase, proposta, lista e semana
+  ['Chat: rodapé (tela atual)', ".ch-foot-btn[aria-current='true']", 'chat: rodapé atual'],
+  ['Automações: escolha', '.ch-seg-opt span', ['.ch-seg', 'chat: fio']],
+  ['Automações: escolha marcada', '.ch-seg-opt input:checked + span', 'chat: escolha marcada'],
+  ['Automações: alerta', '.ch-banner', 'chat: alerta'],
+  ['Automações: alerta de erro', '.ch-banner.err', 'chat: alerta de erro'],
+  ['Automações: dica da frase', '.ch-field-hint', 'chat: frase'],
+  ['Automações: link da frase', '.ch-link', 'chat: frase'],
+  ['Automações: proposta (rótulo)', '.ch-proposal-row dt', 'chat: proposta'],
+  ['Automações: proposta (bot novo)', '.ch-proposal-bot small', 'chat: proposta'],
+  ['Automações: erro da proposta', '.ch-form-error', 'chat: proposta'],
+  ['Automações: automação', '.ch-auto-main', 'chat: automação + hover'],
+  ['Automações: próxima execução', '.ch-auto-next', 'chat: automação + hover'],
+  ['Automações: bot da automação', '.ch-auto-bot', 'chat: automação + hover'],
+  ['Automações: pausada', '.ch-auto-row.paused .ch-auto-name', 'chat: automação + hover'],
+  ['Semana: dia', '.ch-week-grid thead th', 'chat: semana'],
+  ['Semana: hoje', '.ch-week-grid thead th.today', 'chat: semana'],
+  ['Semana: horário', '.ch-week-grid th.ch-week-time', 'chat: semana'],
+  ['Semana: nada marcado', '.ch-week-grid td.ch-week-none', 'chat: semana'],
+  ['Semana: ficha pausada', '.ch-wchip.paused', 'chat: semana + hoje'],
+  ['Semana: ficha que já passou', '.ch-wchip.past:not(.paused)', 'chat: ficha que já passou'],
+  ['Semana: faixa', '.ch-week-strip-title', 'chat: fio'],
+  ...BOT_COLORS.map((c) => [`Semana: ficha ${c}`, '.ch-wchip', `chat: ficha ${c}`]),
+  ['Automações: frase do evento', '.ch-auto-sentence', ['.ch-auto-sentence', 'chat: fio']],
+  ['Perfil: automação', '.ch-auto-link', 'chat: perfil + automação'],
+  ['Perfil: automação (quando)', '.ch-auto-link-text span', 'chat: perfil + automação'],
+  // Conexões
+  ['Conexões: introdução', '.ch-conn-intro', 'chat: fio'],
+  ['Conexões: estado', '.ch-conn-status', 'chat: conexão'],
+  ['Conexões: ligado', '.ch-conn-status.tone-ok', 'chat: conexão'],
+  ['Conexões: alerta', '.ch-conn-status.tone-warn', 'chat: conexão'],
+  ['Conexões: falhou', '.ch-conn-status.tone-fail', 'chat: conexão'],
+  ['Conexões: quem usa', '.ch-conn-who', 'chat: conexão'],
+  ['Conexões: todos os bots', '.ch-conn-all', 'chat: conexão'],
+  ['Conexões: chip do escritório', '.ch-chip', ['.ch-chip', 'chat: conexão']],
+  ['Conexões: como conectar', '.ch-conn-how p', 'chat: fio'],
+  ['Conexões: código', '.ch-conn-code', ['.ch-conn-code', 'chat: fio']],
+  ['Conexões: código no texto', '.ch-conn-how p code', ['.ch-conn-how p code', 'chat: fio']],
   // a etiqueta "bot" no nome do agente, em cada cor de bot
   ...BOT_COLORS.map((c) => [`Etiqueta bot ${c}`, '.tag-bot', `etiqueta bot ${c}`]),
 ]
