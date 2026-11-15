@@ -39,9 +39,10 @@ import { mountMeetingRoom } from './ui/meetings'
 import { OPEN_AGENT_EVENT } from './ui/meetings/office'
 import { meetingLive, onMeetingLive, setMeetingLive } from './meetings/live'
 import { doNotDisturb, waitingSummary } from '@shared/meeting-map'
+import { CHAT_DEFAULTS } from '@shared/types'
 import { chatShowsAgent, chatStore, mountChat, openChat } from './ui/chat'
 import { botOf, onBotsIndex } from './ui/chat/bots-index'
-import { badgeText } from '@shared/bots-view'
+import { badgeText, countsAsUnread } from '@shared/bots-view'
 
 /** localStorage: '1' when the office lights are off (modo noturno). */
 const NIGHT_KEY = 'office.night'
@@ -77,6 +78,11 @@ async function boot(): Promise<void> {
   // "Não perturbe" (RN-17): requests and deliveries that arrived during the meeting, for the summary at the end.
   const held = new Set<string>()
   const quiet = () => doNotDisturb(meetingLive(), state.settings.meetings)
+  // It covers the Chat too (CB-11): what the bots write meanwhile waits in their threads, with no
+  // toast, and the summary at the end counts what is still unread. By item id: an update keeps one.
+  const heldChat = new Map<string, { thread: string; t: number }>()
+  /** A bot's result goes to its thread, not to your office (Configurações → Chat → "Entregar também no escritório"). */
+  const inChat = (agentId: string) => !!state.agents.get(agentId)?.bot && !(state.settings.chat ?? CHAT_DEFAULTS).deliverInOffice
 
   // Cards the player closed with "later" stay closed until they walk away and back.
   const dismissed = new Set<string>()
@@ -446,11 +452,20 @@ async function boot(): Promise<void> {
   onMeetingLive((live) => {
     game.setMeeting(live)
     if (live) return
-    // ended: what is still waiting in the inbox
+    // ended: what is still waiting in the inbox, and the bots' messages nobody read yet
     const waiting = [...held].filter((id) => state.permissions.has(id) || state.results.has(id)).length
     held.clear()
+    const fromBots = [...heldChat.values()].filter((m) => {
+      const b = chatStore.bot(m.thread)
+      return !!b && !b.hidden && m.t > chatStore.lastReadAt(b)
+    }).length
+    heldChat.clear()
     const summary = waitingSummary(waiting)
-    if (summary) toast(`${summary}. I abre a caixa de entrada.`, 'info')
+    const lines = [
+      summary ? `${summary}. I abre a caixa de entrada.` : '',
+      fromBots ? `${fromBots === 1 ? '1 mensagem nova' : `${fromBots} mensagens novas`} dos bots. C abre o Chat.` : '',
+    ].filter(Boolean)
+    if (lines.length) toast(lines.join(' '), 'info')
   })
   // Codex signed in (now, or later from the studio's integrations): the floors get their studio room.
   onStatus((st) => {
@@ -519,10 +534,16 @@ async function boot(): Promise<void> {
     if (e.type === 'member:ended') return game.memberEnded(e.taskId, e.status, e.summary)
     // "Abrir a sala" no ícone da barra de menus (RN-08)
     if (e.type === 'meeting:open') return openMeetingRoom(e.floor)
-    // Chat dos bots: the notification opens the thread; the store (ui/chat/store) follows the rest,
-    // and the HUD has nothing to redraw for them.
+    // Chat dos bots: the notification opens the thread (a click, so even during a meeting: nothing
+    // else of the Chat opens by itself); the store (ui/chat/store) follows the rest, and the HUD has
+    // nothing to redraw for them.
     if (e.type === 'bot:open') return openChat(e.threadId)
-    if (e.type === 'bots' || e.type === 'bot:item' || e.type === 'botTriggers' || e.type === 'channels') return
+    if (e.type === 'bot:item') {
+      // approvals are permission requests: `held` already counts them
+      if (quiet() && e.item.kind !== 'approval' && countsAsUnread(e.item)) heldChat.set(e.item.id, { thread: e.threadId, t: e.item.t })
+      return
+    }
+    if (e.type === 'bots' || e.type === 'botTriggers' || e.type === 'channels') return
     // Clique na notificação do sistema: o cartão abre na hora, sem esperar a caminhada.
     if (e.type === 'notice:open') {
       dismissed.delete(e.itemId)
@@ -564,7 +585,10 @@ async function boot(): Promise<void> {
       }
     } else if (e.type === 'result:new') {
       const a = state.agents.get(e.result.agentId)
-      if (quiet()) held.add(e.result.id)
+      // A bot's answer lands in its thread (the Chat button counts it); only a failure gets a toast.
+      if (a && inChat(a.id)) {
+        if (e.result.isError && !quiet() && !chatShowsAgent(a.id)) toast(`${a.name} teve um problema. C abre o Chat.`, 'err')
+      } else if (quiet()) held.add(e.result.id)
       else if (a) toast(e.result.isError ? `${a.name} teve um problema.` : `${a.name} terminou e vai te entregar o resultado.`, e.result.isError ? 'err' : 'ok')
     }
   })
