@@ -24,6 +24,8 @@ export interface BotsApiDeps {
   runner: BotRunner
   settings(): Pick<Settings, 'projects' | 'accounts'>
   broadcast(e: OfficeEvent): void
+  /** After a delete: the bot's routines and event automations go too (phase 2). */
+  onDeleted?(botId: string): void
   now?: () => number
 }
 
@@ -117,6 +119,7 @@ export function botsApi(d: BotsApiDeps) {
       store.setWorktree(bot.id, undefined)
       if (!bot.demo) store.removeFolder(bot.id)
       runner.changed()
+      d.onDeleted?.(bot.id)
     },
 
     /** A copy with the same job, settings and memory; no conversation, no runs. */

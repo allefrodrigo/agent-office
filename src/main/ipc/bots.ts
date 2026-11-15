@@ -8,7 +8,7 @@ import type { IpcContext } from './context'
  * their own handlers in their own files.
  */
 export function registerBotsIpc(ctx: IpcContext): void {
-  const api = botsApi({ store: ctx.botStore, runner: ctx.bots, settings: () => ctx.store.settings, broadcast: ctx.broadcast })
+  const api = botsApi({ store: ctx.botStore, runner: ctx.bots, settings: () => ctx.store.settings, broadcast: ctx.broadcast, onDeleted: ctx.botDeleted })
   ipcMain.handle('office:listBots', () => api.listBots())
   ipcMain.handle('office:saveBot', (_e, raw: unknown) => api.saveBot(raw))
   ipcMain.handle('office:deleteBot', (_e, raw: unknown) => api.deleteBot(raw))

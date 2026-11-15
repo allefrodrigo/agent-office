@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { permissionNotice, realPathOf } from '@shared/permission-notice'
 import type { Actor, AgentBrain, OfficeEvent, PermissionRequest } from '@shared/types'
-import { Accounts } from './accounts'
+import { Accounts, accountEnv } from './accounts'
 import { AgentManager } from './agents'
 import { badgePixels, encodePng } from './badge'
 import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
@@ -53,6 +53,8 @@ import { registerBotsIpc } from './ipc/bots'
 import { BotRunner } from './bots/runner'
 import { BotStore } from './bots/store'
 import { BotTools } from './bots/mcp'
+import { BotTriggers } from './bots/triggers'
+import { registerBotAutomationsIpc } from './ipc/bots-automations'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -317,7 +319,10 @@ app.whenReady().then(async () => {
   const player = (): Actor => ({ kind: 'player', name: store.settings.playerName })
   const defaultBrain = (): AgentBrain => ({ model: store.settings.defaultModel || undefined, effort: store.settings.defaultEffort || undefined })
 
+  // Chat dos bots, phase 2: event automations watch tickets and meetings (set further down).
+  const botEvents: { triggers?: BotTriggers } = {}
   const broadcast = (e: OfficeEvent) => {
+    if (botEvents.triggers && (e.type.startsWith('ticket:') || e.type.startsWith('meeting:'))) botEvents.triggers.handle(e)
     // A crashed page reloads by itself and gets the state again; sending now only makes noise (AO-27).
     if (win && !win.isDestroyed() && !win.webContents.isCrashed()) win.webContents.send('office:event', e)
     const strip = pet?.window
@@ -390,17 +395,6 @@ app.whenReady().then(async () => {
 
   board.on('event', broadcast)
 
-  // Scheduled routines (the routines board on every floor). Made after the listener above, so
-  // the notifications there still see a run that the scheduler is about to close.
-  const routines = new RoutineScheduler({
-    store: routineStore,
-    manager,
-    settings: () => store.settings,
-    broadcast: (list) => broadcast({ type: 'routines', routines: list }),
-    notify: (title, body, target) => notify(store, title, body, target),
-  })
-  // Timers stop while the Mac sleeps: runs whose time passed follow the routine's choice.
-  powerMonitor.on('resume', () => routines.check())
   // Chat dos bots: each bot runs on an office agent; its work goes into its thread.
   const bots = new BotRunner({
     store: botStore,
@@ -411,6 +405,34 @@ app.whenReady().then(async () => {
     book,
   })
   manager.botHooks = bots.hooks()
+  // Scheduled routines (the routines board on every floor). Made after the listener above, so
+  // the notifications there still see a run that the scheduler is about to close. A bot's
+  // schedule is a routine with who { kind: 'bot' }: it runs through the BotRunner.
+  const routines = new RoutineScheduler({
+    store: routineStore,
+    manager,
+    settings: () => store.settings,
+    broadcast: (list) => broadcast({ type: 'routines', routines: list }),
+    notify: (title, body, target) => notify(store, title, body, target),
+    bots,
+  })
+  // Event automations: a ticket created or moved, an ata ready, another bot done.
+  const triggers = new BotTriggers({
+    store: botStore,
+    bots,
+    settings: () => store.settings,
+    tickets: () => board.list(),
+    ata: (id) => {
+      const markdown = meetingStore.readAtaMd(id)
+      if (markdown === null) return null
+      return { markdown, actions: (meetingStore.readAta(id) ?? []).filter((b) => b.kind === 'action').map((b) => b.text) }
+    },
+    botOfAgent: (id) => manager.agent(id)?.bot,
+    broadcast: (triggers) => broadcast({ type: 'botTriggers', triggers }),
+  })
+  botEvents.triggers = triggers
+  // Timers stop while the Mac sleeps: runs whose time passed follow the routine's choice.
+  powerMonitor.on('resume', () => routines.check())
   // launchd's own schedules (Mochilinho, backups…), read only, beside the routines
   const macJobs = new MacJobs()
   macJobs.on('jobs', (jobs) => broadcast({ type: 'macJobs', jobs }))
@@ -577,6 +599,11 @@ app.whenReady().then(async () => {
     tools,
     botStore,
     bots,
+    // Deleting a bot takes its routines and event automations along (and pauses the ones waiting on it).
+    botDeleted: (id: string) => {
+      routines.removeForBot(id)
+      triggers.removeForBot(id)
+    },
     broadcast,
     updateBadge,
     nameOf,
@@ -600,6 +627,19 @@ app.whenReady().then(async () => {
   registerCreativeLibraryIpc(ipc)
   registerMeetingsIpc(ipc)
   registerBotsIpc(ipc)
+  registerBotAutomationsIpc({
+    triggers,
+    routines,
+    bots: () => botStore.bots,
+    settings: () => store.settings,
+    claudeFor: (floorId) => {
+      const floor = store.settings.projects.find((x) => x.id === floorId)
+      const account = accounts.pick({ cwd: floor?.cwd ?? '', accounts: floor?.accounts })
+      return { env: accountEnv(account), account: account.id }
+    },
+    scratchDir: () => app.getPath('userData'),
+    book,
+  })
   registerVoiceIpc()
   // Dev only: AGENT_OFFICE_MEETING_WAV feeds the meeting capture from a WAV instead of the mic.
   registerMeetingWavHook(app.isPackaged ? undefined : process.env.AGENT_OFFICE_MEETING_WAV)

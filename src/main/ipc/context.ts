@@ -51,6 +51,8 @@ export interface IpcContext {
   botStore: BotStore
   /** Chat dos bots: takes each bot to its agent and the agent's work to the thread. */
   bots: BotRunner
+  /** A bot was deleted: its routines and event automations go too. */
+  botDeleted?(botId: string): void
   broadcast(e: OfficeEvent): void
   updateBadge(): void
   nameOf(agentId: string): string
