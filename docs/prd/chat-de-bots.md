@@ -359,4 +359,4 @@ Chamada sensível e marcada no bot → o hook devolve `permissionDecision: 'ask'
 | Um bot por agente ocupa mesa | Agente de bot sem nada a fazer por 30 min sai do escritório (a conversa fica salva) e volta na próxima mensagem. Ajustável. |
 | Classificador do guarda deixa passar algo | Corpus de testes com 100+ casos; erra para o lado de pedir; o modo padrão continua "Pedir permissão". |
 | O roteador escolhe mal | `@menção` sempre ganha; chip "trocar"; o roteador pode dizer "ninguém" e o app pergunta. |
-| Conflito com a 0.4.0-beta.4 (retratos novos) | O avatar usa `portrait(look)` sem mexer nele; ao juntar com a beta.4, só a chamada muda. |
+| Retratos novos da 0.4.0-beta.4 | Já juntada na branch; o avatar usa `portrait(look)`, cuja assinatura não mudou. |
