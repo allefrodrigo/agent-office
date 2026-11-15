@@ -125,7 +125,7 @@ export function eventLabel(kind: BotEventKind, filter: BotEventTrigger['filter']
     case 'meeting-ata':
       return 'Quando uma ata fica pronta'
     case 'bot-done':
-      return `Quando ${filter.botId && botName ? botName : 'outro bot'} termina${filter.onlyOk ? ' bem' : ''}`
+      return `Quando ${filter.botId ? botName || 'outro bot' : 'qualquer outro bot'} termina${filter.onlyOk ? ' bem' : ''}`
   }
 }
 

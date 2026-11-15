@@ -1,12 +1,13 @@
 import { draftError } from '@shared/bots-view'
 import { BLANK_TEMPLATE_ID, BOT_TEMPLATES, draftFromTemplate, templateAutomation, type BotTemplate } from '@shared/bot-templates'
 import { lookFromSeed } from '@shared/describe'
-import { BOT_COLORS, BOT_GROUND_FLOOR, BOT_LIMITS, type Bot } from '@shared/types'
+import { BOT_COLORS, BOT_GROUND_FLOOR, BOT_LIMITS, CHAT_DEFAULTS, type Bot } from '@shared/types'
 import { h, icon } from '../dom'
 import { LAST_CWD } from '../modals'
 import { brainFields, meterField } from '../modals/brain'
 import { botAvatar } from './avatar'
 import { colorField, floorField, permissionsField } from './fields'
+import { saveAutomation } from './automations/form'
 import { chatError, type ChatCtx } from './util'
 
 // "＋ Novo bot": a galeria dos modelos prontos e o formulário que pede só o necessário, com os
@@ -99,25 +100,19 @@ export function botForm(ctx: NewBotCtx, t: BotTemplate | undefined): { el: HTMLE
   brain.model.classList.add('ch-select')
   const perms = permissionsField(ctx, { mode: base.permissionMode ?? 'default', askBefore: base.askBefore ?? [] }, noop)
   const worktree = h('input', { type: 'checkbox', checked: !!base.worktree }) as HTMLInputElement
-  const scheduleOn = h('input', { type: 'checkbox', checked: !!base.schedule }) as HTMLInputElement
-  const automation = t?.schedule
-    ? h(
-        'label',
-        { class: 'ch-check' },
-        scheduleOn,
-        h(
-          'span',
-          {},
-          `Ligada: ${templateAutomation(t)}`,
-          h('small', {}, 'a agenda começa a rodar quando as automações chegarem (próxima fase)'),
-        ),
-      )
-    : t?.event
+  const autoOn = h('input', { type: 'checkbox', checked: !!(t?.schedule || t?.event) }) as HTMLInputElement
+  const automation =
+    t?.schedule || t?.event
       ? h(
-          'p',
-          { class: 'ch-soon' },
-          h('b', {}, 'Em breve. '),
-          `Este modelo roda "${templateAutomation(t)}". Eventos do escritório chegam na próxima fase; até lá, use Rodar agora.`,
+          'label',
+          { class: 'ch-check' },
+          autoOn,
+          h(
+            'span',
+            {},
+            `Ligada: ${templateAutomation(t)}`,
+            h('small', {}, 'vira uma automação do bot; dá para mudar ou pausar em Automações'),
+          ),
         )
       : h('p', { class: 'ch-field-hint' }, 'Sem automação: ele roda quando você escrever ou usar Rodar agora.')
   const error = h('p', { class: 'ch-form-error', role: 'alert', hidden: true })
@@ -184,7 +179,7 @@ export function botForm(ctx: NewBotCtx, t: BotTemplate | undefined): { el: HTMLE
       permissionMode: p.mode,
       askBefore: p.askBefore,
       worktree: worktree.checked,
-      schedule: t?.schedule && scheduleOn.checked ? base.schedule : undefined,
+      schedule: undefined,
     }
     const problem = draftError(draft)
     error.hidden = !problem
@@ -193,7 +188,10 @@ export function botForm(ctx: NewBotCtx, t: BotTemplate | undefined): { el: HTMLE
     create.disabled = true
     try {
       const bot = await window.office.saveBot(draft)
-      ctx.toast(`${bot.name} chegou. Diga o que fazer, ou use Rodar agora.`, 'ok')
+      const auto = t && autoOn.checked ? await templateAutomationFor(ctx, t, bot) : 'none'
+      if (auto === 'failed') ctx.toast(`${bot.name} chegou, mas a automação não. Crie em Automações.`, 'err')
+      else if (t && auto === 'saved') ctx.toast(`${bot.name} chegou. Automação ligada: ${templateAutomation(t)}.`, 'ok')
+      else ctx.toast(`${bot.name} chegou. Diga o que fazer, ou use Rodar agora.`, 'ok')
       ctx.saved(bot)
     } catch (err) {
       error.hidden = false
@@ -203,4 +201,35 @@ export function botForm(ctx: NewBotCtx, t: BotTemplate | undefined): { el: HTMLE
     }
   })
   return { el: h('div', { class: 'ch-form-wrap' }, form), focus: () => name.focus() }
+}
+
+/** The template's schedule or event, saved as the new bot's automation (a routine or an event trigger). */
+async function templateAutomationFor(ctx: NewBotCtx, t: BotTemplate, bot: Bot): Promise<'saved' | 'failed' | 'none'> {
+  const when = t.schedule
+    ? { kind: 'schedule' as const, schedule: structuredClone(t.schedule), missed: 'run' as const }
+    : t.event
+      ? {
+          kind: 'event' as const,
+          event: t.event.kind,
+          filter: t.event.tags ? { tags: [...t.event.tags] } : {},
+          maxPerHour: ctx.state.settings.chat?.maxEventRunsPerHour ?? CHAT_DEFAULTS.maxEventRunsPerHour,
+        }
+      : undefined
+  if (!when) return 'none'
+  try {
+    await saveAutomation(
+      ctx,
+      {
+        bot: { kind: 'existing', botId: bot.id },
+        name: t.name,
+        prompt: 'Faça a sua rodada de sempre, como a sua função descreve.',
+        enabled: true,
+        when,
+      },
+      bot.floor,
+    )
+    return 'saved'
+  } catch {
+    return 'failed'
+  }
 }

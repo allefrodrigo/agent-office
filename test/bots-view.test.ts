@@ -187,10 +187,10 @@ describe('scheduleLabel e eventLabel', () => {
     expect(eventLabel('ticket-moved', { column: 'review' })).toBe('Quando um ticket vai para Revisão')
     expect(eventLabel('ticket-moved', {})).toBe('Quando um ticket muda de coluna')
     expect(eventLabel('meeting-ata')).toBe('Quando uma ata fica pronta')
-    expect(eventLabel('bot-done', { onlyOk: true })).toBe('Quando outro bot termina bem')
-    expect(eventLabel('bot-done')).toBe('Quando outro bot termina')
+    expect(eventLabel('bot-done', { onlyOk: true })).toBe('Quando qualquer outro bot termina bem')
+    expect(eventLabel('bot-done')).toBe('Quando qualquer outro bot termina')
     expect(eventLabel('bot-done', { botId: 'b2', onlyOk: true }, 'Relator')).toBe('Quando Relator termina bem')
-    expect(eventLabel('bot-done', {}, 'Relator')).toBe('Quando outro bot termina')
+    expect(eventLabel('bot-done', {}, 'Relator')).toBe('Quando qualquer outro bot termina')
   })
 
   it('junta as automações do bot e escolhe a próxima', () => {
@@ -981,7 +981,7 @@ describe('automationPreview (automação a partir de uma frase)', () => {
     const self = automationPreview(draft({ when: { kind: 'event', event: 'bot-done', filter: { botId: 'b1' } } }), NOW)
     expect(self.error).toMatch(/nunca dispara a si mesmo/)
     const any = automationPreview(draft({ when: { kind: 'event', event: 'bot-done', filter: {} } }), NOW)
-    expect(any).toMatchObject({ line: 'Quando outro bot termina', error: null })
+    expect(any).toMatchObject({ line: 'Quando qualquer outro bot termina', error: null })
   })
 
   it('aponta o que falta no bot novo proposto', () => {
