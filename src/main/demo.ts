@@ -1,8 +1,11 @@
 import { randomUUID } from 'node:crypto'
+import { lookFromSeed } from '@shared/describe'
 import { nextRun } from '@shared/schedule'
-import type { EffortLevel, Routine, RoutineRun, Schedule, SquadProgress } from '@shared/types'
+import { BOT_COLORS, BOT_GROUND_FLOOR, SENSITIVE_KINDS, type Bot, type BotRun, type EffortLevel, type Routine, type RoutineRun, type RunStep, type Schedule, type SquadProgress, type ThreadItem } from '@shared/types'
 import type { AgentManager } from './agents'
 import { permissionFromTool } from './agents'
+import type { BotRunner } from './bots/runner'
+import type { BotStore } from './bots/store'
 import type { RoutineScheduler } from './routines'
 import type { SquadDefinition } from './squads'
 import type { Store } from './store'
@@ -164,6 +167,122 @@ export function startRoutineDemo(manager: AgentManager, routines: RoutineSchedul
   ])
   // The triage runs for real (simulated agent): it walks over to ask, and its run waits for you.
   setTimeout(() => void routines.runNow(triage.id).catch(() => undefined), 4000)
+}
+
+/**
+ * Demo bots for the Chat, one per kind of thread: a morning brief that came in by schedule
+ * (unread), a bot whose run waits for your yes to publish, and a finished run with its steps.
+ * In memory only (Bot.demo): nothing reaches bots.json. Their runs are played by the agents.
+ */
+export function startBotDemo(manager: AgentManager, store: BotStore, bots: BotRunner): void {
+  const now = Date.now()
+  const MIN = 60_000
+  const make = (name: string, tagline: string, role: string, color: number, order: number, cwd: string, readAt: number): Bot => ({
+    id: randomUUID(),
+    name,
+    tagline,
+    role,
+    color: BOT_COLORS[color],
+    look: lookFromSeed(`demo-bot:${name}`),
+    floor: BOT_GROUND_FLOOR,
+    cwd,
+    permissionMode: 'default',
+    askBefore: [...SENSITIVE_KINDS],
+    apps: 'all',
+    worktree: false,
+    dailyBudgetUsd: 2,
+    pinned: order === 0,
+    hidden: false,
+    order,
+    createdAt: now - 20 * 86_400_000,
+    updatedAt: now - 20 * 86_400_000,
+    lastReadAt: readAt,
+    runs: [],
+    demo: true,
+  })
+  const aurora = make(
+    'Aurora',
+    'Resumo da manhã do andar',
+    'Toda manhã, leia os tickets, os commits de ontem e as atas novas e escreva um resumo curto do que pede atenção hoje.',
+    0,
+    0,
+    '/Users/demo/loja',
+    now - 3 * 60 * MIN,
+  )
+  const guarda = make('Guarda', 'Publica as versões da loja', 'Prepara e publica as versões da loja: changelog, tag e npm publish. Nunca publica sem o meu sim.', 3, 1, '/Users/demo/loja', now)
+  const teo = make('Teo', 'Roda os testes e diz o que quebrou', 'Roda os testes do projeto, lê as falhas e explica em poucas linhas o que quebrou e onde.', 2, 2, '/Users/demo/loja', now)
+  store.bots = [...store.bots, aurora, guarda, teo]
+
+  /** A finished run of the bot `minAgo` minutes back: its run item, its reply and its BotRun. */
+  const ran = (bot: Bot, minAgo: number, trigger: BotRun['trigger'], label: string, steps: RunStep[], reply: string, costUsd: number, userText?: string) => {
+    const t = now - minAgo * MIN
+    const thread = store.thread(bot.id)
+    const runId = randomUUID()
+    const itemId = randomUUID()
+    const durationMs = (steps.length + 1) * 20_000
+    if (userText) thread.put({ id: randomUUID(), t: t - 1000, kind: 'user', text: userText })
+    const log = steps.map((s, i) => ({ ...s, t: t + (i + 1) * 15_000 }))
+    const tools = steps.filter((s) => s.kind === 'tool').length
+    thread.put({ id: itemId, t, kind: 'run', botId: bot.id, runId, trigger, label, status: 'ok', steps: tools, costUsd, durationMs, log })
+    thread.put({ id: randomUUID(), t: t + durationMs, kind: 'bot', botId: bot.id, text: reply, runId } satisfies ThreadItem)
+    bot.runs = [{ id: runId, trigger, startedAt: t, endedAt: t + durationMs, status: 'ok', steps: tools, costUsd, durationMs, threadId: bot.id, itemId }, ...bot.runs]
+  }
+  const step = (kind: RunStep['kind'], text: string, tool?: string): RunStep => ({ t: 0, kind, text, ...(tool ? { tool } : {}) })
+
+  ran(
+    aurora,
+    2 * 60,
+    { kind: 'schedule', routineId: 'demo', label: '⚡ Dias úteis às 07:30' },
+    '⚡ Dias úteis às 07:30',
+    [step('tool', 'tickets_list', 'mcp__office__tickets_list'), step('tool', 'git log --since=yesterday --oneline', 'Bash'), step('tool', 'meetings_list', 'mcp__office__meetings_list')],
+    'Bom dia! O que pede atenção hoje:\n\n- **AO-44** (checkout lento) segue em *fazendo* há 3 dias, sem commit desde ontem.\n- 6 commits ontem; o build da `main` passou.\n- A ata da daily cita a migração do banco para quinta: ninguém pegou o ticket ainda.',
+    0.06,
+  )
+  ran(
+    teo,
+    45,
+    { kind: 'message' },
+    'Mensagem',
+    [
+      step('tool', 'npm test -- --watch=false', 'Bash'),
+      step('assistant', '2 testes falharam em cart.test.ts. Vou ler o arquivo.'),
+      step('tool', 'src/cart.ts', 'Read'),
+      step('tool', 'test/cart.test.ts', 'Read'),
+    ],
+    'Rodei os testes: **40 passaram e 2 falharam**, os dois em `test/cart.test.ts`.\n\nO desconto agora arredonda para baixo (`Math.floor` em `src/cart.ts:58`), e os testes esperam o arredondamento comum. Quer que eu ajuste o código ou os testes?',
+    0.11,
+    'Roda os testes e me diz o que quebrou',
+  )
+  for (const b of [aurora, teo]) store.update(b)
+
+  // The bots' runs, played: a step, then the reply (Guarda's publish waits for your yes first).
+  bots.demoSend = (botId, text) => {
+    const agentId = store.bot(botId)?.agentId
+    if (!agentId) return
+    const publish = botId === guarda.id && /publi/i.test(text)
+    manager.terminalUpdate(agentId, 'working', 'Lendo seu pedido')
+    setTimeout(() => manager.terminalUpdate(agentId, 'working', 'Lendo CHANGELOG.md', { kind: 'tool', text: 'Read {"file_path":"CHANGELOG.md"}', tool: 'Read' }), 1200)
+    if (!publish) {
+      setTimeout(() => manager.terminalResult(agentId, `Feito (demonstração): ${text.slice(0, 120)}`), 3000)
+      return
+    }
+    setTimeout(() => {
+      const req = permissionFromTool('Bash', { command: 'npm publish', description: 'Publica a versão 0.5.0 no npm' })
+      manager.requestDecision(
+        agentId,
+        req,
+        (d) => {
+          if (d.behavior === 'deny') return manager.terminalResult(agentId, `Não publiquei, como você pediu.${d.message ? `\n\nSua orientação: ${d.message}` : ''}`)
+          manager.terminalUpdate(agentId, 'working', 'Publicando', { kind: 'tool', text: 'npm publish', tool: 'Bash' })
+          setTimeout(() => manager.terminalResult(agentId, 'Publiquei a **0.5.0** no npm (demonstração) e criei a tag `v0.5.0`.'), 2000)
+        },
+        'publish',
+      )
+    }, 2500)
+  }
+  bots.changed()
+  // Guarda's run is played for real: it stops at the yes for `npm publish`.
+  setTimeout(() => void bots.send(guarda.id, 'Publica a versão 0.5.0 no npm').catch(() => undefined), 3000)
 }
 
 /** Stress mode: 50 agents spread over the ground floor and three project floors. */

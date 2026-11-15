@@ -5,9 +5,9 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentResult, AgentSummary, AgentTemplate, HireRequest, OfficeEvent, PermissionRequest, Routine, RoutineDraft, Settings } from '@shared/types'
+import type { AgentResult, AgentSummary, AgentTemplate, Bot, HireRequest, OfficeEvent, PermissionRequest, Routine, RoutineDraft, RunTrigger, Settings } from '@shared/types'
 import { routinesLed, routinesView } from '@shared/routines'
-import { RoutineScheduler, RoutineStore, type RoutineHost } from '../src/main/routines'
+import { BOT_GONE, RoutineScheduler, RoutineStore, type BotRunEnd, type BotRunHost, type BotRunStart, type RoutineHost } from '../src/main/routines'
 import { cleanRoutineDraft } from '../src/main/validate'
 import { importSet, parseExport } from '../src/main/backups'
 
@@ -80,14 +80,39 @@ class FakeManager extends EventEmitter implements RoutineHost {
 const templates: AgentTemplate[] = [{ id: 'tpl', name: 'Revisor', permissionMode: 'bypassPermissions', instruction: 'Você revisa {pasta}.', model: 'sonnet' }]
 const settings = (): Pick<Settings, 'projects' | 'templates'> => ({ projects: [{ id: 'p1', name: 'Loja', cwd: project }], templates })
 
-function setup() {
+/** Just enough of the BotRunner: the bots, runScheduled and 'run:end'. */
+class FakeBots extends EventEmitter implements BotRunHost {
+  bots: Pick<Bot, 'id' | 'name' | 'floor'>[] = [{ id: 'chefe', name: 'Chefe de gabinete', floor: 'p1' }]
+  busy = new Set<string>()
+  calls: { botId: string; task: string; trigger: RunTrigger; runId?: string }[] = []
+  private n = 0
+  list = () => this.bots
+  async runScheduled(botId: string, task: string, trigger: RunTrigger): Promise<BotRunStart> {
+    const call: (typeof this.calls)[number] = { botId, task, trigger }
+    this.calls.push(call)
+    if (this.busy.has(botId)) return { skipped: 'Pulei a rodada das 09:00: Chefe de gabinete estava ocupado.' }
+    call.runId = `run-${++this.n}`
+    return { runId: call.runId }
+  }
+  end(runId: string, status: BotRunEnd['status'] = 'ok', extra: Partial<BotRunEnd> = {}): void {
+    const call = this.calls.find((c) => c.runId === runId)!
+    this.emit('run:end', { botId: call.botId, runId, threadId: call.botId, trigger: call.trigger, status, ...extra } satisfies BotRunEnd)
+  }
+}
+
+function setup(opts: { bots?: FakeBots } = {}) {
   const manager = new FakeManager()
   const store = new RoutineStore(dir)
   const notices: string[] = []
   const broadcasts: Routine[][] = []
-  const scheduler = new RoutineScheduler({ store, manager, settings, broadcast: (l) => broadcasts.push(l), notify: (title, body) => notices.push(`${title}: ${body}`) })
+  const scheduler = new RoutineScheduler({ store, manager, settings, bots: opts.bots, broadcast: (l) => broadcasts.push(l), notify: (title, body) => notices.push(`${title}: ${body}`) })
   const save = (draft: Partial<RoutineDraft>) =>
-    scheduler.save(cleanRoutineDraft({ name: 'Relatório', prompt: 'Resuma o dia.', who: { kind: 'new' }, cwd: project, schedule: { kind: 'daily', time: '09:00' }, ...draft }, { settings: settings(), agents: manager.list() }))
+    scheduler.save(
+      cleanRoutineDraft(
+        { name: 'Relatório', prompt: 'Resuma o dia.', who: { kind: 'new' }, cwd: project, schedule: { kind: 'daily', time: '09:00' }, ...draft },
+        { settings: settings(), agents: manager.list(), bots: opts.bots?.bots ?? [] },
+      ),
+    )
   return { manager, store, scheduler, notices, broadcasts, save }
 }
 
@@ -390,6 +415,151 @@ describe('IPC validation', () => {
     const { scheduler } = setup()
     const d = cleanRoutineDraft({ ...base(), schedule: { kind: 'once', at: '2026-10-12T09:00' } }, ctx())
     expect(() => scheduler.save(d)).toThrow(/já passou/)
+  })
+})
+
+describe('a bot runs the routine (Chat dos bots, CB-12)', () => {
+  const botRoutine = (extra: Partial<RoutineDraft> = {}): Partial<RoutineDraft> => ({ name: 'Manhã', prompt: 'Diga as três prioridades.', who: { kind: 'bot', botId: 'chefe' }, cwd: undefined, ...extra })
+
+  it("runs on time through the Chat, and the run's end (with its cost) closes the history", async () => {
+    const bots = new FakeBots()
+    const { manager, scheduler, save } = setup({ bots })
+    const r = save(botRoutine({ schedule: { kind: 'weekly', days: [1, 2, 3, 4, 5], time: '09:00' } }))
+    scheduler.start()
+    await vi.advanceTimersByTimeAsync(60 * 60_000 + 1000)
+    // never an office agent of its own
+    expect(manager.hired).toHaveLength(0)
+    expect(bots.calls).toEqual([{ botId: 'chefe', task: 'Diga as três prioridades.', trigger: { kind: 'schedule', routineId: r.id, label: 'De segunda a sexta às 09:00' }, runId: 'run-1' }])
+    expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'running', agentName: 'Chefe de gabinete', scheduledFor: at(2026, 10, 13, 9, 0) })
+    bots.end('run-1', 'ok', { costUsd: 0.08123 })
+    expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'ok', costUsd: 0.0812 })
+    expect(scheduler.get(r.id)!.history[0].agentId).toBeUndefined()
+    // the next one is tomorrow, as for any routine
+    expect(scheduler.get(r.id)!.nextAt).toBe(at(2026, 10, 14, 9, 0))
+  })
+
+  it("a run that failed keeps its reason; another run's end changes nothing", async () => {
+    const bots = new FakeBots()
+    const { scheduler, notices, save } = setup({ bots })
+    const r = save(botRoutine({ prompt: '' }))
+    await scheduler.runNow(r.id)
+    // no task: the bot does its job
+    expect(bots.calls[0].task).toBe('Faça agora o seu trabalho, como o seu papel descreve.')
+    expect(bots.calls[0].trigger).toMatchObject({ label: 'Manhã (rodada à mão)' })
+    bots.emit('run:end', { botId: 'chefe', runId: 'outra', threadId: 'chefe', trigger: { kind: 'message' }, status: 'ok' } satisfies BotRunEnd)
+    expect(scheduler.get(r.id)!.history[0].status).toBe('running')
+    bots.end('run-1', 'failed', { error: 'Teto de custo atingido\nmais linhas' })
+    expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'failed', manual: true, error: 'Teto de custo atingido' })
+    // the Chat notifies a bot's failure itself: the scheduler does not repeat it
+    expect(notices).toEqual([])
+  })
+
+  it('a run that ended before runScheduled answered is still closed', async () => {
+    const bots = new FakeBots()
+    const { scheduler, save } = setup({ bots })
+    const r = save(botRoutine())
+    const real = bots.runScheduled.bind(bots)
+    bots.runScheduled = async (botId, task, trigger) => {
+      const start = await real(botId, task, trigger)
+      if ('runId' in start) bots.end(start.runId, 'failed', { error: 'A pasta do andar não existe mais.' })
+      return start
+    }
+    await scheduler.runNow(r.id)
+    expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'failed', error: 'A pasta do andar não existe mais.' })
+  })
+
+  it("a bot busy with something else: skipped, with the Chat's reason", async () => {
+    const bots = new FakeBots()
+    bots.busy.add('chefe')
+    const { scheduler, save } = setup({ bots })
+    const r = save(botRoutine())
+    scheduler.start()
+    await vi.advanceTimersByTimeAsync(60 * 60_000 + 1000)
+    expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'skipped', error: expect.stringMatching(/ocupado/) })
+  })
+
+  it('a run of its own still going: the next slot is skipped', async () => {
+    const bots = new FakeBots()
+    const { scheduler, save } = setup({ bots })
+    const r = save(botRoutine({ schedule: { kind: 'interval', every: 15, unit: 'minutes' } }))
+    scheduler.start()
+    await vi.advanceTimersByTimeAsync(30 * 60_000 + 2000)
+    expect(bots.calls).toHaveLength(1)
+    expect(scheduler.get(r.id)!.history.map((h) => h.status)).toEqual(['skipped', 'running'])
+  })
+
+  it.each(['run', 'skip'] as const)('missed with the app closed (%s): runs once on opening, or is recorded as missed', (missed) => {
+    const bots = new FakeBots()
+    const first = setup({ bots })
+    vi.setSystemTime(at(2026, 10, 12, 20, 0))
+    const r = first.save(botRoutine({ missed }))
+    first.store.flush()
+    vi.setSystemTime(at(2026, 10, 13, 11, 30))
+    const again = setup({ bots })
+    again.scheduler.start()
+    const run = again.scheduler.get(r.id)!.history[0]
+    if (missed === 'run') {
+      expect(bots.calls).toHaveLength(1)
+      expect(run).toMatchObject({ status: 'running', note: expect.stringMatching(/Atrasada/) })
+    } else {
+      expect(bots.calls).toHaveLength(0)
+      expect(run).toMatchObject({ status: 'missed', scheduledFor: at(2026, 10, 13, 9, 0) })
+    }
+  })
+
+  it('the bot was deleted: the run fails with what to do', async () => {
+    const bots = new FakeBots()
+    const { scheduler, notices, save } = setup({ bots })
+    const r = save(botRoutine())
+    bots.bots = []
+    await scheduler.runNow(r.id)
+    expect(scheduler.get(r.id)!.history[0]).toMatchObject({ status: 'failed', error: BOT_GONE })
+    expect(BOT_GONE).toBe('O bot desta rotina foi apagado. Edite a rotina ou apague-a.')
+    expect(notices[0]).toMatch(/Rotina Manhã falhou/)
+    // without the Chat at all, the same
+    const none = setup()
+    const draft = cleanRoutineDraft({ name: 'Manhã', prompt: 'p', who: { kind: 'bot', botId: 'chefe' }, schedule: { kind: 'daily', time: '09:00' } }, { settings: settings(), agents: [], bots: [{ id: 'chefe' }] })
+    const lone = none.scheduler.save(draft)
+    await none.scheduler.runNow(lone.id)
+    expect(none.scheduler.get(lone.id)!.history[0].error).toBe(BOT_GONE)
+  })
+
+  it("pausing a bot's automations pauses its routines; deleting the bot deletes them", () => {
+    const bots = new FakeBots()
+    const { scheduler, store, save } = setup({ bots })
+    const mine = save(botRoutine())
+    const other = save({})
+    expect(scheduler.setEnabledForBot('chefe', false)).toBe(1)
+    expect(scheduler.get(mine.id)).toMatchObject({ enabled: false, nextAt: null })
+    expect(scheduler.get(other.id)!.enabled).toBe(true)
+    expect(scheduler.setEnabledForBot('chefe', false)).toBe(0)
+    expect(scheduler.setEnabledForBot('chefe', true)).toBe(1)
+    expect(scheduler.get(mine.id)!.nextAt).toBe(at(2026, 10, 13, 9, 0))
+    expect(scheduler.removeForBot('chefe')).toBe(1)
+    expect(scheduler.removeForBot('chefe')).toBe(0)
+    store.flush()
+    expect(new RoutineStore(dir).routines.map((x) => x.id)).toEqual([other.id])
+  })
+
+  it('saved and loaded with its runner, with no folder of its own', () => {
+    const bots = new FakeBots()
+    const { store, save } = setup({ bots })
+    const r = save(botRoutine())
+    store.flush()
+    expect(new RoutineStore(dir).routines[0]).toMatchObject({ id: r.id, who: { kind: 'bot', botId: 'chefe' } })
+    expect(r.floor).toBeUndefined()
+    expect(r.cwd).toBeUndefined()
+    writeFileSync(join(dir, 'routines.json'), JSON.stringify({ routines: [{ id: 'x', name: 'R', prompt: 'p', who: { kind: 'bot' }, schedule: { kind: 'daily', time: '09:00' } }] }))
+    expect(new RoutineStore(dir).routines).toEqual([])
+  })
+
+  it('validation: a bot that exists, no folder needed, an empty task allowed', () => {
+    const base = { name: 'R', prompt: '', who: { kind: 'bot', botId: 'chefe' }, schedule: { kind: 'daily', time: '09:00' } }
+    const c = { settings: settings(), agents: [] as AgentSummary[], bots: [{ id: 'chefe' }] }
+    expect(cleanRoutineDraft(base, c)).toMatchObject({ who: { kind: 'bot', botId: 'chefe' }, prompt: '' })
+    expect(() => cleanRoutineDraft(base, { ...c, bots: [] })).toThrow(/Esse bot não existe mais/)
+    expect(() => cleanRoutineDraft(base, { settings: settings(), agents: [] })).toThrow(/Esse bot não existe mais/)
+    expect(() => cleanRoutineDraft({ ...base, who: { kind: 'bot', botId: '' } }, c)).toThrow(/inválida/)
   })
 })
 

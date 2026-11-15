@@ -113,6 +113,7 @@ export abstract class GameActors extends GameBoards {
     if (actor.avatar.look !== a.look && JSON.stringify(actor.avatar.look) !== JSON.stringify(a.look)) actor.avatar.setLook(a.look)
     this.dress(actor.avatar, a)
     this.showAccount(actor, a)
+    this.showBot(actor, a)
     const items = this.state.itemsFor(a.id)
     // a permission or result for you turns the desk amber too
     this.screenFor(a)?.setMode(items.permissions.length || items.results.length ? 'waiting' : screenMode(a))
@@ -146,11 +147,11 @@ export abstract class GameActors extends GameBoards {
     return p?.uniform ? { color: p.brandColor ?? DEFAULT_BRAND, logo: p.logo } : null
   }
 
-  /** Uniform on (or off), the account diamond over the head and the effort aura. */
+  /** Uniform on (or off), the account diamond over the head (in the bot's color for a bot) and the effort aura. */
   protected dress(avatar: Avatar, a: AgentSummary): void {
     avatar.setUniform(this.uniformFor(a))
     const acc = a.source === 'office' && a.account ? this.state.account(a.account) : undefined
-    avatar.setGem(acc?.color ?? null)
+    avatar.setGem(this.hooks.botOf(a)?.color ?? acc?.color ?? null)
     avatar.setAura(a.effort, a.status === 'working' || a.status === 'starting')
   }
 
@@ -158,6 +159,23 @@ export abstract class GameActors extends GameBoards {
   protected showAccount(actor: Actor, a: AgentSummary): void {
     const acc = this.state.settings.accounts.length > 1 && a.source === 'office' && a.account ? this.state.account(a.account) : undefined
     actor.tag.setAccount(acc?.name ?? null, acc?.color)
+  }
+
+  /** The "bot" chip on the name tag of an agent of the Chat; its click opens the bot's thread. */
+  protected showBot(actor: Actor, a: AgentSummary): void {
+    const bot = this.hooks.botOf(a)
+    actor.tag.setBot(bot, bot ? () => this.hooks.onBotTag(bot.id) : undefined)
+  }
+
+  /** A bot's name, color or agent changed (Chat dos bots): the chips and diamonds follow. */
+  refreshBots(): void {
+    for (const actor of this.actors.values()) {
+      const a = this.state.agents.get(actor.id)
+      if (!a || actor.goal === 'leave') continue
+      this.dress(actor.avatar, a)
+      this.showBot(actor, a)
+    }
+    this.wake()
   }
 
   protected goDesk(actor: Actor, a: AgentSummary, instant: boolean): void {

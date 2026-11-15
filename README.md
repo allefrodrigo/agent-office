@@ -123,6 +123,18 @@ Cada andar tem uma sala de reunião. Aperte `G`, grave e anote como num caderno.
 
 O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew install whisper-cpp ffmpeg`; o áudio do computador exige macOS 14.2+ (veja o [COMO-RODAR](COMO-RODAR.md#sala-de-reunião)).
 
+### 8. O Chat dos bots
+
+<!-- captura: docs/img/chat.jpg -->
+
+Aperte `C` e o escritório vira um app de mensagens. À esquerda ficam os seus **bots**: agentes com emprego fixo, cada um com função, cérebro, andar e o que pode tocar. "Chefe de gabinete, dias úteis às 07:30." "Caçador de bugs, quando nasce um ticket com a tag `bug`."
+
+O bot roda sozinho no horário ou num evento do escritório e escreve o resultado na conversa. Quando precisa de você, o pedido aparece no fio com **Permitir** e **Negar**; escrever "pode" também vale. Enviar, publicar, apagar, pagar e `git push` sempre esperam o seu sim, em qualquer modo de permissão.
+
+**Automações** mostra a semana de todos os bots num calendário, e uma frase vira agenda: "toda sexta às 17h, resuma a semana". Nos **canais**, como no Slack, você escreve e o bot certo responde; um bot pode pedir ajuda a outro. Os squads do Opensquad viram canais em breve.
+
+No escritório, o agente de um bot tem a etiqueta "bot" no nome. Clique nela e o fio dele abre.
+
 ### E mais
 
 - **Andares por projeto.** Cada andar é uma pasta, com logo, cor e farda da empresa. Agentes pegam o elevador até você.
@@ -156,7 +168,16 @@ O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew instal
 - **Permissões**: no modo "Pedir permissão", antes de editar arquivos ou rodar comandos o agente vai até você. O cartão mostra o comando ou o diff, com os botões Permitir, Sempre permitir e Negar (negar aceita uma instrução do que fazer em vez disso).
 - **Perguntas e planos**: o `AskUserQuestion` vira um cartão com opções; o `ExitPlanMode` mostra o plano para aprovar ou pedir mudanças.
 - **Economia de tokens**: o painel do agente avisa quando a memória passa de 200 mil tokens (custo por chamada, com Limpar e Compactar) e quando o agente ficou parado mais de 1h com a conversa grande (quanto custa retomar). Antes de mandar mensagem a um agente frio, o app pergunta: limpar e enviar, ou enviar assim mesmo. Ticket delegado a um agente que já existe e cada ciclo de squad começam conversa nova. Em Relatórios, "Economia de tokens" mostra para onde foi o dinheiro (releitura, recarga, respostas), dicas e os agentes que pedem ação agora. Tetos por dia e por agente, aviso e chaves ficam em Configurações › Economia de tokens.
-- **Resultados**: ao terminar, o agente leva o relatório até você. Depois de "Recebido", ele vai relaxar no lounge.
+- **Resultados**: ao terminar, o agente leva o relatório até você. Depois de "Recebido", ele vai relaxar no lounge. O resultado de um bot fica no fio dele, no Chat.
+- **Chat dos bots** (botão "Chat" no topo, tecla `C`, a notificação de um bot ou a etiqueta "bot" no nome de um agente): tela cheia no estilo de um app de mensagens, com os bots do andar à esquerda (ou de todos os andares) e o fio no centro. Esc fecha; o Chat abre no último fio visto.
+  - **Bots**: "Novo bot" abre uma galeria de modelos prontos (Chefe de gabinete, Triagem do quadro, Caçador de bugs, Revisor do dia, Relator da semana e outros) ou começa em branco. O perfil (ⓘ) edita função, cérebro, andar, permissões, conexões e a memória (`memoria.md`, até 16 KB), e mostra gastos e as últimas 20 rodadas. Bot nunca roda em "Sem pedir nada".
+  - **Fio**: cada rodada vira uma linha com o gatilho e os passos ("12 passos · 1min40 · US$ 0,08 ▸"); o texto final vira o balão. Pedidos, perguntas e planos chegam como cartão no fio; com um pedido pendente, a sua frase vira a resposta. ⌘F busca no fio, ⌘K nos bots.
+  - **Guarda**: enviar, publicar, apagar, pagar e mexer no git remoto sempre pedem aprovação, mesmo nos modos Automático e Aceitar edições. "Sempre permitir" não aparece nesses pedidos.
+  - **Automações**: agenda (os mesmos tipos da rotina) ou evento do escritório (ticket criado ou que mudou de coluna, ata pronta, outro bot terminou), com calendário da semana e automação a partir de uma frase. Automação de evento roda no máximo 6 vezes por hora (até 30), um bot nunca dispara a si mesmo, e uma corrente de bots para no terceiro elo.
+  - **Canais**: cada andar tem o seu (`#agent-office`). `@Nome` chama um bot; sem menção, um modelo rápido escolhe quem responde. Os squads do Opensquad viram canais em breve.
+  - **No escritório**: o agente de um bot tem a etiqueta "bot" no nome e o diamante na cor do bot. O resultado fica no fio e o número de não lidas sobe no botão Chat. O "Não perturbe" da reunião vale também para o Chat: durante a gravação nada aparece sozinho, e o resumo do fim conta as mensagens dos bots.
+  - **Configurações → Chat**: entregar também no escritório, notificações do sistema (tudo, pedidos e falhas, ou nada), rodadas por hora das automações de evento, o modelo do roteador dos canais (Haiku ou Sonnet) e depois de quantos minutos parado o agente do bot sai do escritório (a conversa fica salva; 0 = nunca).
+  - Ficam em `userData/bots.json` e `userData/bots/<id>/` (o fio em `fio.jsonl` e a memória), com gravação atômica e backup diário.
 - **Quadro de tickets** (botão do quadro ou tecla `T`): kanban com Backlog, A fazer, Fazendo, Revisão e Feito. Cada ticket traz pasta do projeto, contexto, critérios de aceite, tags, pontos e prazo. "Delegar" entrega o ticket a um agente livre ou contrata um novo: ele recebe o ticket completo (o painel mostra "O que o agente lê"), marca os critérios, comenta e, ao terminar, o relatório vira comentário e o ticket vai para Revisão. Você aprova ou pede ajustes. Os agentes do escritório também usam o quadro sozinhos (ferramentas `mcp__office__*`): basta pedir "abra um ticket para isso" ou "liste os tickets em aberto". Só pessoas movem para Feito, e tickets nunca rodam no modo "Sem pedir nada". **Fechar**: os tickets de Feito fecham sozinhos depois de 7 dias (ajuste em "Fechados", ou desligue), ou na hora, pelo ícone de arquivo da coluna Feito ou por "Fechar agora" no ticket. Fechados saem do quadro e vão para `userData/tickets-closed.json`, lido só quando alguém consulta: o botão "Fechados" busca, mostra o contexto e os últimos comentários, e reabre em A fazer. Os agentes só leem fechados quando pedem (`tickets_list` com `closed`, ou `ticket_get` pela chave). O quadro fica em `userData/tickets.json`.
 - **Central de resume** (botão do relógio): lista as sessões recentes do Claude Code nesta máquina, do terminal ou do escritório, com busca, agrupadas por projeto ou por data. "Chamar" traz a sessão de volta como agente, com o histórico e o mesmo modelo; ele espera no lounge até receber a próxima instrução. Também abre a sessão no Terminal (Mac) ou copia o `claude --resume <id>`.
 - **Lounge**: agentes livres sentam nos sofás e pufes ou jogam pebolim, fliperama e pingue-pongue.
@@ -179,7 +200,7 @@ O áudio nunca sai da máquina: só texto vai ao Claude. Precisa de `brew instal
 - **Sair** (botão de desligar no fim do dock): pergunta antes. Sem ninguém trabalhando, sai, e os agentes voltam na próxima abertura com a conversa onde parou. Com agente trabalhando: "Esperar terminarem e sair" (um aviso no topo mostra quem falta, e nenhuma rotina nova começa), "Interromper e sair" (cada um para onde está, a conversa fica salva) ou cancelar. Uma caixa marcada para também os servidores e vigias que os agentes deixaram em segundo plano. ⌘Q e fechar a janela no Windows passam pela mesma pergunta quando há agente trabalhando.
 - **Sobre e atualização** (clique na versão, ao lado do nome, no canto de cima): versão, autor, licença, Claude Code, sistema, onde o app está instalado e a pasta de dados, lidos do `package.json` e da máquina. "Copiar diagnóstico" põe versão, sistema e o fim do log no clipboard, para mandar ao suporte. **Pedir para um agente me atualizar** é para quem baixou o app e não usa GitHub: um agente baixa a versão mais nova das releases (repositório público, sem conta) e instala. No Mac ele deixa o app novo pronto e a troca acontece quando você fecha o Agent Office (⌘Q), que abre de novo sozinho; no Windows ele abre o instalador. Rodando do código-fonte, faz `git pull` e `npm install`. Um agente por vez, e nunca no modo "Sem pedir nada".
 
-Controles: clique no chão para andar, WASD ou setas, arraste com o botão direito para mover a câmera, roda do mouse para zoom. O botão da casinha leva você de volta à sua cadeira. Tecla `?` lista todos os atalhos.
+Controles: clique no chão para andar, WASD ou setas, arraste com o botão direito para mover a câmera, roda do mouse para zoom. O botão da casinha leva você de volta à sua cadeira. `C` abre o Chat dos bots. Tecla `?` lista todos os atalhos.
 
 </details>
 

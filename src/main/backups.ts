@@ -14,7 +14,7 @@ import { parseJson, writeFileAtomic, writeJsonAtomic } from './fs-safe'
  * stats.json stays out: it is rebuilt from the transcripts and can be large.
  */
 
-export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json', 'meetings.json'] as const
+export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json', 'meetings.json', 'bots.json'] as const
 export type DataFile = (typeof DATA_FILES)[number]
 
 export const KEEP_DAILY = 14
@@ -44,6 +44,7 @@ export const DATA_SHAPES: Record<DataFile, (v: unknown) => boolean> = {
   'tickets-closed.json': (v) => isObj(v) && isList(v.tickets),
   'routines.json': (v) => isObj(v) && isList(v.routines),
   'meetings.json': (v) => isObj(v) && isList(v.meetings),
+  'bots.json': (v) => isObj(v) && isList(v.bots) && isList(v.channels) && isList(v.eventTriggers),
 }
 
 /** The `valid` option of loadJson for a data file. */
@@ -296,12 +297,38 @@ export function sanitizeImportedRoutines(data: unknown): unknown {
   return { ...(data as object), routines }
 }
 
+/**
+ * Bots from an export: never "Sem pedir nada", no agent, conversation or worktree of the other
+ * machine (they live there), and their event automations arrive paused, like routines.
+ */
+export function sanitizeImportedBots(data: unknown): unknown {
+  if (!isObj(data)) return data
+  const bots = Array.isArray(data.bots)
+    ? data.bots.map((b) => {
+        if (!isObj(b)) return b
+        const { agentId: _agentId, sessionId: _sessionId, ...o } = b
+        if (o.permissionMode === 'bypassPermissions') o.permissionMode = 'default'
+        return o
+      })
+    : data.bots
+  const eventTriggers = Array.isArray(data.eventTriggers) ? data.eventTriggers.map((t) => (isObj(t) ? { ...t, enabled: false } : t)) : data.eventTriggers
+  // The worktrees and agents are of the other machine, like the sessions.
+  const { worktrees: _worktrees, agents: _agents, ...rest } = data
+  return { ...rest, bots, eventTriggers }
+}
+
 /** The files an export (already checked by parseExport) puts in place. */
 export function importSet(exp: ExportFile, home = homedir()): DataSet {
   const files: DataSet = {}
   for (const name of DATA_FILES) {
     const v =
-      name === 'office.json' ? sanitizeImportedOffice(exp.files[name], home) : name === 'routines.json' ? sanitizeImportedRoutines(exp.files[name]) : exp.files[name]
+      name === 'office.json'
+        ? sanitizeImportedOffice(exp.files[name], home)
+        : name === 'routines.json'
+          ? sanitizeImportedRoutines(exp.files[name])
+          : name === 'bots.json'
+            ? sanitizeImportedBots(exp.files[name])
+            : exp.files[name]
     if (v !== undefined) files[name] = JSON.stringify(v)
   }
   return files
