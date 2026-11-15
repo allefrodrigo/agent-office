@@ -17,8 +17,9 @@ O guarda é defesa em profundidade, por cima do modo de permissão. Não é a ú
    - `git -c` fora de uma lista segura, `--config-env`, alias desconhecido, `git config` que grava alias ou comando, `--upload-pack` e afins (também abreviados), `ext::`;
    - `npm` com comando fora da lista (o npm aceita abreviações: `npm pu` publica);
    - opção longa de `curl`, `wget`, `httpie` ou `Invoke-WebRequest` que ele não reconhece por inteiro (eles aceitam prefixos: `--post-d`), proxy, `--resolve`, arquivo de configuração;
-   - PowerShell não é lido a fundo: só passam `Get-ChildItem`, `Get-Content`, `Get-Location`, `Test-Path`, `Select-String` e `Get-Date` com argumentos simples. Qualquer `(`, `$`, `+`, `[`, `&`, `{`, crase, chamada `.Metodo(`, `iex`, `Start-Process` ou outro comando pede tudo. `-EncodedCommand` e `-File` também;
-   - MCP: executor (`execute`, `run`, `eval`, `shell`…); ferramenta de consulta (pelo nome ou por um argumento chamado `sql`, `query`, `statement` ou `execute`) com algum texto que não é uma leitura simples nem claramente outra coisa (identificador, número, data). Leitura simples: começa com `SELECT`, `WITH`, `EXPLAIN`, `SHOW` ou `DESCRIBE`, sem comentário, sem segunda instrução, sem verbo de escrita; ou um `PRAGMA` de uma lista de leitura, sem argumento ou com um identificador. Também pede a entrada que não foi lida até o fim (mais de 100 textos, mais de 8 níveis, texto com mais de 20.000 caracteres).
+   - PowerShell não é lido: toda chamada da ferramenta PowerShell e toda linha com `pwsh` ou `powershell` (`-Command`, `-EncodedCommand`, `-File`, script, entrada padrão) pede tudo, sem exceção. Texto de shell ou de MCP com cara de PowerShell também: um cmdlet (`Remove-Item`, `Invoke-WebRequest`, `Send-MailMessage`; em minúsculas, quando o substantivo é conhecido), `iex`, `iwr`, `irm`, `saps`;
+   - comando com CR solto ou quebra de linha Unicode (U+0085, U+2028, U+2029): o shell e o guarda poderiam ver comandos diferentes. CRLF conta como uma quebra comum;
+   - MCP: executor (`execute`, `run`, `eval`, `shell`…); ferramenta de consulta (pelo nome ou por um argumento chamado `sql`, `query`, `statement` ou `execute`) com algum texto que não é uma leitura simples nem claramente outra coisa (identificador que não é verbo SQL, número, data). `vacuum`, `commit` ou `checkpoint` sozinhos são instruções, então pedem. Leitura simples: começa com `SELECT`, `WITH`, `EXPLAIN`, `SHOW` ou `DESCRIBE`, sem comentário, sem segunda instrução, sem verbo de escrita; ou um `PRAGMA` de leitura. Os de tabela e índice (`table_info`, `index_list`, `foreign_key_list`…) aceitam um identificador; os de ajuste (`journal_mode`, `user_version`, `page_size`…) só passam sem argumento, porque com argumento eles gravam. Também pede a entrada que não foi lida até o fim (mais de 100 textos, mais de 8 níveis, texto com mais de 20.000 caracteres).
    - "localhost" só vale para `localhost`, `::1` e `127.x.x.x` escrito por extenso. `127.evil.com`, `*.localhost`, `0.0.0.0`, userinfo e fragmento não enganam.
 
 O guarda entra de dois jeitos:
@@ -44,12 +45,13 @@ Se uma versão do CLI deixar de levar o "ask" ao `canUseTool`, `AGENT_OFFICE_BOT
 - O guarda lê o comando, não o que ele executa. Script (`./deploy.sh`, `npm run x`, `make`), código de interpretador (`python -c`, `node -e`) e binário próprio podem enviar ou apagar sem que o texto diga. A primeira linha (o modo) cobre esses casos.
 - Arquivos de configuração escritos antes por outra ferramenta (`.git/config` com alias, `~/.curlrc` com proxy) mudam o que um comando inofensivo faz.
 - Um servidor MCP com nome inocente e efeito colateral (`mcp__x__sync`) só pede quando o que ele carrega parece um comando.
-- O guarda pede mais do que precisa: `git push --dry-run`, `$EDITOR arquivo`, SQL com `;` dentro de um texto, busca com `query` em texto livre, quase todo comando PowerShell. Um falso positivo custa um clique.
+- O guarda pede mais do que precisa: `git push --dry-run`, `$EDITOR arquivo`, SQL com `;` dentro de um texto, busca com `query` em texto livre, todo comando PowerShell, mensagem de commit que cita `powershell` ou um cmdlet. Um falso positivo custa um clique.
+- A cara de PowerShell é uma heurística. Um cmdlet em minúsculas com substantivo fora da lista (`out-file`) ou um script `.ps1` chamado por outro nome passam pelo texto; quem os roda é um host PowerShell, que pede.
 - Pedido que o guarda não leu chega com o tipo `pay` no campo `sensitive` (o primeiro da ordem); o motivo do cartão diz "Conferir".
 
 ## Congelado nesta fase
 
-Depois de três rodadas de revisão, o guarda fica congelado na fase 1. Achado novo de severidade alta é corrigido; médio ou baixo entra nos limites acima e no CB-29 ("Endurecer o guarda") do plano.
+Depois de quatro rodadas de revisão, o guarda fica congelado na fase 1. Achado novo de severidade alta é corrigido; médio ou baixo entra nos limites acima e no CB-29 ("Endurecer o guarda") do plano.
 
 ## Consequências
 

@@ -256,4 +256,4 @@ Entrega: criar um bot pela galeria, conversar com ele no Chat, ver a rodada com 
 - **CB-26** Gravar uma skill a partir de uma conversa boa (`SKILL.md` na pasta do projeto, com prévia).
 - **CB-27** Ligar para o bot: voz com o whisper local e a narração que o estúdio já tem.
 - **CB-28** Resumo do dia por notificação às 18:00: o que os bots fizeram e o que espera você.
-- **CB-29** Endurecer o guarda: os achados médios e baixos das revisões depois do congelamento (lista em "Limites conhecidos" da ADR 0014). Candidatos: ler scripts de `package.json` e `Makefile`, um tipo "não lido" no contrato em vez de `pay`, PowerShell com um parser de verdade, menos falsos positivos em buscas com `query`.
+- **CB-29** Endurecer o guarda: os achados médios e baixos das revisões depois do congelamento (lista em "Limites conhecidos" da ADR 0014). Candidatos: ler scripts de `package.json` e `Makefile`, um tipo "não lido" no contrato em vez de `pay`, PowerShell com um parser de verdade (hoje toda linha pede e a cara de PowerShell é uma heurística), menos falsos positivos em buscas com `query`.

@@ -30,8 +30,9 @@ export function sensitiveKinds(tool: string, input: unknown, opts: GuardOptions 
   const args = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>
   if (tool === 'Bash' || tool === 'Monitor' || tool === 'PowerShell') {
     const command = typeof args.command === 'string' ? args.command : ''
-    if (command.length > MAX_COMMAND) all(found)
-    else if (tool === 'PowerShell') psKinds(command, found)
+    // PowerShell has too many ways to build and run a command (iex, &, .NET calls, casts,
+    // Start-Process, -EncodedCommand) to be read here: every PowerShell call asks.
+    if (command.length > MAX_COMMAND || tool === 'PowerShell') all(found)
     else shellKinds(command, found, 0)
   } else if (tool.startsWith('mcp__')) {
     mcpKinds(tool, args, opts, found)
@@ -168,11 +169,25 @@ function inputStrings(input: Record<string, unknown>): { strings: string[]; keys
   return { strings, keys, complete }
 }
 
-/** Clearly not SQL: an identifier (users, public.orders, abc-123), a number or an ISO date. */
+/** A bare word that is a whole SQL statement on its own (VACUUM, COMMIT, CHECKPOINT…), or starts one. */
+const SQL_VERBS = new Set(
+  (
+    'select insert update delete drop alter create truncate grant revoke merge call exec execute copy replace upsert ' +
+    'vacuum analyze analyse reindex cluster checkpoint begin commit rollback savepoint release start end abort lock ' +
+    'unlock set reset show explain describe desc pragma attach detach load prepare deallocate listen unlisten notify ' +
+    'refresh import unload discard do with values table use rename comment optimize flush kill shutdown purge backup ' +
+    'restore declare fetch move close open go'
+  ).split(' '),
+)
+/** Clearly not SQL: an identifier (users, public.orders, abc-123) that is not a SQL verb, a number or an ISO date. */
 const notSql = (s: string) =>
-  /^[A-Za-z_][\w.-]*$/.test(s) || /^-?\d+(\.\d+)?$/.test(s) || /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(s)
-/** PRAGMAs that only read, with no argument or one identifier: anything else (an =, a value) asks. */
-const READ_PRAGMAS = new Set(['table_info', 'table_xinfo', 'index_list', 'index_info', 'index_xinfo', 'foreign_key_list', 'database_list', 'compile_options', 'user_version', 'schema_version', 'page_count', 'page_size', 'journal_mode'])
+  (/^[A-Za-z_][\w.-]*$/.test(s) && !SQL_VERBS.has(s.toLowerCase())) ||
+  /^-?\d+(\.\d+)?$/.test(s) ||
+  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/.test(s)
+/** PRAGMAs that read one table or index: bare or with one identifier, table_info(users). */
+const TABLE_PRAGMAS = new Set(['table_info', 'table_xinfo', 'index_list', 'index_info', 'index_xinfo', 'foreign_key_list'])
+/** PRAGMAs that read a setting: only bare. With an argument, journal_mode(x) or user_version(1) writes. */
+const SETTING_PRAGMAS = new Set(['database_list', 'compile_options', 'user_version', 'schema_version', 'page_count', 'page_size', 'journal_mode'])
 /** Writes, or reads with side effects (SELECT INTO, nextval, pg_terminate_backend, dblink…). */
 const SQL_WRITE = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|exec|execute|copy|replace|upsert|attach|detach|vacuum|set|reindex|cluster|lock|comment|rename|do|into|load|nextval|setval|set_config|load_file|outfile|dumpfile|sleep|benchmark)\b|\b(pg_|dblink|lo_|xp_|sp_)\w*/i
 /**
@@ -185,7 +200,9 @@ function readOnlySql(s: string): boolean {
   if (/--|\/\*|#|;/.test(t)) return false
   if (/^pragma\b/i.test(t)) {
     const m = /^pragma\s+(\w+)\s*(\(\s*[A-Za-z_]\w*\s*\))?$/i.exec(t)
-    return !!m && READ_PRAGMAS.has(m[1].toLowerCase())
+    if (!m) return false
+    const name = m[1].toLowerCase()
+    return TABLE_PRAGMAS.has(name) || (!m[2] && SETTING_PRAGMAS.has(name))
   }
   return /^\(?\s*(select|with|explain|show|describe|desc)\b/i.test(t) && !SQL_WRITE.test(t)
 }
@@ -443,29 +460,37 @@ function shellKinds(cmd: string, found: Set<SensitiveKind>, depth: number): void
     all(found)
     return
   }
-  rawKinds(cmd, found)
-  const { segments, piped, subs } = tokenize(cmd)
+  // CR alone and the Unicode line breaks split lines for some readers and not for others: the
+  // tokenizer and the shell could see different commands, so the guard does not choose.
+  const text = cmd.replace(/\r\n/g, '\n')
+  if (/[\r\u0085\u2028\u2029]/.test(text) || looksPowerShell(text)) return all(found)
+  rawKinds(text, found)
+  const { segments, piped, subs } = tokenize(text)
   for (const sub of subs) shellKinds(sub, found, depth + 1)
   segments.forEach((seg, k) => simpleKinds(seg, found, depth, piped[k]))
 }
 
-/** Read cmdlets that pass in PowerShell, with plain literal arguments. */
-const PS_READ = new Set(['get-childitem', 'get-content', 'get-location', 'test-path', 'select-string', 'get-date'])
-
+/** PowerShell's approved verbs, plus ForEach and Where (ForEach-Object, Where-Object). */
+const PS_VERBS =
+  'Add|Approve|Assert|Backup|Block|Build|Checkpoint|Clear|Close|Compare|Complete|Compress|Confirm|Connect|Convert|ConvertFrom|ConvertTo|Copy|Debug|Deny|Deploy|Disable|Disconnect|Dismount|Edit|Enable|Enter|Exit|Expand|Export|Find|ForEach|Format|Get|Grant|Group|Hide|Import|Initialize|Install|Invoke|Join|Limit|Lock|Measure|Merge|Mount|Move|New|Open|Optimize|Out|Ping|Pop|Protect|Publish|Push|Read|Receive|Redo|Register|Remove|Rename|Repair|Request|Reset|Resize|Resolve|Restart|Restore|Resume|Revoke|Save|Search|Select|Send|Set|Show|Skip|Split|Start|Step|Stop|Submit|Suspend|Switch|Sync|Test|Trace|Unblock|Undo|Uninstall|Unlock|Unprotect|Unpublish|Unregister|Update|Use|Wait|Watch|Where|Write'
 /**
- * PowerShell is not parsed in depth: it has too many ways to build and run a command
- * (iex, &, .NET calls, casts, Start-Process). Only the read cmdlets of PS_READ with plain
- * arguments pass; anything with ( $ + [ & or a .Method call, or any other command, asks.
+ * Nouns of cmdlets that change things, run things or reach out, matched in any case
+ * (remove-item). Nouns common in file names (date, file, path, string) are left to the
+ * capitalised match, so format-date.ts stays a file.
  */
-function psKinds(cmd: string, found: Set<SensitiveKind>): void {
-  if (!cmd.trim()) return
-  if (/[($+[&`{}]|\.\s*\w+\s*\(|\biex\b|invoke-expression|start-process/i.test(cmd)) return all(found)
-  for (const seg of cmd.split(/[;|\n]/)) {
-    const words = seg.trim().split(/\s+/).filter(Boolean)
-    if (!words.length) continue
-    if (!PS_READ.has(words[0].toLowerCase()) || words.slice(1).some((w) => !/^[\w./\\:*'"-]+$/.test(w))) return all(found)
-  }
-}
+const PS_NOUNS =
+  'Item|ChildItem|ItemProperty|Content|Process|WebRequest|RestMethod|MailMessage|Expression|Command|Service|Job|PSSession|ScheduledTask|ScheduledJob|LocalUser|LocalGroup|Acl|CimInstance|CimMethod|WmiObject|WmiMethod|Computer|ExecutionPolicy|PSDrive|SmbShare|NetFirewallRule|Package|Module|Script|BitsTransfer'
+/**
+ * Text that reads as PowerShell: a cmdlet (Remove-Item, Invoke-WebRequest, Send-MailMessage;
+ * remove-item in any case with a known noun), iex, iwr, irm, saps, pwsh or powershell. Bash
+ * does not run cmdlets, but the text may reach a PowerShell host (a script, an MCP server),
+ * and PowerShell has too many ways to build a command to read it here. Not a part of a longer
+ * name: X-Request-Id, add-item.tsx and fix-powershell-docs are not commands.
+ */
+const PS_CMDLET = new RegExp(`(?<![\\w./\\\\-])(${PS_VERBS})-[A-Z][A-Za-z]*(?![\\w./\\\\-])`)
+const PS_KNOWN = new RegExp(`(?<![\\w./\\\\-])(${PS_VERBS})-(${PS_NOUNS})(?![\\w./\\\\-])`, 'i')
+const PS_WORDS = /(?<![\w-])(pwsh|powershell|powershell_ise|iex|iwr|irm|saps|icm)(\.exe)?(?![\w-])/i
+const looksPowerShell = (s: string) => PS_CMDLET.test(s) || PS_KNOWN.test(s) || PS_WORDS.test(s)
 
 /** One simple command: what wraps it, the code hidden in its environment, then the command itself. */
 function simpleKinds(seg: Token[], found: Set<SensitiveKind>, depth: number, piped = false): void {
@@ -565,13 +590,8 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
     else all(found)
     return
   }
-  if (PS.has(p)) {
-    // -Command (and its prefixes -c, -co…) is read; -EncodedCommand, -File, a script or stdin are not.
-    const c = args.findIndex((a) => /^-(c|co|com|comm|comma|comman|command)$/i.test(a))
-    if (c >= 0 && args[c + 1] !== undefined && args[c + 1] !== '-') psKinds(args.slice(c + 1).join(' '), found)
-    else all(found)
-    return
-  }
+  // PowerShell is not read: any pwsh or powershell line asks, -Command included.
+  if (PS.has(p)) return all(found)
   if (p === 'eval') {
     if (args.some(expands)) return all(found)
     return shellKinds(args.join(' '), found, depth + 1)

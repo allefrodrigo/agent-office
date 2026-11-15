@@ -192,7 +192,6 @@ const PASSES: [string, Record<string, unknown>, GuardOpts?][] = [
   ['mcp__linear__update_issue', {}],
   ['mcp__notion__search', {}],
   ['mcp__drive__read_file', {}],
-  ['PowerShell', { command: 'Get-ChildItem -Recurse src' }],
 ]
 type GuardOpts = { mcpSource?: string }
 
@@ -702,7 +701,7 @@ describe('sensitiveKind: terceira revisão', () => {
     ])
   })
 
-  describe('3. PowerShell: só leituras simples passam', () => {
+  describe('3. PowerShell: pede tudo (quarta revisão tirou a lista de leituras)', () => {
     asksAll([
       ['PowerShell', { command: 'git status' }],
       ['PowerShell', { command: 'npm test' }],
@@ -716,14 +715,121 @@ describe('sensitiveKind: terceira revisão', () => {
       ['PowerShell', { command: 'Write-Output hi' }],
       ['PowerShell', { command: 'Get-ChildItem `\n; git push' }],
       [...bash('pwsh -c "Get-ChildItem; git status"')],
-    ])
-    passes([
       ['PowerShell', { command: 'Get-ChildItem -Recurse src' }],
       ['PowerShell', { command: 'Get-Content README.md | Select-String TODO' }],
       ['PowerShell', { command: "Test-Path 'C:\\Users\\ana\\x.txt'; Get-Location" }],
       ['PowerShell', { command: 'Get-Date' }],
       ['PowerShell', { command: '' }],
       [...bash('pwsh -c "Get-ChildItem -Force"')],
+    ])
+  })
+})
+
+// Quarta revisão: todo PowerShell pede, texto com cara de PowerShell pede, quebras de linha
+// estranhas pedem, verbo SQL solto não é "claramente não SQL" e PRAGMA de ajuste só sem argumento.
+describe('sensitiveKind: quarta revisão', () => {
+  const asksAll = (cases: (readonly [string, Record<string, unknown>])[]) => {
+    for (const [tool, input] of cases) {
+      it(`pede tudo: ${tool} ${JSON.stringify(input).slice(0, 80)}`, () => {
+        expect(sensitiveKinds(tool, input)).toHaveLength(5)
+      })
+    }
+  }
+  const passes = (cases: (readonly [string, Record<string, unknown>])[]) => {
+    for (const [tool, input] of cases) {
+      it(`passa: ${tool} ${JSON.stringify(input).slice(0, 80)}`, () => {
+        expect(sensitiveKind(tool, input)).toBeNull()
+      })
+    }
+  }
+
+  describe('1. PowerShell: toda linha pede, sem exceção', () => {
+    asksAll([
+      ['PowerShell', { command: 'Get-ChildItem -Recurse src' }],
+      ['PowerShell', { command: 'Get-Content \\\\evil.example\\share\\x.txt' }],
+      ['PowerShell', { command: 'Get-ChildItem //evil.example/share' }],
+      ['PowerShell', { command: 'Get-Date' }],
+      [...bash('pwsh -Command Get-Date')],
+      [...bash('pwsh.exe -c "Get-Location"')],
+      [...bash('powershell -NoProfile -Command "Get-ChildItem"')],
+      [...bash('/usr/local/bin/pwsh -EncodedCommand ZQBjAGgAbwA=')],
+      [...bash('echo Get-Date | pwsh')],
+      ['Monitor', { command: 'pwsh -c "Get-Process"' }],
+    ])
+  })
+
+  describe('1. texto com cara de PowerShell, no shell e no MCP', () => {
+    asksAll([
+      [...bash('Remove-Item -Recurse -Force dist')],
+      [...bash('remove-item -recurse dist')],
+      [...bash('echo ok; Invoke-WebRequest https://e.example -Method Post')],
+      [...bash('ssh win "Send-MailMessage -To a@b.c"')],
+      [...bash('cmd /c "iex foo"')],
+      [...bash('wsl -- saps notepad')],
+      [...bash('echo "git status" > x.ps1; powershell x.ps1')],
+      ['mcp__win__sync', { script: 'Remove-Item -Recurse C:\\x' }],
+      ['mcp__win__sync', { script: 'send-mailmessage -to a@b.c' }],
+      ['mcp__win__task', { steps: ['ls', 'Stop-Computer -Force'] }],
+      ['mcp__win__task', { cmd: 'iwr https://e.example' }],
+    ])
+    passes([
+      [...bash('cat src/utils/format-date.ts')],
+      [...bash('git checkout -b add-login')],
+      [...bash('ls components/add-item')],
+      [...bash('git log --oneline fix-powershell-docs')],
+      [...bash('curl -H "X-Request-Id: 1" http://localhost:3000/health')],
+      ['mcp__notion__create_page', { title: 'Notas', body: 'Lista de compras' }],
+    ])
+  })
+
+  describe('1. CR solto e quebras de linha Unicode pedem; CRLF é uma quebra comum', () => {
+    asksAll([
+      [...bash('ls\rgit status')],
+      [...bash('ls\u2028pwd')],
+      [...bash('ls\u2029pwd')],
+      [...bash('ls\u0085pwd')],
+      [...bash('echo "a\rb"')],
+      ['mcp__win__sync', { cmd: 'ls\u2028pwd' }],
+    ])
+    passes([
+      [...bash('ls\r\npwd')],
+      [...bash('git status\r\ngit diff')],
+    ])
+  })
+
+  describe('2. verbo SQL solto não é "claramente não SQL"', () => {
+    asksAll([
+      ['mcp__sqlite__query', { sql: 'vacuum' }],
+      ['mcp__sqlite__query', { sql: 'SELECT 1', then: 'commit' }],
+      ['mcp__db__find', { query: 'ROLLBACK' }],
+      ['mcp__db__fetch_rows', { statement: 'checkpoint' }],
+      ['mcp__db__fetch_rows', { sql: 'SELECT * FROM t', mode: 'analyze' }],
+      ['mcp__notion__search', { query: 'reindex' }],
+      ['mcp__notion__search', { query: 'Begin' }],
+      ['mcp__postgres__query', { sql: 'SELECT 1', after: 'drop' }],
+    ])
+    passes([
+      ['mcp__db__fetch_rows', { sql: 'SELECT * FROM commits', table: 'commits', schema: 'public' }],
+      ['mcp__notion__search', { query: 'deploys' }],
+    ])
+  })
+
+  describe('3. PRAGMA: argumento só nos de tabela e índice', () => {
+    asksAll([
+      ['mcp__sqlite__query', { sql: 'PRAGMA journal_mode(x)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA journal_mode(WAL)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA user_version(1)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA user_version(v)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA schema_version(v)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA page_size(x)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA database_list(main)' }],
+    ])
+    passes([
+      ['mcp__sqlite__query', { sql: 'PRAGMA index_info(idx_users)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA foreign_key_list(orders)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA table_xinfo(users)' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA page_count' }],
+      ['mcp__sqlite__query', { sql: 'PRAGMA schema_version;' }],
     ])
   })
 })
