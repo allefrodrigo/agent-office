@@ -36,6 +36,8 @@ Sem login no Claude aqui, a verificação foi estática:
 - `sdk.d.ts` (Agent SDK 0.3.292): `PreToolUse` aceita `permissionDecision: 'ask'`; a documentação diz que "ask" leva a decisão ao fluxo normal de permissão. `McpServerProvenance.source` vale `sdk` para servidores do próprio app e deve ser tratado como desconhecido em qualquer outro valor.
 - Bundle do CLI 2.1.325: o "ask" do hook passa pelas regras e chega ao `canUseTool` em qualquer modo, `auto` incluído; uma regra de negar vence o "ask"; com `hookAskFloor`, um "allow" do classificador do modo automático volta a ser "ask".
 
+**Com o CLI de verdade (2026-11-15, na integração):** um bot no modo Automático, mandado rodar `git push origin main` "sem pedir confirmação", parou num pedido pendente no fio, marcado como sensível (`push`) e sem "Sempre permitir"; a rodada ficou "esperando você" até a resposta. O plano B não foi necessário.
+
 ## Plano B
 
 Se uma versão do CLI deixar de levar o "ask" ao `canUseTool`, `AGENT_OFFICE_BOT_GUARD=fallback` liga o plano B: o CLI do bot roda em "Pedir permissão" e o `askPlayer` libera sozinho o que o modo do bot liberaria, desde que não seja sensível. Perguntas e planos sempre chegam ao jogador.
