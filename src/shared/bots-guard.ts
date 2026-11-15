@@ -101,22 +101,23 @@ function mcpKinds(tool: string, input: Record<string, unknown>, opts: GuardOptio
   // not its name: a configured server could also call itself "office" (CLI docs: key trust on source).
   if (server === 'office' && (opts.mcpSource === undefined || opts.mcpSource === 'sdk')) return
   const w = words(name)
-  const strings = inputStrings(input)
   const reads = READ.has(w[0] ?? '')
-  // SQL (query, execute_sql…): one read-only statement goes, anything else asks for everything.
-  const sql = strings.map(stripSql).filter(looksSql)
-  if (w.some((x) => SQLISH.has(x)) && sql.length) {
-    if (!sql.every(readOnlySql)) return all(found)
-  } else if (!reads && w.some((x) => EXECUTOR.has(x) || x === 'sql' || x === 'statement')) {
-    // A tool that runs what it is given (execute, run_command, eval, a sql tool whose statement
-    // cannot be found): its name says nothing of what it will do, so it asks.
-    return all(found)
+  // A tool that runs what it is given (execute, run_command, eval, execute_sql): its name says
+  // nothing of what it will do, so it asks, whatever its input looks like.
+  if (!reads && w.some((x) => EXECUTOR.has(x))) return all(found)
+  const { strings, complete } = inputStrings(input)
+  if (w.some((x) => SQLISH.has(x))) {
+    // A query tool: every text that could be SQL must be one plain read. Input not read to the end asks.
+    if (!complete || strings.some((s) => maybeSql(s) && !readOnlySql(s))) return all(found)
+    if (!reads && (w.includes('sql') || w.includes('statement')) && !strings.some(maybeSql)) return all(found)
   }
   nameKinds(w, reads, found)
   // What the call carries counts too (a remote shell's host({ cmd: 'git push' }) under any name).
   // Not when the name already asks (a send_message about "git push" is still a message) nor for
   // a tool that only reads (a search for "drop table" drops nothing).
-  if (!found.size && !reads) for (const s of strings) shellKinds(s, found, 1)
+  if (found.size || reads) return
+  if (!complete) return all(found)
+  for (const s of strings) shellKinds(s, found, 1)
 }
 
 function nameKinds(w: string[], reads: boolean, found: Set<SensitiveKind>): void {
@@ -131,28 +132,47 @@ function nameKinds(w: string[], reads: boolean, found: Set<SensitiveKind>): void
   if (has(DELETE)) found.add('delete')
 }
 
-/** String values of an MCP input, three levels down at most, each cut at MAX_COMMAND. */
-function inputStrings(input: Record<string, unknown>): string[] {
-  const out: string[] = []
+/** How deep an MCP input is read; deeper, it is not read, so it asks. */
+const MCP_DEPTH = 8
+
+/**
+ * String values of an MCP input. `complete` is false when something was left out
+ * (too many strings, too deep, a string past MAX_COMMAND): the caller asks instead of guessing.
+ */
+function inputStrings(input: Record<string, unknown>): { strings: string[]; complete: boolean } {
+  const strings: string[] = []
+  let complete = true
   const walk = (v: unknown, depth: number) => {
-    if (out.length >= MAX_MCP_STRINGS) return
+    if (!complete) return
     if (typeof v === 'string') {
-      if (v.trim()) out.push(v.slice(0, MAX_COMMAND))
-    } else if (depth < 3 && v && typeof v === 'object') {
-      for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x, depth + 1)
+      if (!v.trim()) return
+      if (strings.length >= MAX_MCP_STRINGS || v.length > MAX_COMMAND) complete = false
+      else strings.push(v)
+    } else if (v && typeof v === 'object') {
+      if (depth >= MCP_DEPTH) complete = false
+      else for (const x of Array.isArray(v) ? v : Object.values(v)) walk(x, depth + 1)
     }
   }
   walk(input, 0)
-  return out
+  return { strings, complete }
 }
 
-const stripSql = (s: string) => s.replace(/--[^\n]*|\/\*[\s\S]*?\*\//g, ' ').trim()
-const looksSql = (s: string) => /^\(?\s*(select|with|explain|show|describe|desc|insert|update|delete|drop|alter|create|truncate|pragma|grant|revoke|call|exec|execute|merge|copy|set|replace|upsert|vacuum|attach|lock|begin|commit|do)\b/i.test(s)
+/** A text that could be SQL: a statement verb anywhere, or a statement that starts like one. */
+const maybeSql = (s: string) =>
+  /\b(select|insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|exec|execute|copy|replace|upsert|vacuum|attach|detach|lock|pragma|reindex|cluster|rename|load|prepare|listen|notify|refresh|import|unload|reset|discard|checkpoint)\b/i.test(s) ||
+  /^\s*\(?\s*(do|set|begin|commit|rollback|with|explain|show|describe|desc|table|values)\b/i.test(s)
 /** Writes, or reads with side effects (SELECT INTO, nextval, pg_terminate_backend, dblink…). */
-const SQL_WRITE = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|exec|execute|copy|replace|upsert|attach|detach|vacuum|set|reindex|cluster|lock|comment|rename|do|into|nextval|setval|set_config|load_file|outfile|dumpfile|sleep|benchmark)\b|\b(pg_|dblink|lo_|xp_|sp_)\w*/i
-/** One SELECT (or WITH/EXPLAIN/SHOW/DESCRIBE) that writes nothing. */
+const SQL_WRITE = /\b(insert|update|delete|drop|alter|create|truncate|grant|revoke|merge|call|exec|execute|copy|replace|upsert|attach|detach|vacuum|set|reindex|cluster|lock|comment|rename|do|into|load|nextval|setval|set_config|load_file|outfile|dumpfile|sleep|benchmark)\b|\b(pg_|dblink|lo_|xp_|sp_)\w*/i
+/**
+ * One plain read: starts with SELECT, WITH, EXPLAIN, SHOW, DESCRIBE or PRAGMA (no =), writes
+ * nothing, has no comment (--, /*, #) and no second statement. Comments are not stripped: inside
+ * a string literal ('--') they would hide the rest, so any of them asks.
+ */
 function readOnlySql(s: string): boolean {
-  return /^\(?\s*(select|with|explain|show|describe|desc)\b/i.test(s) && !/;\s*\S/.test(s) && !SQL_WRITE.test(s)
+  const t = s.trim().replace(/;\s*$/, '')
+  if (/--|\/\*|#|;/.test(t)) return false
+  if (/^pragma\b/i.test(t)) return !/[=(]/.test(t.replace(/^pragma\s+\w+\s*\(\s*\w+\s*\)$/i, 'pragma x'))
+  return /^\(?\s*(select|with|explain|show|describe|desc)\b/i.test(t) && !SQL_WRITE.test(t)
 }
 
 // ---------- shell commands ----------
@@ -161,13 +181,22 @@ interface Token {
   text: string
   /** Starts inside quotes ("if", "A=1"): a plain word, never a keyword or an assignment. */
   quoted: boolean
+  /** Every character came from inside quotes ('git push'): a literal, nothing expands in it. */
+  whole?: boolean
+  /** Has an unquoted brace expansion ({push,status}, {1..3}): bash makes several words of it. */
+  brace?: boolean
 }
 
 interface Parsed {
   segments: Token[][]
+  /** Per segment: it reads the output of the one before (a single |). */
+  piped: boolean[]
   /** $(…) and `…`, read as commands of their own. */
   subs: string[]
 }
+
+/** {a,b} and {1..3} outside quotes ($-braces are parameter expansions, read elsewhere). */
+const BRACE = /(^|[^$])\{[^{}]*(,|\.\.)[^{}]*\}/
 
 /**
  * Splits a command line into simple commands (on ; && || | & newlines and parentheses) and
@@ -175,23 +204,44 @@ interface Parsed {
  * too, so `$(echo git) push` keeps a command that comes from an expansion. Close enough to sh
  * for this purpose; the literal patterns of rawKinds catch what it gets wrong.
  */
-function tokenize(cmd: string): Parsed {
+function tokenize(cmd: string, powershell = false): Parsed {
   const segments: Token[][] = []
+  const piped: boolean[] = []
   const subs: string[] = []
   let seg: Token[] = []
   let cur = ''
+  /** The word as the shell sees its structure: unquoted characters as they are, quoted ones as 'x'. */
+  let bare = ''
   let quoted = false
+  let mixed = false
   let inWord = false
+  let pipeIn = false
   const endWord = () => {
-    if (inWord) seg.push({ text: cur, quoted })
+    if (inWord) seg.push({ text: cur, quoted, whole: quoted && !mixed, brace: BRACE.test(bare) })
     cur = ''
+    bare = ''
     quoted = false
+    mixed = false
     inWord = false
   }
-  const endSeg = () => {
+  /** `pipe`: the next segment reads this one's output. */
+  const endSeg = (pipe = false) => {
     endWord()
-    if (seg.length) segments.push(seg)
+    if (seg.length) {
+      segments.push(seg)
+      piped.push(pipeIn)
+    }
     seg = []
+    pipeIn = pipe
+  }
+  const lit = (text: string) => {
+    cur += text
+    bare += 'x'.repeat(text.length)
+  }
+  const raw = (text: string) => {
+    cur += text
+    bare += text
+    mixed = true
   }
   /** Reads $( … ) from i (pointing at '('), returns the index after ')'. */
   const readParen = (i: number): number => {
@@ -223,67 +273,73 @@ function tokenize(cmd: string): Parsed {
     if (c === "'") {
       const end = cmd.indexOf("'", i + 1)
       const stop = end < 0 ? cmd.length : end
-      cur += cmd.slice(i + 1, stop)
       if (!inWord) quoted = true
+      lit(cmd.slice(i + 1, stop))
       inWord = true
       i = stop + 1
     } else if (c === '"') {
+      if (!inWord) quoted = true
       let j = i + 1
       while (j < cmd.length && cmd[j] !== '"') {
         if (cmd[j] === '\\' && j + 1 < cmd.length) {
-          cur += cmd[j + 1]
+          lit(cmd[j + 1])
           j += 2
         } else if (cmd[j] === '$' && cmd[j + 1] === '(') {
           const start = j
           j = readParen(j + 1)
-          cur += cmd.slice(start, j)
+          raw(cmd.slice(start, j))
         } else if (cmd[j] === '`') {
           const start = j
           j = readTick(j)
-          cur += cmd.slice(start, j)
-        } else cur += cmd[j++]
+          raw(cmd.slice(start, j))
+        } else if (cmd[j] === '$') {
+          // "$X" still expands inside double quotes.
+          raw(cmd[j++])
+        } else lit(cmd[j++])
       }
-      if (!inWord) quoted = true
       inWord = true
       i = j + 1
     } else if (c === '\\') {
       if (cmd[i + 1] === '\n') i += 2
       else {
-        cur += cmd[i + 1] ?? ''
+        lit(cmd[i + 1] ?? '')
+        mixed = true
         inWord = true
         i += 2
       }
     } else if (c === '$' && cmd[i + 1] === '(') {
       const start = i
       i = readParen(i + 1)
-      cur += cmd.slice(start, i)
+      raw(cmd.slice(start, i))
       inWord = true
     } else if (c === '`') {
       const start = i
       i = readTick(i)
-      cur += cmd.slice(start, i)
+      raw(cmd.slice(start, i))
       inWord = true
     } else if (c === ';' || c === '|' || c === '&' || c === '\n' || c === '(' || c === ')' || c === '{' || c === '}') {
-      // `{` and `}` only group when they stand alone; "a{b}" and "${X}" stay one word.
-      if ((c === '{' || c === '}') && (inWord || cmd[i - 1] === '$')) {
-        cur += c
+      // `{` and `}` only group when they stand alone ("{ cmd; }"); "a{b}", "{a,b}" and "${X}" are words.
+      // PowerShell has no brace expansion: there braces are script blocks, always split.
+      const next = cmd[i + 1] ?? ' '
+      if (!powershell && ((c === '{' && (inWord || !/\s/.test(next))) || (c === '}' && inWord))) {
+        raw(c)
         inWord = true
         i++
         continue
       }
-      endSeg()
+      endSeg(c === '|' && cmd[i + 1] !== '|' && cmd[i - 1] !== '|')
       i++
     } else if (c === ' ' || c === '\t' || c === '\r') {
       endWord()
       i++
     } else {
-      cur += c
+      raw(c)
       inWord = true
       i++
     }
   }
   endSeg()
-  return { segments, subs }
+  return { segments, piped, subs }
 }
 
 /** /usr/local/bin/git, git.exe -> git */
@@ -304,6 +360,8 @@ const CONFIG_ENV = /^(GIT_CONFIG_(COUNT|KEY_\d+|VALUE_\d+|PARAMETERS|GLOBAL|SYST
 
 interface Unwrapped {
   tokens: Token[]
+  /** Reads the output of the command before it (cmd | this). */
+  piped?: boolean
   /** xargs (or parallel) adds arguments read from stdin. */
   xargs: boolean
   /** Commands hidden in environment variables (GIT_SSH_COMMAND=…). */
@@ -379,15 +437,28 @@ function shellKinds(cmd: string, found: Set<SensitiveKind>, depth: number, power
   }
   rawKinds(cmd, found, powershell)
   // PowerShell's call operators run what a variable or an expression holds: & $cmd, . $script, & (…).
-  if (powershell && /(^|[\s;|({])[&.]\s*[$(]/.test(cmd)) all(found)
-  const { segments, subs } = tokenize(cmd)
+  // .NET calls ((New-Object Net.WebClient).UploadString(…), [Diagnostics.Process]::Start(…)) are
+  // not read either: only a short list of string and math methods passes.
+  if (powershell && (/(^|[\s;|({])[&.]\s*[$(]/.test(cmd) || psCalls(cmd))) all(found)
+  const { segments, piped, subs } = tokenize(cmd, powershell)
   for (const sub of subs) shellKinds(sub, found, depth + 1, powershell)
-  for (const seg of segments) simpleKinds(seg, found, depth, powershell)
+  segments.forEach((seg, k) => simpleKinds(seg, found, depth, powershell, piped[k]))
+}
+
+/** Methods that only compute (strings, numbers, paths, dates): any other .NET call asks. */
+const PS_SAFE_METHODS = new Set('tostring replace split trim trimstart trimend tolower toupper tolowerinvariant toupperinvariant substring contains startswith endswith join format round floor ceiling abs max min gettype indexof lastindexof padleft padright equals compareto isnullorempty isnullorwhitespace getfilename getfilenamewithoutextension getextension getdirectoryname combine getfullpath now adddays addhours addminutes addseconds parse tryparse newguid toint32 toarray'.split(' '))
+
+function psCalls(cmd: string): boolean {
+  for (const m of cmd.matchAll(/(?:\.|::)\s*([A-Za-z_]\w*)\s*\(/g)) if (!PS_SAFE_METHODS.has(m[1].toLowerCase())) return true
+  return false
 }
 
 /** One simple command: what wraps it, the code hidden in its environment, then the command itself. */
-function simpleKinds(seg: Token[], found: Set<SensitiveKind>, depth: number, powershell: boolean): void {
+function simpleKinds(seg: Token[], found: Set<SensitiveKind>, depth: number, powershell: boolean, piped = false): void {
+  // git {push,status}, rm -{r,f}: bash turns one word into several; which ones is not read here.
+  if (!powershell && seg.some((t) => t.brace)) return all(found)
   const u = unwrap(seg)
+  u.piped = piped
   if (u.unknown) all(found)
   for (const code of u.code) shellKinds(code, found, depth + 1)
   segmentKinds(u, found, depth, powershell)
@@ -468,11 +539,63 @@ function segmentKinds(u: Unwrapped, found: Set<SensitiveKind>, depth: number, po
     if (expands(r.sub)) unknown = true
     return r
   }
-  programKinds(p, args, found, depth, powershell, sc)
+  programKinds(p, args, found, depth, powershell, sc, { tokens: tokens.slice(1), piped: !!u.piped })
   if (unknown) all(found)
 }
 
+/** What a program sees besides its words: the tokens (quoting) and whether stdin is a pipe. */
+interface Ctx {
+  tokens: Token[]
+  piped: boolean
+}
+
 type Sub = (a: string[], withValue?: string[]) => { sub: string; rest: string[] }
+
+/** npm commands and aliases by their full name (publish, unpublish and deprecate have rules of their own). */
+const NPM_KNOWN = new Set(
+  'access adduser audit bugs cache ci completion config dedupe deprecate diff dist-tag docs doctor edit exec explain explore find-dupes fund get help help-search hook init install install-ci-test install-test link ll login logout ls org outdated owner pack ping pkg prefix profile prune publish query rebuild repo restart root run run-script sbom search set shrinkwrap star stars start stop team test token uninstall unpublish unstar update version view whoami i add c ci cit it ln list la rm r un unlink remove t tst up upgrade v info show home issues x create innit s se find author why clean-install ic install-clean urn rum ddp isntall'.split(' '),
+)
+
+const START_VALUE = ['filepath', 'argumentlist', 'workingdirectory', 'verb', 'windowstyle', 'credential', 'redirectstandardoutput', 'redirectstandardinput', 'redirectstandarderror', 'environment']
+const START_SWITCH = ['wait', 'nonewwindow', 'passthru', 'loaduserprofile', 'usenewenvironment']
+const START_ALIAS: Record<string, string> = { path: 'filepath', pspath: 'filepath', lp: 'filepath', args: 'argumentlist', rso: 'redirectstandardoutput', rsi: 'redirectstandardinput', rse: 'redirectstandarderror', lup: 'loaduserprofile', nnw: 'nonewwindow' }
+
+/** A PowerShell parameter name from a unique prefix (-Arg -> argumentlist); null when unknown or ambiguous. */
+function psParam(name: string, known: string[]): string | null {
+  const n = name.toLowerCase()
+  if (START_ALIAS[n]) return START_ALIAS[n]
+  const hits = known.filter((k) => k.startsWith(n))
+  return hits.includes(n) ? n : hits.length === 1 ? hits[0] : null
+}
+
+/**
+ * Start-Process [-FilePath] prog [[-ArgumentList] 'a','b']: read by name and by position.
+ * An unknown parameter, a third positional or anything that expands asks.
+ */
+function startProcessKinds(tokens: Token[], found: Set<SensitiveKind>, depth: number): void {
+  let file: string | undefined
+  let list: string | undefined
+  const positional: string[] = []
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k].text
+    if (!tokens[k].quoted && t.startsWith('-') && t.length > 1) {
+      const [rawName, inline] = t.slice(1).split(/:(.*)/s)
+      const name = psParam(rawName, [...START_VALUE, ...START_SWITCH])
+      if (!name) return all(found)
+      if (START_SWITCH.includes(name)) continue
+      const value = inline !== undefined && inline !== '' ? inline : tokens[++k]?.text
+      if (value === undefined) return all(found)
+      if (name === 'filepath') file = value
+      else if (name === 'argumentlist') list = value
+      continue
+    }
+    positional.push(t)
+  }
+  if (file === undefined) file = positional.shift()
+  if (list === undefined) list = positional.shift()
+  if (positional.length || file === undefined || expands(file) || (list !== undefined && expands(list))) return all(found)
+  shellKinds([file, ...(list ? list.split(',') : [])].join(' '), found, depth + 1)
+}
 
 /** git subcommands that touch nothing remote (and, for the ones with rules below, how). Anything else may be an alias. */
 const GIT_LOCAL = new Set(
@@ -483,27 +606,38 @@ const GIT_SAFE_CONFIG = /^(user\.(name|email|signingkey)|color\.[\w.-]+|core\.(q
 /** Keys that make git run a command or send somewhere else: setting them is a way around the guard. */
 const GIT_CODE_CONFIG = /^(alias\.|core\.(sshcommand|pager|editor|fsmonitor|hookspath|askpass|gitproxy)|credential\.|sequence\.editor|diff\.external|diff\.[\w.-]+\.(command|textconv)|merge\.[\w.-]+\.driver|filter\.|gpg\.|uploadpack\.|receive\.|url\.|remote\.|include|protocol\.|pager\.)/i
 
-function programKinds(p: string, args: string[], found: Set<SensitiveKind>, depth: number, powershell: boolean, sc: Sub): void {
+function programKinds(p: string, args: string[], found: Set<SensitiveKind>, depth: number, powershell: boolean, sc: Sub, ctx: Ctx): void {
   // Commands that run other commands: read what they run.
   if (SHELLS.has(p)) {
+    // bash -c 'cmd' is read; bash script.sh, bash <(curl …) and curl … | bash (a script on stdin) are not.
     const c = args.findIndex((a) => /^-[a-z]*c$/.test(a))
     if (c >= 0 && args[c + 1] !== undefined) shellKinds(args[c + 1], found, depth + 1)
-    else if (c < 0 && args.some((a) => !a.startsWith('-'))) all(found) // bash script.sh, bash <(curl …): not readable
+    else all(found)
     return
   }
   if (PS.has(p)) {
-    const c = args.findIndex((a) => /^-(c|command|encodedcommand|e|ec)$/i.test(a))
-    if (c >= 0 && /^-(encodedcommand|e|ec)$/i.test(args[c])) all(found)
-    else if (c >= 0) shellKinds(args.slice(c + 1).join(' '), found, depth + 1, true)
+    // -Command (and its prefixes -c, -co…) is read; -EncodedCommand, -File, a script or stdin are not.
+    const c = args.findIndex((a) => /^-(c|co|com|comm|comma|comman|command)$/i.test(a))
+    if (c >= 0 && args[c + 1] !== undefined && args[c + 1] !== '-') shellKinds(args.slice(c + 1).join(' '), found, depth + 1, true)
+    else all(found)
     return
   }
-  if (p === 'eval' || p === 'invoke-expression' || p === 'iex') {
+  if (p === 'eval') {
     if (args.some(expands)) return all(found)
     return shellKinds(args.join(' '), found, depth + 1, powershell)
   }
-  if (p === 'start-process' || p === 'saps') {
-    // Start-Process git -ArgumentList push: the program and its arguments, without the option names.
-    return shellKinds(args.filter((a) => !a.startsWith('-')).join(' '), found, depth + 1, powershell)
+  if (p === 'invoke-expression' || p === 'iex') {
+    // Only one literal in single quotes (or double quotes with nothing to expand) is read.
+    // A variable, a sum, a cast, [char] codes or the pipeline ('…' | iex): it asks.
+    const only = ctx.tokens.length === 1 ? ctx.tokens[0] : undefined
+    if (!only?.whole || expands(only.text) || ctx.piped) return all(found)
+    return shellKinds(only.text, found, depth + 1, true)
+  }
+  if (p === 'start-process' || p === 'saps' || (powershell && p === 'start')) return startProcessKinds(ctx.tokens, found, depth)
+  if (p === 'invoke-command' || p === 'icm' || p === 'start-job' || p === 'sajb' || p === 'start-threadjob') {
+    // The script block's commands are segments of their own (braces split them); a file or a variable is not readable.
+    if (args.some((a) => expands(a) || /^-(f|fi|fil|file|filep|filepa|filepat|filepath)$/i.test(a))) all(found)
+    return
   }
   if (p === 'alias') {
     // alias p='git push': what the alias will run.
@@ -529,6 +663,8 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
     case 'yarn':
     case 'bun': {
       const { sub, rest } = sc(args, ['--registry', '--otp', '--tag', '--access', '-w', '--workspace', '--filter', '-F', '--cwd', '-C', '--prefix'])
+      // npm takes abbreviations (npm pu = publish): a command it does not know by name asks.
+      if (p === 'npm' && sub && !NPM_KNOWN.has(sub)) return all(found)
       if (sub === 'publish' || sub === 'deprecate' || (sub === 'npm' && subcommand(rest).sub === 'publish')) found.add('publish')
       else if (sub === 'unpublish') found.add('delete')
       else if (sub === 'run' || sub === 'run-script') {
@@ -657,7 +793,7 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
     case 'xh':
     case 'xhs':
     case 'httpie':
-      if (httpieSends(args)) found.add('send')
+      if (httpieSends(args, ctx.piped)) found.add('send')
       return
     case 'scp':
     case 'rsync':
@@ -669,7 +805,7 @@ function programKinds(p: string, args: string[], found: Set<SensitiveKind>, dept
     case 'invoke-restmethod':
     case 'iwr':
     case 'irm':
-      if (psWebSends(args)) found.add('send')
+      if (psWebSends(ctx.tokens)) found.add('send')
       return
     case 'remove-item':
       if (args.some((a) => /^-recurse$/i.test(a))) found.add('delete')
@@ -696,8 +832,17 @@ function gitKinds(args: string[], found: Set<SensitiveKind>, sc: Sub): void {
   }
   const { sub, rest } = sc(args, ['-C', '-c', '--git-dir', '--work-tree', '--namespace'])
   if (!sub) return
-  // Options that hand git a program to run on the other side, and the ext:: transport (a command as a remote).
-  if (rest.some((a) => /^--(upload-pack|receive-pack|exec)(=|$)/.test(a) || /^ext::/i.test(a)) || (sub === 'clone' && hasArg(rest, '-u'))) return all(found)
+  // Options that hand git a program to run (on the other side, per commit, as hooks from a
+  // template) or config for this one command, and the ext:: transport (a command as a remote).
+  // git takes any unambiguous prefix of a long option (--upload-p), so prefixes count too.
+  const risky = ['upload-pack', 'receive-pack', 'exec', 'config', 'separate-git-dir', ...(sub === 'clone' || sub === 'init' ? ['template'] : [])]
+  const riskyLong = (a: string) => {
+    const m = /^--([\w-]{2,})/.exec(a)
+    return !!m && risky.some((r) => r.startsWith(m[1]))
+  }
+  const shortRisk = (sub === 'clone' && (hasShort(rest, 'u') || hasShort(rest, 'c'))) || (sub === 'rebase' && hasShort(rest, 'x'))
+  const runsCommands = (sub === 'bisect' && rest.includes('run')) || (sub === 'submodule' && rest.includes('foreach')) || (sub === 'filter-branch' && rest.some((a) => /-filter$/.test(a)))
+  if (shortRisk || runsCommands || rest.some((a) => riskyLong(a) || /^ext::/i.test(a))) return all(found)
   switch (sub) {
     case 'push':
     case 'send-pack':
@@ -785,14 +930,24 @@ const reads = (method: string | undefined) => !method || method === 'GET' || met
 
 /** curl short options that take a value (the rest of the cluster, or the next word). */
 const CURL_SHORT_VALUE = new Set('dFTXHuoAebcmwxrEKCYyzQPUDt'.split(''))
-const CURL_LONG_VALUE = new Set(['--request', '--header', '--user', '--output', '--user-agent', '--referer', '--cookie', '--cookie-jar', '--max-time', '--connect-timeout', '--write-out', '--proxy', '--preproxy', '--resolve', '--connect-to', '--cacert', '--cert', '--key', '--range', '--retry', '--limit-rate', '--data', '--data-raw', '--data-binary', '--data-urlencode', '--data-ascii', '--json', '--form', '--form-string', '--upload-file', '--url-query', '--oauth2-bearer', '--interface', '--dns-servers', '--max-filesize', '--output-dir', '--retry-delay', '--retry-max-time', '--speed-limit', '--speed-time', '--variable', '--expand-url', '--socks4', '--socks4a', '--socks5', '--socks5-hostname', '--proxy1.0', '--doh-url', '--config'])
-/** Options that send the request somewhere else than the URL says (a proxy, another address for the name). */
-const CURL_REROUTE = /^--(proxy|preproxy|resolve|connect-to|socks4a?|socks5(-hostname)?|proxy1\.0|doh-url|config|next|variable|expand-url)$/
+/** Short flags with no value; any other letter is not read, so it asks. */
+const CURL_SHORT_FLAG = new Set('sSLfIikvqgGNOJRZjlBnpM0123456#:'.split(''))
+/** Long options taken exactly (curl also takes unambiguous prefixes, which are not read: they ask). */
+const CURL_LONG_VALUE = new Set(['request', 'header', 'user', 'output', 'user-agent', 'referer', 'cookie', 'cookie-jar', 'max-time', 'connect-timeout', 'write-out', 'proxy', 'preproxy', 'resolve', 'connect-to', 'cacert', 'capath', 'cert', 'key', 'cert-type', 'key-type', 'range', 'retry', 'limit-rate', 'data', 'data-raw', 'data-binary', 'data-urlencode', 'data-ascii', 'json', 'form', 'form-string', 'upload-file', 'url-query', 'url', 'oauth2-bearer', 'interface', 'dns-servers', 'max-filesize', 'output-dir', 'retry-delay', 'retry-max-time', 'speed-limit', 'speed-time', 'variable', 'expand-url', 'socks4', 'socks4a', 'socks5', 'socks5-hostname', 'proxy1.0', 'doh-url', 'config', 'max-redirs', 'time-cond', 'create-file-mode', 'unix-socket', 'abstract-unix-socket', 'trace', 'trace-ascii', 'stderr', 'etag-save', 'etag-compare', 'parallel-max', 'dump-header', 'continue-at', 'pinnedpubkey', 'ciphers', 'tls-max', 'proto', 'proto-redir', 'proto-default', 'aws-sigv4', 'login-options', 'netrc-file', 'keepalive-time', 'expect100-timeout', 'happy-eyeballs-timeout-ms', 'local-port', 'quote', 'telnet-option', 'ftp-port', 'proxy-user', 'proxy-header', 'mail-from', 'mail-rcpt', 'mail-auth', 'hostpubmd5', 'hostpubsha256', 'pass', 'crlfile'])
+const CURL_LONG_FLAG = new Set(['silent', 'show-error', 'location', 'location-trusted', 'fail', 'fail-with-body', 'fail-early', 'insecure', 'compressed', 'verbose', 'include', 'show-headers', 'head', 'get', 'globoff', 'http1.0', 'http1.1', 'http2', 'http2-prior-knowledge', 'http3', 'http3-only', 'ipv4', 'ipv6', 'progress-bar', 'no-progress-meter', 'raw', 'no-buffer', 'remote-name', 'remote-name-all', 'remote-header-name', 'remote-time', 'create-dirs', 'netrc', 'netrc-optional', 'path-as-is', 'retry-connrefused', 'retry-all-errors', 'tcp-nodelay', 'tcp-fastopen', 'no-keepalive', 'no-sessionid', 'no-alpn', 'no-npn', 'styled-output', 'list-only', 'crlf', 'digest', 'basic', 'ntlm', 'negotiate', 'anyauth', 'ssl', 'ssl-reqd', 'tlsv1', 'tlsv1.0', 'tlsv1.1', 'tlsv1.2', 'tlsv1.3', 'sslv2', 'sslv3', 'help', 'version', 'manual', 'junk-session-cookies', 'disable', 'xattr', 'trace-time', 'suppress-connect-headers', 'proxy-insecure', 'ignore-content-length', 'post301', 'post302', 'post303', 'parallel', 'parallel-immediate', 'disallow-username-in-url', 'ssl-no-revoke', 'ssl-revoke-best-effort', 'ssl-allow-beast', 'cert-status', 'false-start', 'skip-existing', 'clobber', 'next', 'append', 'ftp-pasv', 'ftp-ssl', 'ftp-create-dirs', 'proxytunnel', 'noproxy', 'compressed-ssh', 'mail-rcpt-allowfails', 'metalink', 'sasl-ir', 'tr-encoding', 'use-ascii', 'http0.9'])
+/** Options that send the request somewhere else than the URL says (a proxy, another address for the name, a file of options). */
+const CURL_REROUTE = new Set(['proxy', 'preproxy', 'resolve', 'connect-to', 'socks4', 'socks4a', 'socks5', 'socks5-hostname', 'proxy1.0', 'doh-url', 'config', 'next', 'variable', 'expand-url', 'proxytunnel', 'proxy-user', 'proxy-header', 'unix-socket', 'abstract-unix-socket'])
+/** Options that make a body, an upload or a write on the other side. */
+const CURL_WRITES = /^(data|data-raw|data-binary|data-urlencode|data-ascii|json|form|form-string|upload-file|post30[123]|mail-rcpt|mail-from|quote|append)$/
+
+/** --no-X turns off a flag X (curl, wget): read as X. */
+const unNo = (name: string, flags: Set<string>) => (name.startsWith('no-') && flags.has(name.slice(3)) ? name.slice(3) : name)
 
 /**
  * A curl that writes (a body, an upload or a method other than GET/HEAD) to a host that is not
- * this machine. Short clusters are read letter by letter (-sSd, -XPOST, -Fa=@f). A host it cannot
- * read (a variable, a config file) counts as remote.
+ * this machine. Short clusters are read letter by letter (-sSd, -XPOST, -Fa=@f); long options
+ * only when spelled out (curl takes --dat for --data). A host or an option it cannot read counts
+ * as remote and writing.
  */
 function curlSends(args: string[]): boolean {
   let write = false
@@ -807,22 +962,27 @@ function curlSends(args: string[]): boolean {
     }
     if (a.startsWith('--')) {
       const eq = a.indexOf('=')
-      const name = eq < 0 ? a : a.slice(0, eq)
-      const value = eq < 0 ? (CURL_LONG_VALUE.has(name) ? args[++k] : undefined) : a.slice(eq + 1)
-      if (/^--(data|form|json|upload-file|post30)/.test(name)) write = true
-      else if (name === '--request') method = value?.toUpperCase()
-      else if (name === '--url') {
-        if (eq < 0) urls.push(args[++k] ?? '')
-        else urls.push(value ?? '')
-      } else if (CURL_REROUTE.test(name)) unknown = true
+      const name = unNo((eq < 0 ? a : a.slice(0, eq)).slice(2), CURL_LONG_FLAG)
+      if (!CURL_LONG_VALUE.has(name) && !CURL_LONG_FLAG.has(name)) {
+        unknown = true
+        continue
+      }
+      const value = CURL_LONG_VALUE.has(name) ? (eq < 0 ? args[++k] : a.slice(eq + 1)) : undefined
+      if (CURL_WRITES.test(name)) write = true
+      if (CURL_REROUTE.has(name)) unknown = true
+      if (name === 'request') method = value?.toUpperCase()
+      else if (name === 'url') urls.push(value ?? '')
       continue
     }
     if (a.startsWith('-') && a.length > 1) {
       for (let c = 1; c < a.length; c++) {
         const letter = a[c]
-        // -K (a config file), -: (--next), -x (a proxy): where it goes is no longer the URL.
-        if (letter === 'K' || letter === ':' || letter === 'x') unknown = true
-        if (!CURL_SHORT_VALUE.has(letter)) continue
+        // -K (a config file), -: (--next), -x (a proxy), -Q (a raw FTP command): not the URL's request any more.
+        if (letter === 'K' || letter === ':' || letter === 'x' || letter === 'Q') unknown = true
+        if (!CURL_SHORT_VALUE.has(letter)) {
+          if (!CURL_SHORT_FLAG.has(letter)) unknown = true
+          continue
+        }
         const value = c + 1 < a.length ? a.slice(c + 1) : args[++k]
         if (letter === 'd' || letter === 'F' || letter === 'T') write = true
         if (letter === 'X') method = value?.toUpperCase()
@@ -832,14 +992,17 @@ function curlSends(args: string[]): boolean {
     }
     urls.push(a)
   }
-  // A config file or a reroute may also carry a body: not sure, so it counts as writing.
+  // A config file, a reroute or an option it does not know may also carry a body: it counts as writing.
   if (!write && !unknown && reads(method)) return false
   return unknown || !allLocal(urls)
 }
 
-const WGET_LONG_VALUE = new Set(['--post-data', '--post-file', '--body-data', '--body-file', '--method', '--output-document', '--output-file', '--header', '--user-agent', '--user', '--password', '--directory-prefix', '--tries', '--timeout', '--referer'])
-const WGET_SHORT_VALUE = new Set('OoPtTUaBQwlDXIARei'.split(''))
+const WGET_LONG_VALUE = new Set(['post-data', 'post-file', 'body-data', 'body-file', 'method', 'output-document', 'output-file', 'append-output', 'header', 'user-agent', 'user', 'password', 'http-user', 'http-password', 'directory-prefix', 'tries', 'timeout', 'connect-timeout', 'read-timeout', 'dns-timeout', 'wait', 'waitretry', 'referer', 'level', 'quota', 'limit-rate', 'cut-dirs', 'accept', 'reject', 'accept-regex', 'reject-regex', 'domains', 'exclude-domains', 'include-directories', 'exclude-directories', 'compression', 'max-redirect', 'load-cookies', 'save-cookies', 'backups', 'progress', 'restrict-file-names', 'local-encoding', 'remote-encoding', 'default-page', 'ca-certificate', 'ca-directory', 'certificate', 'private-key', 'secure-protocol', 'input-file', 'execute', 'config', 'base', 'bind-address', 'use-proxy', 'proxy-user', 'proxy-password', 'report-speed', 'dns-servers'])
+const WGET_LONG_FLAG = new Set(['quiet', 'verbose', 'debug', 'continue', 'timestamping', 'clobber', 'parent', 'recursive', 'mirror', 'page-requisites', 'convert-links', 'adjust-extension', 'server-response', 'spider', 'check-certificate', 'content-disposition', 'trust-server-names', 'show-progress', 'inet4-only', 'inet6-only', 'cache', 'cookies', 'save-headers', 'directories', 'force-directories', 'host-directories', 'span-hosts', 'relative', 'follow-ftp', 'dns-cache', 'https-only', 'keep-session-cookies', 'ignore-length', 'glob', 'proxy', 'xattr', 'help', 'version', 'background', 'force-html', 'iri', 'hsts', 'netrc', 'passive-ftp', 'retry-connrefused', 'random-wait', 'delete-after', 'backup-converted', 'convert-file-only', 'auth-no-challenge', 'ignore-case', 'protocol-directories', 'unlink'])
+const WGET_SHORT_VALUE = new Set('OoaPtTUBQwlDXIARei'.split(''))
+const WGET_SHORT_FLAG = new Set('qvdcNrmpkKESHbx46nFhVL'.split(''))
 
+/** wget that posts (--post-data, --method PUT…) to a host that is not this machine; long options only spelled out. */
 function wgetSends(args: string[]): boolean {
   let write = false
   let method: string | undefined
@@ -849,19 +1012,26 @@ function wgetSends(args: string[]): boolean {
     const a = args[k]
     if (a.startsWith('--')) {
       const eq = a.indexOf('=')
-      const name = eq < 0 ? a : a.slice(0, eq)
-      const value = eq < 0 ? (WGET_LONG_VALUE.has(name) ? args[++k] : undefined) : a.slice(eq + 1)
-      if (/^--(post-data|post-file|body-data|body-file)$/.test(name)) write = true
-      else if (name === '--method') method = value?.toUpperCase()
-      else if (name === '--input-file' || name === '--execute' || name === '--config') unknown = true
+      const name = unNo((eq < 0 ? a : a.slice(0, eq)).slice(2), WGET_LONG_FLAG)
+      if (!WGET_LONG_VALUE.has(name) && !WGET_LONG_FLAG.has(name)) {
+        unknown = true
+        continue
+      }
+      const value = WGET_LONG_VALUE.has(name) ? (eq < 0 ? args[++k] : a.slice(eq + 1)) : undefined
+      if (/^(post-data|post-file|body-data|body-file)$/.test(name)) write = true
+      else if (name === 'method') method = value?.toUpperCase()
+      // URLs from a file, a wgetrc command (post_data, http_proxy…), a config file, a proxy.
+      else if (/^(input-file|execute|config|use-proxy|proxy-user|proxy-password|base)$/.test(name)) unknown = true
       continue
     }
     if (a.startsWith('-') && a.length > 1) {
       for (let c = 1; c < a.length; c++) {
         const letter = a[c]
-        if (!WGET_SHORT_VALUE.has(letter)) continue
-        // -i (URLs from a file), -e (a wgetrc command: post_data, http_proxy…).
-        if (letter === 'i' || letter === 'e') unknown = true
+        if (!WGET_SHORT_VALUE.has(letter)) {
+          if (!WGET_SHORT_FLAG.has(letter)) unknown = true
+          continue
+        }
+        if (letter === 'i' || letter === 'e' || letter === 'B') unknown = true
         if (c + 1 >= a.length) k++
         break
       }
@@ -873,24 +1043,41 @@ function wgetSends(args: string[]): boolean {
   return unknown || !allLocal(urls)
 }
 
-const HTTPIE_VALUE = new Set(['-a', '--auth', '-A', '--auth-type', '-o', '--output', '--session', '--session-read-only', '--verify', '--cert', '--cert-key', '--cert-key-pass', '--timeout', '--max-redirects', '--pretty', '-s', '--style', '-p', '--print', '-P', '--history-print', '--format-options', '--boundary', '--default-scheme', '--ssl', '--ciphers', '--response-charset', '--response-mime', '--raw'])
+const HTTPIE_VALUE = new Set(['-a', '--auth', '-A', '--auth-type', '-o', '--output', '--session', '--session-read-only', '--verify', '--cert', '--cert-key', '--cert-key-pass', '--timeout', '--max-redirects', '--max-headers', '--pretty', '-s', '--style', '-p', '--print', '-P', '--history-print', '--format-options', '--boundary', '--default-scheme', '--ssl', '--ciphers', '--response-charset', '--response-mime', '--raw', '--proxy'])
+const HTTPIE_FLAG = new Set(['--json', '-j', '--form', '-f', '--multipart', '--unsorted', '--sorted', '--headers', '-h', '--meta', '-m', '--body', '-b', '--verbose', '-v', '--all', '--stream', '-S', '--download', '-d', '--continue', '-c', '--quiet', '-q', '--ignore-netrc', '--offline', '--follow', '-F', '--check-status', '--path-as-is', '--chunked', '--ignore-stdin', '-I', '--help', '--version', '--traceback', '--debug', '--compress', '-x', '--https', '--http1', '--http2', '--http3', '-4', '-6'])
 
-/** httpie / xh: `http POST host x=1`, or data items (x=1, x:=1, x@file) that make it a POST. */
-function httpieSends(args: string[]): boolean {
+/**
+ * httpie / xh: `http POST host x=1`, data items (x=1, x:=1, x@file) or a body on stdin (cmd | http
+ * host, unless --ignore-stdin) make it write. Options only spelled out; an unknown one asks.
+ */
+function httpieSends(args: string[], piped = false): boolean {
   const positional: string[] = []
   let write = false
   let unknown = false
+  let ignoreStdin = false
   for (let k = 0; k < args.length; k++) {
     const a = args[k]
     if (a.startsWith('-') && a.length > 1) {
-      const name = a.split('=')[0]
-      if (/^(--form|--multipart|--raw)$/.test(name) || /^-[a-zA-Z]*f[a-zA-Z]*$/.test(a)) write = true
+      const eq = a.indexOf('=')
+      const name = eq < 0 ? a : a.slice(0, eq)
+      if (/^(--form|--multipart|--raw|-f)$/.test(name)) write = true
+      if (name === '--ignore-stdin' || name === '-I') ignoreStdin = true
       if (name === '--proxy') unknown = true
-      if (!a.includes('=') && (HTTPIE_VALUE.has(name) || name === '--proxy')) k++
+      if (HTTPIE_VALUE.has(name)) {
+        if (eq < 0) k++
+      } else if (/^-[a-zA-Z]{2,}$/.test(a)) {
+        // A cluster of short flags (-fv): each letter must be a known flag.
+        for (const letter of a.slice(1)) {
+          if (!HTTPIE_FLAG.has(`-${letter}`)) unknown = true
+          if (letter === 'f') write = true
+          if (letter === 'I') ignoreStdin = true
+        }
+      } else if (!HTTPIE_FLAG.has(name)) unknown = true
       continue
     }
     positional.push(a)
   }
+  if (piped && !ignoreStdin) write = true
   // A method word anywhere (even after an option it was not read as the value of) writes.
   if (positional.some((a) => /^(post|put|patch|delete|connect|trace)$/i.test(a))) write = true
   const k = /^(get|head|options|post|put|patch|delete|trace|connect)$/i.test(positional[0] ?? '') ? 1 : 0
@@ -904,21 +1091,43 @@ function httpieSends(args: string[]): boolean {
   return !allLocal([url])
 }
 
-function psWebSends(args: string[]): boolean {
-  // PowerShell parameters ignore case: -METHOD post is -Method Post.
-  const low = args.map((a) => (a.startsWith('-') ? a.toLowerCase() : a))
-  const method = methodOf(low, ['-method'])
-  const proxy = low.includes('-proxy')
-  const write = low.some((a) => a === '-body' || a === '-infile') || !reads(method)
-  if (!write && !proxy) return false
+const IWR_VALUE = ['uri', 'method', 'custommethod', 'body', 'infile', 'outfile', 'headers', 'contenttype', 'credential', 'websession', 'sessionvariable', 'timeoutsec', 'maximumredirection', 'proxy', 'proxycredential', 'useragent', 'transferencoding', 'certificate', 'certificatethumbprint', 'form', 'authentication', 'token', 'retryintervalsec', 'maximumretrycount', 'sslprotocol', 'httpversion', 'connectiontimeoutseconds', 'operationtimeoutseconds', 'responseheadersvariable', 'statuscodevariable']
+const IWR_SWITCH = ['usebasicparsing', 'usedefaultcredentials', 'disablekeepalive', 'passthru', 'proxyusedefaultcredentials', 'allowunencryptedauthentication', 'skipcertificatecheck', 'skipheadervalidation', 'skiphttperrorcheck', 'resume', 'noproxy', 'preservehttpmethodonredirect', 'preserveauthorizationonredirect', 'allowinsecureredirect']
+
+/** Invoke-WebRequest / Invoke-RestMethod: parameters by unique prefix, as PowerShell reads them; an unknown one asks. */
+function psWebSends(tokens: Token[]): boolean {
+  let method: string | undefined
+  let write = false
+  let unknown = false
   const urls: string[] = []
-  for (let k = 0; k < low.length; k++) {
-    const a = low[k]
-    if (a === '-uri') urls.push(low[++k] ?? '')
-    else if (a.startsWith('-')) k++
-    else urls.push(a)
+  for (let k = 0; k < tokens.length; k++) {
+    const t = tokens[k].text
+    if (!tokens[k].quoted && t.startsWith('-') && t.length > 1) {
+      const [rawName, inline] = t.slice(1).split(/:(.*)/s)
+      const name = psName(rawName, IWR_VALUE, IWR_SWITCH)
+      if (!name) {
+        unknown = true
+        continue
+      }
+      if (IWR_SWITCH.includes(name)) continue
+      const value = inline !== undefined && inline !== '' ? inline : tokens[++k]?.text
+      if (name === 'method') method = value?.toUpperCase()
+      else if (name === 'custommethod' || name === 'body' || name === 'infile' || name === 'form') write = true
+      else if (name === 'proxy' || name === 'proxycredential') unknown = true
+      else if (name === 'uri') urls.push(value ?? '')
+      continue
+    }
+    urls.push(t)
   }
-  return proxy || !allLocal(urls)
+  if (!write && !unknown && reads(method)) return false
+  return unknown || !allLocal(urls)
+}
+
+/** A PowerShell parameter from its name or a unique prefix of it; null when unknown or ambiguous. */
+function psName(raw: string, values: string[], switches: string[]): string | null {
+  const n = raw.toLowerCase()
+  const hits = [...values, ...switches].filter((k) => k.startsWith(n))
+  return hits.includes(n) ? n : hits.length === 1 ? hits[0] : null
 }
 
 /**
