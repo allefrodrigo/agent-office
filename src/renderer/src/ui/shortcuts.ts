@@ -18,6 +18,7 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
         ['B', 'Bastidores: o que roda em segundo plano, MCP e skills'],
         ['I', 'Caixa de entrada: pedidos e resultados esperando você'],
         ['G', 'Sala de reunião do andar em que você está'],
+        ['C', 'Chat dos bots: as conversas com os seus bots'],
         ['L', 'Apagar ou acender as luzes (modo noturno)'],
         ['W A S D ou ← ↑ → ↓', 'Andar pelo escritório'],
         ['F3', 'Painel de desempenho (fps, draw calls, memória)'],
@@ -39,6 +40,15 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
         ['Esc', 'Com o agente trabalhando: interromper (pede confirmação)'],
         ['Esc', 'Com o agente parado, no campo de mensagem: ir para o cartão aberto; fora dele: fechar o painel'],
         [`${mod}F`, 'Buscar no log (Enter e ↓ próxima, ↑ anterior)'],
+      ],
+    ],
+    [
+      'Chat dos bots',
+      [
+        ['Enter', 'Enviar a mensagem (⇧Enter quebra a linha)'],
+        [`${mod}F`, 'Buscar no fio aberto'],
+        [`${mod}K`, 'Buscar bots e conversas na lateral'],
+        ['Esc', 'Fechar a busca ou o menu; depois, fechar o Chat'],
       ],
     ],
     [

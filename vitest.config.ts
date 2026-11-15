@@ -44,6 +44,8 @@ export default defineConfig({
         'src/shared/meeting-room.ts',
         'src/shared/meeting-map.ts',
         'src/shared/meeting-tray.ts',
+        'src/shared/bots-view.ts',
+        'src/shared/bot-templates.ts',
         'src/renderer/src/world/pathfinding.ts',
       ],
       thresholds: { lines: 70 },

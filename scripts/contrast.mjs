@@ -9,6 +9,9 @@
  * O mundo atrás dos cartões é a cena 3D: varia. Para fundos translúcidos o script usa o
  * pior caso, o mundo branco; para o texto solto sobre a cena (marca e estatísticas no
  * topo), a cor clara do gradiente do #world, já que lá a sombra do texto ajuda.
+ *
+ * O Chat dos bots (CB-08) tem o tema próprio em ui/chat/chat.css, com os tokens --ch-* em
+ * .chat-screen: o script lê esse arquivo também. A tela é opaca, então o mundo não entra.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -40,14 +43,18 @@ function parseRules(css) {
   return rules
 }
 
-const rules = parseRules(readStyles('index.css'))
-const vars = Object.fromEntries(rules.filter(([s]) => s.includes(':root')).flatMap(([, d]) => Object.entries(d).filter(([k]) => k.startsWith('--'))))
+const CHAT_CSS = join(CSS_DIR, '../ui/chat/chat.css')
+const rules = [...parseRules(readStyles('index.css')), ...parseRules(readFileSync(CHAT_CSS, 'utf8'))]
+/** :root, plus the Chat tokens (all --ch-*, so they never shadow the app's). */
+const vars = Object.fromEntries(
+  rules.filter(([s]) => s.includes(':root') || s.includes('.chat-screen')).flatMap(([, d]) => Object.entries(d).filter(([k]) => k.startsWith('--'))),
+)
 
 /** The last value a selector sets for a property (later rules win, like the cascade). */
 function prop(selector, name) {
   let v
   for (const [sels, decls] of rules) if (sels.includes(selector) && decls[name] !== undefined) v = decls[name]
-  if (v === undefined) throw new Error(`${selector} não define ${name} nos estilos (styles/)`)
+  if (v === undefined) throw new Error(`${selector} não define ${name} nos estilos (styles/ e ui/chat/chat.css)`)
   return v
 }
 
@@ -123,6 +130,33 @@ const BG = {
   'detalhe do ticket': stack(WHITE, css('.tdetail')),
 }
 
+// Chat dos bots (CB-08): fundos opacos, do mais escuro (o fio) ao mais claro (a linha escolhida).
+const CHAT = css('.chat-screen')
+const SIDE = css('.ch-side')
+const CARD_CH = stack(CHAT, css('.ch-card'))
+const MENU = stack(CHAT, css('.ch-menu'))
+Object.assign(BG, {
+  'chat: fio': CHAT,
+  'chat: lateral': SIDE,
+  'chat: lateral + hover': stack(SIDE, css('.ch-row-btn:hover')),
+  'chat: lateral + atual': stack(SIDE, css('.ch-row.on .ch-row-btn')),
+  'chat: balão do bot': stack(CHAT, css('.ch-msg-bot .ch-bubble')),
+  'chat: balão seu': stack(CHAT, css('.ch-msg-you .ch-bubble')),
+  'chat: cartão': CARD_CH,
+  'chat: opção': stack(CARD_CH, css('.ch-option')),
+  'chat: aviso': stack(CHAT, css('.ch-notice')),
+  'chat: aviso de erro': stack(CHAT, css('.ch-notice.tone-error')),
+  'chat: caixa': stack(CHAT, css('.ch-pill')),
+  'chat: pedido na caixa': stack(CHAT, css('.ch-reply')),
+  'chat: botão': stack(CHAT, css('.chat-screen .btn')),
+  'chat: select': stack(CHAT, css('.ch-select', 'background-color')),
+  'chat: perfil': stack(CHAT, css('.ch-profile')),
+  'chat: perfil + gasto': stack(CHAT, css('.ch-profile'), css('.ch-spend div')),
+  'chat: modelo + hover': stack(CHAT, css('.ch-tpl:hover')),
+  'chat: menu': MENU,
+  'chat: menu + hover': stack(MENU, css('.ch-menu-item:hover')),
+})
+
 /** [what, text selector, background name or [selector, prop] over a named background]. */
 const PAIRS = [
   ['Estatísticas no topo', '.brand-stats', 'mundo'],
@@ -197,6 +231,111 @@ const PAIRS = [
     [`Conversa (${t}): vazia`, '.mt-chat-empty', `conversa (${t})`],
   ]),
   ['Quadro: link da reunião', '.tmeeting-link', ['.tmeeting-link', 'detalhe do ticket']],
+  ['Botão Chat: não lidas', '.chat-launch-badge', ['.chat-launch-badge', 'card']],
+  // Chat dos bots, a lateral: o pior caso é a linha escolhida, o fundo mais claro
+  ['Chat: título', '.ch-title', 'chat: lateral'],
+  ['Chat: busca (dica)', '.ch-side-search::placeholder', ['.ch-side-search', 'chat: lateral']],
+  ['Chat: grupo', '.ch-group-title', 'chat: lateral'],
+  ['Chat: grupo vazio', '.ch-group-empty', 'chat: lateral'],
+  ['Chat: nome do bot', '.ch-row-btn', 'chat: lateral + atual'],
+  ['Chat: hora na lateral', '.ch-row-time', 'chat: lateral + atual'],
+  ['Chat: hora não lida', '.ch-row.unread .ch-row-time', 'chat: lateral + atual'],
+  ['Chat: estado', '.ch-row-status', 'chat: lateral + atual'],
+  ['Chat: esperando', '.chat-screen .tone-wait', 'chat: lateral + atual'],
+  ['Chat: trabalhando', '.chat-screen .tone-work', 'chat: lateral + atual'],
+  ['Chat: falhou', '.chat-screen .tone-fail', 'chat: lateral + atual'],
+  ['Chat: sem mensagens', '.chat-screen .tone-none', 'chat: lateral + atual'],
+  ['Chat: fixado', '.ch-pin', 'chat: lateral + atual'],
+  ['Chat: não lidas', '.ch-unread', ['.ch-unread', 'chat: lateral']],
+  ['Chat: ⋯ da linha', '.ch-row-more', ['.ch-row-more', 'chat: lateral + hover']],
+  ['Chat: mostrar escondidos', '.ch-show-hidden', 'chat: lateral'],
+  ['Chat: achado na busca', '.ch-hit-text', 'chat: lateral + hover'],
+  ['Chat: rodapé', '.ch-foot-btn', 'chat: lateral'],
+  ['Chat: rodapé (em breve)', '.ch-foot-btn small', 'chat: lateral'],
+  ['Chat: novo bot', '.ch-foot-btn.ch-new', 'chat: lateral + hover'],
+  // o cabeçalho e o fio
+  ['Chat: texto', '.chat-screen', 'chat: fio'],
+  ['Chat: linha do cabeçalho', '.ch-head-sub', 'chat: fio'],
+  ['Chat: modelo (select)', '.ch-select', 'chat: select'],
+  ['Chat: botão de ícone', '.ch-icon-btn', 'chat: fio'],
+  ['Chat: botão de ícone ligado', '.ch-icon-btn.on', ['.ch-icon-btn.on', 'chat: fio']],
+  ['Chat: dia', '.ch-day', 'chat: fio'],
+  ['Chat: autor e hora', '.ch-meta', 'chat: fio'],
+  ['Chat: autor', '.ch-author', 'chat: fio'],
+  ['Chat: balão do bot', '.ch-msg-bot .ch-bubble', 'chat: balão do bot'],
+  ['Chat: seu balão', '.ch-msg-you .ch-bubble', 'chat: balão seu'],
+  ['Chat: anexo (balão do bot)', '.ch-file', ['.ch-file', 'chat: balão do bot']],
+  ['Chat: tamanho do anexo', '.ch-file small', ['.ch-file', 'chat: balão do bot']],
+  ['Chat: anexo (seu balão)', '.ch-file', ['.ch-msg-you .ch-file', 'chat: balão seu']],
+  ['Chat: rodada', '.ch-run', 'chat: fio'],
+  ['Chat: rodada (nome)', '.ch-run-label', 'chat: fio'],
+  ['Chat: rodada falhou', '.ch-run.s-failed .ch-run-text', 'chat: fio'],
+  ['Chat: rodada pulada', '.ch-run.s-skipped .ch-run-text', 'chat: fio'],
+  ['Chat: rodada ao vivo', '.ch-run.s-running .ch-run-text', 'chat: fio'],
+  ['Chat: hora', '.ch-time', 'chat: cartão'],
+  ['Chat: passo', '.ch-step', 'chat: fio'],
+  ['Chat: ferramenta do passo', '.ch-step-tool', 'chat: fio'],
+  ['Chat: passo com erro', '.ch-step.k-error', 'chat: fio'],
+  ['Chat: decisão', '.ch-decided', 'chat: fio'],
+  ['Chat: o que foi decidido', '.ch-decided-what', 'chat: fio'],
+  ['Chat: aviso', '.ch-notice', 'chat: aviso'],
+  ['Chat: aviso de alerta', '.ch-notice.tone-warn', 'chat: aviso'],
+  ['Chat: aviso de erro', '.ch-notice.tone-error', 'chat: aviso de erro'],
+  ['Chat: conversa entre bots', '.ch-aside', 'chat: fio'],
+  ['Chat: vazio', '.ch-empty', 'chat: fio'],
+  ['Chat: sugestão', '.ch-suggestion', ['.ch-suggestion', 'chat: fio']],
+  ['Chat: busca no fio', '.ch-search-count', ['.ch-search-bar', 'chat: fio']],
+  ['Chat: nova mensagem ↓', '.ch-newpill', ['.ch-newpill', 'chat: fio']],
+  ['Chat: link', '.ch-link', 'chat: cartão'],
+  // pedidos: aprovação, pergunta e plano
+  ['Chat: pedido (título)', '.ch-card-head', 'chat: cartão'],
+  ['Chat: pedido sensível', '.ch-card.sensitive .ch-card-head', 'chat: cartão'],
+  ['Chat: pedido (resumo)', '.ch-card-sub', 'chat: cartão'],
+  ['Chat: pedido (texto)', '.ch-card-title', 'chat: cartão'],
+  ['Chat: pedido (detalhe)', '.ch-card-detail', ['.ch-card-detail', 'chat: cartão']],
+  ['Chat: pedido (nota)', '.ch-card-note', 'chat: cartão'],
+  ['Chat: pedido (risco)', '.ch-card-warn', 'chat: cartão'],
+  ['Chat: opção', '.ch-option', 'chat: opção'],
+  ['Chat: opção (descrição)', '.ch-option-desc', 'chat: opção'],
+  ['Chat: opção escolhida', '.ch-option', [".ch-option[aria-pressed='true']", 'chat: opção']],
+  ['Chat: Outra…', '.ch-option-other', ['.ch-option-other', 'chat: cartão']],
+  ['Chat: botão', '.chat-screen .btn', 'chat: botão'],
+  ['Chat: botão (hover)', '.chat-screen .btn', ['.chat-screen .btn:hover', 'chat: fio']],
+  ['Chat: botão principal', '.chat-screen .ch-btn-accent', ['.chat-screen .ch-btn-accent', 'chat: cartão']],
+  ['Chat: botão principal (hover)', '.chat-screen .ch-btn-accent', ['.chat-screen .ch-btn-accent:hover', 'chat: cartão']],
+  ['Chat: botão discreto', '.chat-screen .ch-btn-quiet', 'chat: cartão'],
+  ['Chat: botão de perigo', '.chat-screen .btn-danger-soft', ['.chat-screen .btn-danger-soft', 'chat: cartão']],
+  // a caixa de mensagem
+  ['Chat: caixa (dica)', '.ch-input::placeholder', 'chat: caixa'],
+  ['Chat: caixa (texto)', '.ch-input', 'chat: caixa'],
+  ['Chat: Enviar', '.ch-send', ['.ch-send', 'chat: caixa']],
+  ['Chat: Enviar (hover)', '.ch-send', ['.ch-send:hover', 'chat: caixa']],
+  ['Chat: Parar', '.ch-send.stop', ['.ch-send.stop', 'chat: caixa']],
+  ['Chat: dica embaixo', '.ch-hint', 'chat: fio'],
+  ['Chat: responder ao pedido', '.ch-reply', 'chat: pedido na caixa'],
+  ['Chat: pedido citado', '.ch-reply span', 'chat: pedido na caixa'],
+  ['Chat: qual dos dois?', '.ch-ask-text', ['.ch-ask', 'chat: fio']],
+  // perfil, galeria e formulário
+  ['Chat: seção do perfil', '.ch-sec-title', 'chat: perfil'],
+  ['Chat: rótulo', '.ch-field-label', 'chat: perfil'],
+  ['Chat: dica do campo', '.ch-field-hint', 'chat: perfil'],
+  ['Chat: erro do campo', '.ch-field-hint.err', 'chat: perfil'],
+  ['Chat: explicação da opção', '.ch-check small', 'chat: perfil'],
+  ['Chat: em breve', '.ch-soon', 'chat: perfil'],
+  ['Chat: tamanho da memória', '.ch-mem-size', 'chat: perfil'],
+  ['Chat: memória cheia', '.ch-mem-size.over', 'chat: perfil'],
+  ['Chat: pasta', '.ch-path-label', 'chat: perfil'],
+  ['Chat: gasto (rótulo)', '.ch-spend dt', 'chat: perfil + gasto'],
+  ['Chat: histórico', '.ch-hist-status', 'chat: lateral + hover'],
+  ['Chat: campo', '.chat-screen .input', ['.chat-screen .input', 'chat: perfil']],
+  ['Chat: frase da galeria', '.ch-gallery-pitch', 'chat: fio'],
+  ['Chat: modelo (nome)', '.ch-tpl', 'chat: modelo + hover'],
+  ['Chat: modelo (frase)', '.ch-tpl-line', 'chat: modelo + hover'],
+  ['Chat: modelo (automação)', '.ch-tpl-auto', 'chat: modelo + hover'],
+  ['Chat: erro do formulário', '.ch-form-error', 'chat: fio'],
+  ['Chat: menu', '.ch-menu-item', 'chat: menu + hover'],
+  ['Chat: menu (perigo)', '.ch-menu-item.danger', 'chat: menu + hover'],
+  ['Chat: menu (dica)', '.ch-menu-hint', 'chat: menu + hover'],
 ]
 
 export function measure() {
