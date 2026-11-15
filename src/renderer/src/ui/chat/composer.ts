@@ -10,7 +10,9 @@ import { agentBusy, botAgent, botPending, chatError, type ChatCtx } from './util
 
 // A caixa de mensagem do fio, em pílula: 📎 (os anexos do painel), 🎙 (o microfone do app) e
 // Enviar, que vira Parar enquanto o bot trabalha. Com um pedido pendente, a frase responde ao
-// pedido (replyIntent); na dúvida, o app pergunta se é um sim ou um não.
+// pedido (replyIntent); na dúvida, o app pergunta se é um sim ou um não. Segurança: a frase só
+// responde ao pedido que já estava na tela antes de você começar a digitar, e um sim digitado nunca
+// libera sozinho um plano ou um pedido sensível (sem "Sempre permitir"): esses pedem um clique.
 
 export interface ComposerCtx extends ChatCtx {
   bot(): Bot | undefined
@@ -34,6 +36,10 @@ export class Composer {
   /** What was typed in each thread, kept when you switch bots. */
   private drafts = new Map<string, string>()
   private botId: string | null = null
+  /** The request the "Responder ao pedido" chip shows now. */
+  private chipFor: string | null = null
+  /** The text in the box was started before that request showed up: it was not written as an answer. */
+  private typedBeforeChip = false
 
   constructor(private ctx: ComposerCtx) {
     this.input = h('textarea', { class: 'ch-input', rows: 1, 'aria-label': 'Mensagem', spellcheck: true })
@@ -193,6 +199,13 @@ export class Composer {
     const agent = botAgent(this.ctx.state, bot)
     const pending = this.pending()
     const typed = !!this.input.value.trim() || this.files.length > 0
+    if (!pending) {
+      this.chipFor = null
+      this.typedBeforeChip = false
+    } else if (pending.id !== this.chipFor) {
+      this.chipFor = pending.id
+      this.typedBeforeChip = !!this.input.value.trim()
+    } else if (!this.input.value.trim()) this.typedBeforeChip = false
     const stop = agentBusy(agent) && !typed && !pending
     this.main.replaceChildren(icon(stop ? 'stop' : 'send', 18))
     this.main.classList.toggle('stop', stop)
@@ -239,12 +252,17 @@ export class Composer {
     await this.send()
   }
 
-  private async send(): Promise<void> {
+  /** `asMessage`: send as a plain message even with a request pending. */
+  private async send(asMessage = false): Promise<void> {
     const bot = this.ctx.bot()
     const text = this.input.value.trim()
     if (!bot || this.sending || (!text && !this.files.length)) return
     const pending = this.pending()
-    if (pending && text && !this.files.length) return this.reply(pending, text)
+    if (!asMessage && pending && text && !this.files.length) {
+      // A request that arrived while you typed (or one the chip never showed) is not what you answered.
+      if (pending.id !== this.chipFor || this.typedBeforeChip) return this.showArrived(pending)
+      return this.reply(pending, text)
+    }
     this.sending = true
     const files = this.files
     try {
@@ -308,10 +326,40 @@ export class Composer {
       return
     }
     const intent = replyIntent(text)
-    // the sentence also goes along with a yes: it lands in the agent's log beside the decision
-    if (intent === 'allow') await this.decide({ requestId: p.id, behavior: 'allow', message: text })
+    // A typed yes frees only an ordinary tool request; a plan or a sensitive one (no "Sempre permitir")
+    // waits for a click. The sentence goes along with a yes: it lands in the agent's log beside the decision.
+    const textCanAllow = p.kind === 'tool' && p.canAlwaysAllow
+    if (intent === 'allow' && textCanAllow) await this.decide({ requestId: p.id, behavior: 'allow', message: text })
     else if (intent === 'deny') await this.decide({ requestId: p.id, behavior: 'deny', message: text })
     else this.showAsk(p, text)
+  }
+
+  /** A request came in while you were typing: send the text as a message, or go answer the request. */
+  private showArrived(p: PermissionRequest): void {
+    const look = h(
+      'button',
+      { type: 'button', class: 'btn btn-small ch-btn-accent', onclick: () => this.ctx.showRequest(p.id) },
+      'Ver o pedido',
+    )
+    this.askBar.replaceChildren(
+      h('span', { class: 'ch-ask-text' }, 'Chegou um pedido enquanto você escrevia. Responda pelo cartão ou envie o texto como mensagem.'),
+      look,
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn btn-small ch-btn-quiet',
+          onclick: () => {
+            this.hideAsk()
+            void this.send(true)
+          },
+        },
+        'Enviar como mensagem',
+      ),
+      h('button', { type: 'button', class: 'btn btn-small ch-btn-quiet', onclick: () => this.hideAsk(true) }, 'Voltar a editar'),
+    )
+    this.askBar.hidden = false
+    look.focus()
   }
 
   private showAsk(p: PermissionRequest, text: string): void {
@@ -327,7 +375,11 @@ export class Composer {
       plan ? 'Aprovar o plano' : 'Permitir',
     )
     this.askBar.replaceChildren(
-      h('span', { class: 'ch-ask-text' }, 'Isso é um sim ou um não?'),
+      h(
+        'span',
+        { class: 'ch-ask-text' },
+        p.kind === 'tool' && p.canAlwaysAllow ? 'Isso é um sim ou um não?' : 'Este pedido só sai com um clique seu.',
+      ),
       yes,
       h(
         'button',
