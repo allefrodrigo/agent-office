@@ -4,6 +4,8 @@ import type { Accounts } from '../accounts'
 import type { Backstage } from '../backstage'
 import type { ToolsDesk } from '../backstage/tools'
 import type { AgentManager } from '../agents'
+import type { BotRunner } from '../bots/runner'
+import type { BotStore } from '../bots/store'
 import type { Bridge } from '../bridge'
 import type { Caffeine } from '../caffeine'
 import type { TicketDesk } from '../delegate'
@@ -45,6 +47,10 @@ export interface IpcContext {
   backstage: Backstage
   /** Bastidores: MCP servers, skills and plugins. */
   tools: ToolsDesk
+  /** Chat dos bots: bots.json, the threads and memories. */
+  botStore: BotStore
+  /** Chat dos bots: takes each bot to its agent and the agent's work to the thread. */
+  bots: BotRunner
   broadcast(e: OfficeEvent): void
   updateBadge(): void
   nameOf(agentId: string): string
