@@ -37,7 +37,7 @@ export interface RouterDeps {
   /** settings.chat.routerModel ('haiku' by default). */
   model(): string | undefined
   place(floor: string): RouterPlace
-  /** Books the call in the cost book (category 'bots' once CB-15 adds it). */
+  /** Books the call in the cost book, category 'bots'. */
   ledger?: Pick<NonNullable<ClaudeRun['ledger']>, 'book' | 'category'>
   /** runClaude; a fake in the tests. */
   run?: (r: ClaudeRun) => Promise<ClaudeOutcome>
