@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { randomUUID } from 'node:crypto'
 import { type McpSdkServerConfigWithInstance, type PermissionResult, type PermissionUpdate, type SDKMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { AccountLimit, AgentResult, AgentStatus, AgentSummary, AttachmentInfo, LogEntry, OfficeEvent, PermissionDecision, PermissionRequest, SubagentInfo } from '@shared/types'
+import type { AccountLimit, AgentResult, AgentStatus, AgentSummary, AttachmentInfo, LogEntry, OfficeEvent, PermissionDecision, PermissionRequest, SensitiveKind, SubagentInfo } from '@shared/types'
 import { AGENT_NAMES } from '@shared/describe'
 import { projectFor } from '@shared/projects'
 import { type Accounts } from '../accounts'
@@ -189,7 +189,7 @@ export abstract class AgentBase extends EventEmitter {
   ): Promise<PermissionResult>
   protected abstract overBudget(agent: Agent): boolean
   protected abstract budgetText(agent: Agent): string
-  abstract requestDecision(agentId: string, req: Omit<PermissionRequest, 'id' | 'agentId' | 'createdAt'>, onDecision: (d: PermissionDecision) => void): string
+  abstract requestDecision(agentId: string, req: Omit<PermissionRequest, 'id' | 'agentId' | 'createdAt'>, onDecision: (d: PermissionDecision) => void, sensitive?: SensitiveKind): string
   abstract cancelRequest(requestId: string, message: string): void
   abstract cancelAgentRequests(agentId: string, message?: string): void
   protected abstract dropResults(agentId: string): void

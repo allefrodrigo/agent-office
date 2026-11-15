@@ -10,6 +10,7 @@ import {
   type Channel,
   type Look,
   type SensitiveKind,
+  type WorktreeInfo,
 } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
 import { cleanMemory } from '@shared/bots'
@@ -21,6 +22,8 @@ interface Data {
   bots: Bot[]
   channels: Channel[]
   eventTriggers: BotEventTrigger[]
+  /** Bot id -> the worktree its conversation lives in, so a bot that left the office comes back there. */
+  worktrees?: Record<string, WorktreeInfo>
 }
 
 const DIR_MODE = 0o700
@@ -93,6 +96,15 @@ export function loadBot(raw: unknown): Bot | null {
   }
 }
 
+function loadWorktrees(raw: unknown): Record<string, WorktreeInfo> {
+  if (!isObj(raw)) return {}
+  const out: Record<string, WorktreeInfo> = {}
+  for (const [id, w] of Object.entries(raw)) {
+    if (isThreadId(id) && isObj(w) && isStr(w.path, 4096) && isStr(w.root, 4096) && isStr(w.repo, 4096) && isStr(w.branch, 400) && isStr(w.base, 200)) out[id] = w as unknown as WorktreeInfo
+  }
+  return out
+}
+
 function loadChannel(raw: unknown): Channel | null {
   if (!isObj(raw) || !isThreadId(raw.id) || !isStr(raw.name, BOT_LIMITS.channelName)) return null
   return { ...(raw as unknown as Channel), members: Array.isArray(raw.members) ? raw.members.filter(isThreadId) : [] }
@@ -128,6 +140,7 @@ export class BotStore {
       bots: (raw.bots ?? []).map(loadBot).filter((x): x is Bot => !!x),
       channels: (raw.channels ?? []).map(loadChannel).filter((x): x is Channel => !!x),
       eventTriggers: (raw.eventTriggers ?? []).map(loadTrigger).filter((x): x is BotEventTrigger => !!x),
+      worktrees: loadWorktrees(raw.worktrees),
     }
     if (r.status === 'restored') this.flush()
   }
@@ -156,6 +169,21 @@ export class BotStore {
 
   set eventTriggers(list: BotEventTrigger[]) {
     this.data.eventTriggers = list
+    this.save()
+  }
+
+  /** The worktree the bot's conversation lives in, if it works in one. */
+  worktree(botId: string): WorktreeInfo | undefined {
+    return this.data.worktrees?.[botId]
+  }
+
+  setWorktree(botId: string, info: WorktreeInfo | undefined): void {
+    const now = this.data.worktrees ?? {}
+    if (JSON.stringify(now[botId]) === JSON.stringify(info)) return
+    const next = { ...now }
+    if (info) next[botId] = info
+    else delete next[botId]
+    this.data.worktrees = next
     this.save()
   }
 
@@ -248,6 +276,7 @@ export class BotStore {
         bots: this.data.bots.filter((b) => !b.demo).map(({ agentId: _agentId, ...b }) => b as Bot),
         channels: this.data.channels,
         eventTriggers: this.data.eventTriggers.filter((t) => !this.bot(t.botId)?.demo),
+        worktrees: Object.fromEntries(Object.entries(this.data.worktrees ?? {}).filter(([id]) => this.bot(id) && !this.bot(id)?.demo)),
       } satisfies Data,
       { mode: FILE_MODE },
     )

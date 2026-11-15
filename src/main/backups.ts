@@ -298,8 +298,8 @@ export function sanitizeImportedRoutines(data: unknown): unknown {
 }
 
 /**
- * Bots from an export: never "Sem pedir nada", no agent or conversation of the other machine
- * (the sessions live there), and their event automations arrive paused, like routines.
+ * Bots from an export: never "Sem pedir nada", no agent, conversation or worktree of the other
+ * machine (they live there), and their event automations arrive paused, like routines.
  */
 export function sanitizeImportedBots(data: unknown): unknown {
   if (!isObj(data)) return data
@@ -312,7 +312,9 @@ export function sanitizeImportedBots(data: unknown): unknown {
       })
     : data.bots
   const eventTriggers = Array.isArray(data.eventTriggers) ? data.eventTriggers.map((t) => (isObj(t) ? { ...t, enabled: false } : t)) : data.eventTriggers
-  return { ...data, bots, eventTriggers }
+  // The worktrees are folders of the other machine, like the sessions.
+  const { worktrees: _worktrees, ...rest } = data
+  return { ...rest, bots, eventTriggers }
 }
 
 /** The files an export (already checked by parseExport) puts in place. */

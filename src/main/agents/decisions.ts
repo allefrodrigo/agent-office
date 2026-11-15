@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { type PermissionResult, type PermissionUpdate } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentResult, AgentSummary, PermissionDecision, PermissionRequest, ResultChanges } from '@shared/types'
+import type { AgentResult, AgentSummary, PermissionDecision, PermissionRequest, ResultChanges, SensitiveKind } from '@shared/types'
 import { outsideTeam, readProgress, type SquadDefinition } from '../squads'
 import { changesSince, displayPath } from '../git'
 import { SENSITIVE_KINDS, SENSITIVE_LABEL } from '@shared/types'
@@ -12,11 +12,25 @@ import { AgentSubagents } from './subagents'
 
 /** Permissions (asking the player, decisions) and results, shared by office and terminal agents. */
 export abstract class AgentDecisions extends AgentSubagents {
+  /** Chat dos bots: the kind the guard held each pending request for (the thread shows it). */
+  private sensitiveKinds = new Map<string, SensitiveKind>()
+
+  /** The sensitive kind a pending request was held for, if the guard held it. */
+  requestSensitive(requestId: string): SensitiveKind | undefined {
+    return this.sensitiveKinds.get(requestId)
+  }
+
   protected askPlayer(
     agent: Agent,
     tool: string,
     input: Record<string, unknown>,
-    opts: { signal: AbortSignal; suggestions?: PermissionUpdate[]; decisionReason?: string; agentID?: string; mcpServer?: { name: string; source: string } },
+    opts: {
+      signal: AbortSignal
+      suggestions?: PermissionUpdate[]
+      decisionReason?: string
+      agentID?: string
+      mcpServer?: { name: string; source: string }
+    },
   ): Promise<PermissionResult> {
     // The board is the office's own tool: no need to walk over and ask. Only the app's own
     // server (source sdk; older CLIs do not say): a configured server could also be called office.
@@ -32,25 +46,35 @@ export abstract class AgentDecisions extends AgentSubagents {
     const s = agent.summary
     const sensitive = s.bot ? heldKind(tool, input, this.botHooks?.askBefore(s) ?? SENSITIVE_KINDS, opts.mcpServer?.source) : null
     if (s.bot && !sensitive && modeAllows(s.permissionMode, tool)) return Promise.resolve({ behavior: 'allow', updatedInput: input })
-    const req = permissionFromTool(tool, input, sensitive ? guardReason(sensitive, tool, input) : opts.decisionReason, !!opts.suggestions?.length && !sensitive)
+    const req = permissionFromTool(
+      tool,
+      input,
+      sensitive ? guardReason(sensitive, tool, input) : opts.decisionReason,
+      !!opts.suggestions?.length && !sensitive,
+    )
     if (opts.agentID) req.subagent = this.subagentLabel(agent, opts.agentID)
     if (squad) req.context = this.squadContext(agent, squad, tool === 'AskUserQuestion')
     if (sensitive) req.context = [req.context, `Ação sensível · ${SENSITIVE_LABEL[sensitive]}`].filter(Boolean).join(' · ')
     const always = !!opts.suggestions && !sensitive
     return new Promise((resolve) => {
-      const id = this.requestDecision(agent.summary.id, req, (d) => {
-        if (d.behavior === 'deny') {
-          resolve({ behavior: 'deny', message: d.message?.trim() || 'O usuário negou esta ação.' })
-        } else if (tool === 'AskUserQuestion') {
-          resolve({ behavior: 'allow', updatedInput: { ...input, answers: d.answers ?? {} } })
-        } else {
-          resolve({
-            behavior: 'allow',
-            updatedInput: input,
-            ...(d.behavior === 'allow_always' && always ? { updatedPermissions: opts.suggestions } : {}),
-          })
-        }
-      })
+      const id = this.requestDecision(
+        agent.summary.id,
+        req,
+        (d) => {
+          if (d.behavior === 'deny') {
+            resolve({ behavior: 'deny', message: d.message?.trim() || 'O usuário negou esta ação.' })
+          } else if (tool === 'AskUserQuestion') {
+            resolve({ behavior: 'allow', updatedInput: { ...input, answers: d.answers ?? {} } })
+          } else {
+            resolve({
+              behavior: 'allow',
+              updatedInput: input,
+              ...(d.behavior === 'allow_always' && always ? { updatedPermissions: opts.suggestions } : {}),
+            })
+          }
+        },
+        sensitive ?? undefined,
+      )
       opts.signal.addEventListener('abort', () => this.cancelRequest(id, 'Cancelado.'), { once: true })
     })
   }
@@ -64,17 +88,34 @@ export abstract class AgentDecisions extends AgentSubagents {
     }
     if (!step?.current) return squad.name
     const who = !question && step.agent ? squad.members.find((m) => m.id === step.agent) : undefined
-    return [squad.name, `Passo ${step.current}${step.total ? `/${step.total}` : ''}`, step.label, who ? `${who.icon} ${who.name}` : ''].filter(Boolean).join(' · ')
+    return [squad.name, `Passo ${step.current}${step.total ? `/${step.total}` : ''}`, step.label, who ? `${who.icon} ${who.name}` : '']
+      .filter(Boolean)
+      .join(' · ')
   }
 
   // ---------- decisions (shared by office and terminal agents) ----------
 
-  requestDecision(agentId: string, req: Omit<PermissionRequest, 'id' | 'agentId' | 'createdAt'>, onDecision: (d: PermissionDecision) => void): string {
+  requestDecision(
+    agentId: string,
+    req: Omit<PermissionRequest, 'id' | 'agentId' | 'createdAt'>,
+    onDecision: (d: PermissionDecision) => void,
+    sensitive?: SensitiveKind,
+  ): string {
     const agent = this.agents.get(agentId)
     const request: PermissionRequest = { ...req, id: randomUUID(), agentId, createdAt: Date.now() }
     this.pending.set(request.id, { request, resolve: onDecision })
+    // Set before permission:new goes out: the Chat reads it while handling that event.
+    if (sensitive) this.sensitiveKinds.set(request.id, sensitive)
     if (agent) {
-      this.setStatus(agent, 'waiting', req.kind === 'question' ? 'Com uma pergunta para você' : req.kind === 'plan' ? 'Com um plano para você' : 'Precisa da sua permissão')
+      this.setStatus(
+        agent,
+        'waiting',
+        req.kind === 'question'
+          ? 'Com uma pergunta para você'
+          : req.kind === 'plan'
+            ? 'Com um plano para você'
+            : 'Precisa da sua permissão',
+      )
     }
     this.send({ type: 'permission:new', request })
     return request.id
@@ -84,12 +125,19 @@ export abstract class AgentDecisions extends AgentSubagents {
     const p = this.pending.get(d.requestId)
     if (!p) return
     this.pending.delete(d.requestId)
+    this.sensitiveKinds.delete(d.requestId)
     this.emit('decision', { request: p.request, decision: d } satisfies DecisionNote)
     const agent = this.agents.get(p.request.agentId)
     if (agent) {
       const verdict = d.behavior === 'deny' ? 'Negado' : d.behavior === 'allow_always' ? 'Sempre permitido' : 'Permitido'
       const answers = d.answers ? Object.values(d.answers).join(', ') : ''
-      this.addLog(agent, 'decision', p.request.kind === 'question' ? `Você respondeu: ${answers}` : `${verdict}: ${p.request.title}${d.message ? ` — ${d.message}` : ''}`)
+      this.addLog(
+        agent,
+        'decision',
+        p.request.kind === 'question'
+          ? `Você respondeu: ${answers}`
+          : `${verdict}: ${p.request.title}${d.message ? ` — ${d.message}` : ''}`,
+      )
       if (!this.hasPending(agent.summary.id)) this.setStatus(agent, 'working', 'Voltando ao trabalho')
     }
     this.send({ type: 'permission:resolved', requestId: d.requestId, agentId: p.request.agentId })
@@ -100,12 +148,14 @@ export abstract class AgentDecisions extends AgentSubagents {
     const p = this.pending.get(requestId)
     if (!p) return
     this.pending.delete(requestId)
+    this.sensitiveKinds.delete(requestId)
     const decision: PermissionDecision = { requestId, behavior: 'deny', message }
     this.emit('decision', { request: p.request, decision, cancelled: true } satisfies DecisionNote)
     this.send({ type: 'permission:resolved', requestId, agentId: p.request.agentId })
     p.resolve(decision)
     const agent = this.agents.get(p.request.agentId)
-    if (agent && agent.summary.status === 'waiting' && !this.hasPending(agent.summary.id)) this.setStatus(agent, 'working', 'Voltando ao trabalho')
+    if (agent && agent.summary.status === 'waiting' && !this.hasPending(agent.summary.id))
+      this.setStatus(agent, 'working', 'Voltando ao trabalho')
   }
 
   cancelAgentRequests(agentId: string, message = 'Interrompido pelo usuário.'): void {
