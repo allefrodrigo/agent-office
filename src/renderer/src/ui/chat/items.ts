@@ -1,29 +1,51 @@
 import { ATTACH_KIND_LABEL, formatBytes } from '@shared/attachments'
 import { approvalHeading, approvalOutcome, clockTime, runLive, runSummary, triggerLabel } from '@shared/bots-view'
+import { findMentions } from '@shared/bots-mentions'
 import type { AskQuestion, Bot, PermissionDecision, RunStep, ThreadItem } from '@shared/types'
 import { BOT_RUN_STATUS_LABEL, SENSITIVE_LABEL } from '@shared/types'
 import { h, icon } from '../dom'
 import { renderMarkdown } from '../markdown'
 import { toolIcon } from '../panel/entries'
+import { botAvatar } from './avatar'
+import { showMenu, type MenuItem } from './menu'
 
 // Como cada item do fio aparece: balões, a linha da rodada, os cartões de aprovação, pergunta e
 // plano, avisos e a conversa paralela entre bots. Docs: docs/prd/chat-de-bots.md ("O fio").
 
 type Approval = Extract<ThreadItem, { kind: 'approval' }>
 type Run = Extract<ThreadItem, { kind: 'run' }>
+type User = Extract<ThreadItem, { kind: 'user' }>
+type Side = Extract<ThreadItem, { kind: 'side' }>
+
+/** A channel's thread: each message shows its author, and yours shows who it went to ("trocar"). */
+export interface ChannelItemCtx {
+  id: string
+  /** The channel's members now. */
+  members(): Bot[]
+  bot(id: string): Bot | undefined
+  /** "→ Bot · trocar": sends that message to another member (it shows its own errors). */
+  reroute(itemId: string, botId: string): Promise<void>
+  /** Where the member menu opens (the screen). */
+  menuHost: HTMLElement
+}
+
+/** A message still without a route this long after it went lost its routing (the app closed): offer to pick. */
+const ROUTING_MS = 60_000
 
 export interface ItemCtx {
   bot(): Bot | undefined
   botName(id: string): string
   /** The request is still waiting in the office (state.permissions). */
   live(requestId: string): boolean
-  /** What the bot's agent is doing now, for a run in progress. */
-  activity(): string
+  /** What the bot's agent is doing now, for a run in progress (in a channel, the run's bot). */
+  activity(botId?: string): string
   /** Answers a request; rejects with the error to show. */
   respond(d: PermissionDecision): Promise<void>
   toast(text: string, kind?: 'info' | 'ok' | 'err'): void
   /** Runs whose steps the player opened (kept across redraws). */
   expanded: Set<string>
+  /** Set while a channel's thread is on screen. */
+  channel?(): ChannelItemCtx | null
 }
 
 const fullTime = (t: number) => new Date(t).toLocaleString('pt-BR', { dateStyle: 'full', timeStyle: 'short' })
@@ -37,7 +59,7 @@ export function itemView(item: ThreadItem, ctx: ItemCtx, prev?: ThreadItem): HTM
   let el: HTMLElement
   switch (item.kind) {
     case 'user':
-      el = userView(item)
+      el = userView(item, ctx.channel?.() ?? null)
       break
     case 'bot':
       el = botView(item, ctx, prev)
@@ -65,14 +87,14 @@ export function itemView(item: ThreadItem, ctx: ItemCtx, prev?: ThreadItem): HTM
   return el
 }
 
-function userView(item: Extract<ThreadItem, { kind: 'user' }>): HTMLElement {
+function userView(item: User, ch: ChannelItemCtx | null): HTMLElement {
   return h(
     'div',
     { class: 'ch-msg ch-msg-you' },
     h(
       'div',
       { class: 'ch-bubble' },
-      item.text ? h('div', { class: 'ch-text' }, item.text) : null,
+      item.text ? h('div', { class: 'ch-text' }, ...(ch ? withMentions(item.text, ch.members()) : [item.text])) : null,
       item.attachments?.length
         ? h(
             'div',
@@ -88,19 +110,91 @@ function userView(item: Extract<ThreadItem, { kind: 'user' }>): HTMLElement {
           )
         : null,
     ),
-    h('div', { class: 'ch-meta' }, time(item.t)),
+    h('div', { class: 'ch-meta' }, ch ? routeChip(item, ch) : null, time(item.t)),
   )
 }
 
+/** The text with each @mention of a member marked. */
+function withMentions(text: string, members: Bot[]): (string | HTMLElement)[] {
+  const out: (string | HTMLElement)[] = []
+  let at = 0
+  for (const m of findMentions(text, members)) {
+    if (m.start > at) out.push(text.slice(at, m.start))
+    out.push(h('b', { class: 'ch-mention' }, text.slice(m.start, m.end)))
+    at = m.end
+  }
+  if (at < text.length) out.push(text.slice(at))
+  return out
+}
+
+/** Under your message in a channel: who it went to, and "trocar" to send it to another member. */
+function routeChip(item: User, ch: ChannelItemCtx): HTMLElement {
+  if (!item.to && Date.now() - item.t < ROUTING_MS)
+    return h('span', { class: 'ch-route pending', role: 'status' }, 'Escolhendo quem responde…')
+  const to = item.to ?? []
+  const names = to.map((id) => ch.bot(id)?.name ?? 'Bot removido')
+  const others = ch.members().filter((b) => !to.includes(b.id))
+  const how =
+    item.route?.by === 'router'
+      ? `O app escolheu${item.route.why ? `: ${item.route.why}` : '.'}`
+      : item.route?.by === 'player'
+        ? 'Você escolheu.'
+        : item.route?.by === 'mention'
+          ? 'Você chamou com @.'
+          : undefined
+  let busy = false
+  const pick: HTMLButtonElement = h(
+    'button',
+    {
+      type: 'button',
+      class: 'ch-route-pick',
+      disabled: !others.length,
+      'aria-haspopup': 'menu',
+      'aria-label': to.length ? `Trocar: mandar para outro membro em vez de ${names.join(', ')}` : 'Escolher quem responde',
+      title: others.length ? 'Mandar esta mensagem para outro membro' : 'Não há outro membro no canal',
+      onclick: () => {
+        const items: MenuItem[] = others.map((b) => ({
+          label: b.name,
+          icon: 'bot',
+          hint: b.tagline || undefined,
+          run: () => {
+            if (busy) return
+            busy = true
+            void ch.reroute(item.id, b.id).finally(() => (busy = false))
+          },
+        }))
+        showMenu(ch.menuHost, pick, items, 'Mandar para outro membro')
+      },
+    },
+    to.length ? 'trocar' : 'escolher',
+  )
+  return h(
+    'span',
+    { class: `ch-route${to.length ? '' : ' nobody'}`, title: how },
+    h('span', { class: 'ch-route-to' }, to.length ? `→ ${names.join(', ')}` : 'Para quem é?'),
+    h('span', { 'aria-hidden': 'true' }, '·'),
+    pick,
+  )
+}
+
+/** In a channel, the author's face beside the name: the bot's portrait, or a squad member's icon. */
+function authorFace(item: Extract<ThreadItem, { kind: 'bot' }>, ch: ChannelItemCtx | null): HTMLElement | null {
+  if (!ch) return null
+  if (item.member) return h('span', { class: 'ch-member-icon', 'aria-hidden': 'true' }, item.member.icon)
+  const bot = ch.bot(item.botId)
+  return bot ? botAvatar(bot, 'idle', 22) : null
+}
+
 function botView(item: Extract<ThreadItem, { kind: 'bot' }>, ctx: ItemCtx, prev?: ThreadItem): HTMLElement {
+  const ch = ctx.channel?.() ?? null
   const name = item.member?.name ?? ctx.botName(item.botId)
   const grouped = prev?.kind === 'bot' && prev.botId === item.botId && prev.member?.id === item.member?.id && item.t - prev.t < 5 * 60_000
+  // in a channel a squad member's icon sits where a bot's face does
+  const author = item.member && !ch ? `${item.member.icon} ${name}` : name
   return h(
     'div',
-    { class: `ch-msg ch-msg-bot${grouped ? ' grouped' : ''}` },
-    grouped
-      ? null
-      : h('div', { class: 'ch-meta' }, h('span', { class: 'ch-author' }, item.member ? `${item.member.icon} ${name}` : name), time(item.t)),
+    { class: `ch-msg ch-msg-bot${grouped ? ' grouped' : ''}${ch ? ' in-channel' : ''}` },
+    grouped ? null : h('div', { class: 'ch-meta' }, authorFace(item, ch), h('span', { class: 'ch-author' }, author), time(item.t)),
     h('div', { class: 'ch-bubble' }, renderMarkdown(item.text)),
   )
 }
@@ -140,12 +234,13 @@ function stepView(s: RunStep): HTMLElement {
 }
 
 function runView(item: Run, ctx: ItemCtx): HTMLElement {
-  const label = item.label || triggerLabel(item.trigger)
+  // in a channel several bots run: the line says whose run it is
+  const label = `${ctx.channel?.() ? `${ctx.botName(item.botId)} · ` : ''}${item.label || triggerLabel(item.trigger)}`
   const active = item.status === 'running' || item.status === 'waiting'
   const steps = item.log ?? []
   const open = ctx.expanded.has(item.id)
   const text = active
-    ? runLive(item, ctx.activity())
+    ? runLive(item, ctx.activity(item.botId))
     : item.status === 'skipped' || item.status === 'failed'
       ? `${BOT_RUN_STATUS_LABEL[item.status][0].toUpperCase()}${BOT_RUN_STATUS_LABEL[item.status].slice(1)}${item.error ? `: ${item.error}` : ''}`
       : runSummary(item)
@@ -220,6 +315,7 @@ function approvalView(item: Approval, ctx: ItemCtx): HTMLElement {
       { class: 'ch-card-head' },
       icon(r.kind === 'question' ? 'message' : r.kind === 'plan' ? 'report' : r.sensitive ? 'alert' : 'check', 15),
       h('span', {}, approvalHeading(r)),
+      ctx.channel?.() ? h('span', { class: 'ch-card-sub' }, ctx.botName(item.botId)) : null,
       r.subagent !== undefined
         ? h(
             'span',
@@ -452,7 +548,14 @@ function questionBody(
   return blocks
 }
 
-function sideView(item: Extract<ThreadItem, { kind: 'side' }>, ctx: ItemCtx): HTMLElement {
+const SIDE_STATUS: Record<Side['status'], string> = {
+  asked: 'esperando a resposta',
+  answered: 'respondeu',
+  failed: 'sem resposta',
+}
+
+/** Two bots talking on the side (bot_ask), folded: "Chefe de gabinete perguntou ao Revisor do dia ▸". */
+function sideView(item: Side, ctx: ItemCtx): HTMLElement {
   const from = ctx.botName(item.fromBotId)
   const to = ctx.botName(item.toBotId)
   return h(
@@ -462,8 +565,8 @@ function sideView(item: Extract<ThreadItem, { kind: 'side' }>, ctx: ItemCtx): HT
       'summary',
       {},
       icon('users', 14),
-      `${from} perguntou a ${to}`,
-      item.status === 'asked' ? ' · esperando' : item.status === 'failed' ? ' · sem resposta' : '',
+      h('span', { class: 'ch-aside-who' }, `${from} perguntou ao ${to}`),
+      h('span', { class: 'ch-aside-status' }, SIDE_STATUS[item.status]),
       time(item.t),
     ),
     h(

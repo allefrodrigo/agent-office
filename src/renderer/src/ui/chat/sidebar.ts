@@ -10,27 +10,35 @@ import {
   reorderBots,
   sortBots,
 } from '@shared/bots-view'
-import type { Bot, ThreadHit } from '@shared/types'
+import { isFloorChannel } from '@shared/bots-mentions'
+import type { Bot, Channel, ThreadHit } from '@shared/types'
 import { arrowList, keepFocus } from '../a11y'
 import { h, icon } from '../dom'
 import { confirmDialog } from '../modals'
 import { botAvatar } from './avatar'
+import { deleteChannel } from './channels/form'
+import { channelStore } from './channels/store'
 import { showMenu, type MenuItem } from './menu'
 import { chatStore } from './store'
 import { botAgent, botPending, chatError, floorChoices, type ChatCtx } from './util'
 
-// A lateral do Chat: andar, busca, Bots (arrastar reordena; menu de contexto), Canais (fase 3) e,
-// no pé, Automações e Conexões (fase 2) e "＋ Novo bot". Docs: chat-de-bots.md ("Layout").
+// A lateral do Chat: andar, busca, Bots (arrastar reordena; menu de contexto), Canais (com as não
+// lidas e "＋ Canal") e, no pé, Automações e Conexões (fase 2) e "＋ Novo bot". Docs:
+// chat-de-bots.md ("Layout", "Canais").
 
 export interface SidebarCtx extends ChatCtx {
   host: HTMLElement
   selected(): string | null
   floor(): string
   setFloor(floor: string): void
-  select(botId: string, itemId?: string): void
+  /** Opens a bot's or a channel's thread. */
+  select(threadId: string, itemId?: string): void
   newBot(): void
-  /** The selected bot went away (deleted, hidden). */
-  removed(botId: string): void
+  /** "＋ Canal". */
+  newChannel(): void
+  editChannel(channelId: string): void
+  /** The selected bot or channel went away (deleted, hidden). */
+  removed(threadId: string): void
   /** The footer's screens (phase 2), and which one is on. */
   openAutomations(): void
   openConnections(): void
@@ -50,6 +58,7 @@ export class ChatSidebar {
   private channelsEl: HTMLElement
   private autosBtn: HTMLButtonElement
   private connBtn: HTMLButtonElement
+  private channelRows: HTMLDivElement
   private showHidden = false
   private hits: ThreadHit[] | null = null
   private searchTimer = 0
@@ -67,7 +76,10 @@ export class ChatSidebar {
       'aria-label': 'Buscar bots e conversas',
       spellcheck: false,
     })
-    this.search.addEventListener('input', () => this.onSearch())
+    this.search.addEventListener('input', () => {
+      this.onSearch()
+      keepFocus(this.channelRows, () => this.drawChannels())
+    })
     this.search.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && this.search.value) {
         e.preventDefault()
@@ -82,16 +94,23 @@ export class ChatSidebar {
     this.botsEl = h('div', { class: 'ch-rows', role: 'list', 'aria-label': 'Bots' })
     arrowList(this.botsEl, '.ch-row-btn')
     this.hitsEl = h('div', { class: 'ch-hits', hidden: true })
+    this.channelRows = h('div', { class: 'ch-rows', role: 'list', 'aria-label': 'Canais' })
+    arrowList(this.channelRows, '.ch-row-btn')
     this.channelsEl = h(
       'section',
       { class: 'ch-group', 'aria-label': 'Canais' },
-      h('div', { class: 'ch-group-title' }, h('span', {}, 'Canais')),
       h(
-        'p',
-        { class: 'ch-group-empty' },
-        h('b', {}, 'Em breve. '),
-        'Canais com vários bots e você, como #lançamento, chegam na próxima fase.',
+        'div',
+        { class: 'ch-group-title ch-group-title-row' },
+        h('span', {}, 'Canais'),
+        h(
+          'button',
+          { type: 'button', class: 'ch-group-add', title: 'Novo canal', 'aria-label': 'Novo canal', onclick: () => ctx.newChannel() },
+          icon('plus', 13),
+          'Canal',
+        ),
       ),
+      this.channelRows,
     )
     this.autosBtn = h(
       'button',
@@ -153,7 +172,127 @@ export class ChatSidebar {
     this.autosBtn.setAttribute('aria-current', String(on === 'automations'))
     this.connBtn.setAttribute('aria-current', String(on === 'connections'))
     keepFocus(this.botsEl, () => this.drawBots())
+    keepFocus(this.channelRows, () => this.drawChannels())
     if (this.hits) this.drawHits()
+  }
+
+  // ---------- channels ----------
+
+  private drawChannels(): void {
+    const q = this.search.value.trim().toLocaleLowerCase('pt-BR').replace(/^#/, '')
+    const all = channelStore.onFloor(this.ctx.floor())
+    const list = q ? all.filter((c) => c.name.includes(q)) : all
+    const rows: HTMLElement[] = []
+    if (channelStore.error && !channelStore.channels.length) rows.push(h('p', { class: 'ch-group-empty err' }, channelStore.error))
+    else if (!channelStore.loaded) rows.push(h('p', { class: 'ch-group-empty' }, 'Carregando…'))
+    else if (!list.length) {
+      rows.push(
+        h(
+          'p',
+          { class: 'ch-group-empty' },
+          q
+            ? 'Nenhum canal com esse nome.'
+            : chatStore.bots.length
+              ? 'Nenhum canal neste andar. "＋ Canal" junta bots do andar numa conversa.'
+              : 'Crie um bot primeiro: um canal junta bots do andar.',
+        ),
+      )
+    }
+    const selected = this.ctx.selected()
+    for (const c of list) rows.push(this.channelRow(c, c.id === selected))
+    this.channelRows.replaceChildren(...rows)
+    const btns = [...this.channelRows.querySelectorAll<HTMLElement>('.ch-row-btn')]
+    const current = Math.max(
+      0,
+      btns.findIndex((x) => x.getAttribute('aria-current') === 'true'),
+    )
+    btns.forEach((x, i) => (x.tabIndex = i === current ? 0 : -1))
+  }
+
+  private channelRow(c: Channel, on: boolean): HTMLElement {
+    const unread = channelStore.unread(c.id)
+    const last = channelStore.last(c.id)
+    const line = last ? itemPreview(last) : c.topic || 'Sem mensagens ainda'
+    const btn = h(
+      'button',
+      {
+        type: 'button',
+        class: 'ch-row-btn',
+        'data-focus-key': c.id,
+        'aria-current': on ? 'true' : undefined,
+        'aria-label': `Canal ${c.name}${unread ? `, ${unread} não lidas` : ''}. ${line}`,
+        onclick: () => this.ctx.select(c.id),
+      },
+      h('span', { class: 'ch-row-hash', 'aria-hidden': 'true' }, '#'),
+      h(
+        'span',
+        { class: 'ch-row-main' },
+        h(
+          'span',
+          { class: 'ch-row-top' },
+          h('span', { class: 'ch-row-name' }, c.name),
+          last ? h('span', { class: 'ch-row-time' }, listTime(last.t)) : null,
+        ),
+        h(
+          'span',
+          { class: 'ch-row-bottom' },
+          h('span', { class: 'ch-row-status tone-last' }, line),
+          unread ? h('span', { class: 'ch-unread', 'aria-hidden': 'true' }, badgeText(unread)) : null,
+        ),
+      ),
+    )
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      this.channelMenu(c, { x: e.clientX, y: e.clientY })
+    })
+    btn.addEventListener('keydown', (e) => {
+      if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+        e.preventDefault()
+        this.channelMenu(c, btn)
+      }
+    })
+    const more = h(
+      'button',
+      {
+        type: 'button',
+        class: 'ch-row-more',
+        tabindex: -1,
+        title: 'Mais ações',
+        'aria-label': `Mais ações de #${c.name}`,
+        onclick: () => this.channelMenu(c, more),
+      },
+      h('span', { 'aria-hidden': 'true' }, '⋯'),
+    )
+    return h(
+      'div',
+      { class: `ch-row ch-row-channel${on ? ' on' : ''}${unread ? ' unread' : ''}`, role: 'listitem', 'data-id': c.id },
+      btn,
+      more,
+    )
+  }
+
+  private channelMenu(c: Channel, at: HTMLElement | { x: number; y: number }): void {
+    const items: (MenuItem | 'sep')[] = [
+      { label: 'Editar canal', icon: 'edit', run: () => this.ctx.editChannel(c.id) },
+      {
+        label: 'Marcar como não lido',
+        icon: 'inbox',
+        run: () => void channelStore.markUnread(c.id).catch((err: unknown) => this.ctx.toast(chatError(err), 'err')),
+      },
+      'sep',
+      isFloorChannel(c)
+        ? { label: 'Apagar canal', icon: 'trash', hint: 'canal do andar', disabled: true }
+        : {
+            label: 'Apagar canal…',
+            icon: 'trash',
+            danger: true,
+            run: () =>
+              void deleteChannel(this.ctx, c).then((gone) => {
+                if (gone) this.ctx.removed(c.id)
+              }),
+          },
+    ]
+    showMenu(this.ctx.host, at, items, `Ações de #${c.name}`)
   }
 
   private visibleBots(): Bot[] {
@@ -445,13 +584,14 @@ export class ChatSidebar {
             { class: 'ch-hit-list' },
             hits.slice(0, 30).map((hit) => {
               const b = chatStore.bot(hit.threadId)
+              const c = b ? undefined : channelStore.channel(hit.threadId)
               return h(
                 'button',
                 { type: 'button', class: 'ch-hit-btn', onclick: () => this.ctx.select(hit.threadId, hit.item.id) },
                 h(
                   'span',
                   { class: 'ch-hit-top' },
-                  h('b', {}, b?.name ?? 'Canal'),
+                  h('b', {}, b?.name ?? (c ? `#${c.name}` : 'Canal')),
                   h('span', { class: 'ch-row-time' }, listTime(hit.item.t)),
                 ),
                 h('span', { class: 'ch-hit-text' }, itemPreview(hit.item)),

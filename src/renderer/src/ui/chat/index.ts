@@ -1,7 +1,7 @@
 import './chat.css'
 import { botsOnFloor, snippet, sortBots, threadMarkdown } from '@shared/bots-view'
 import { exportFileName } from '@shared/export-md'
-import { BOT_LIMITS, type Bot, type ThreadItem } from '@shared/types'
+import { BOT_LIMITS, type Bot, type Channel, type ThreadItem } from '@shared/types'
 import type { State } from '../../state'
 import { announce, modalA11y } from '../a11y'
 import { h, icon } from '../dom'
@@ -10,6 +10,9 @@ import { confirmDialog, modal } from '../modals'
 import { OPEN_AGENT_EVENT, openAgentPanel } from '../meetings/office'
 import { entryView } from '../panel/entries'
 import { AutomationsView, type AutomationTarget } from './automations'
+import { channelForm, deleteChannel } from './channels/form'
+import { ChannelHeader } from './channels/header'
+import { channelStore } from './channels/store'
 import { ConnectionsView } from './connections'
 import { ChatHeader, type HeaderScreen } from './header'
 import { closeMenu } from './menu'
@@ -25,9 +28,10 @@ import { botAgent, chatError, floorName, type Toast } from './util'
 export { openChat, OPEN_CHAT_EVENT } from './open'
 export { chatStore } from './store'
 
-// Chat dos bots (CB-08 a CB-10): tela cheia no molde da sala de reunião. À esquerda os bots do
-// andar, no centro o fio com a caixa de mensagem, à direita (ⓘ) o perfil. Esc fecha; abre no
-// último fio visto. Docs: docs/prd/chat-de-bots.md ("Experiência").
+// Chat dos bots (CB-08 a CB-10, canais no CB-20): tela cheia no molde da sala de reunião. À
+// esquerda os bots e os canais do andar, no centro o fio com a caixa de mensagem, à direita (ⓘ) o
+// perfil do bot. Esc fecha; abre no último fio visto. Docs: docs/prd/chat-de-bots.md
+// ("Experiência", "Canais").
 
 /** localStorage: the last thread seen, where the Chat opens. */
 const LAST_KEY = 'agent-office:chat-last'
@@ -96,8 +100,23 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   let readTimer = 0
   let frame = 0
 
+  // selected is a Bot.id or a Channel.id (ids never collide: channels are "canal-…" or "andar-…")
   const bot = (): Bot | undefined => chatStore.bot(selected)
+  const channel = (): Channel | undefined => (bot() ? undefined : channelStore.channel(selected))
   const botName = (id: string) => chatStore.bot(id)?.name ?? 'Bot removido'
+  /** The channel's members that still exist, on its floor. */
+  const members = (): Bot[] => {
+    const c = channel()
+    if (!c) return []
+    const ids = new Set(c.members)
+    return sortBots(chatStore.bots.filter((b) => ids.has(b.id) && b.floor === c.floor))
+  }
+  // ThreadView reads only the id: a channel's thread loads like a bot's
+  const threadOf = (c: Channel) => ({ id: c.id }) as Bot
+  const findChannel = async (id: string): Promise<Channel | undefined> => {
+    await channelStore.start()
+    return channelStore.channel(id)
+  }
 
   // ---------- frame ----------
   const center = h('div', { class: 'ch-center' })
@@ -106,6 +125,7 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   const el = h('div', { class: 'backdrop chat-backdrop' }, box)
   const ctx = { root: el, state, toast }
 
+  void channelStore.start()
   /** A real floor (never 'all'): where a sentence is read and a new bot lands. */
   const homeFloor = () => (floor === 'all' ? opts.currentFloor() : floor)
   const automations = new AutomationsView({
@@ -134,12 +154,44 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     setFloor: (f) => setFloor(f),
     select: (id, itemId) => void select(id, itemId),
     newBot: () => void showGallery(),
+    newChannel: () => showChannelForm(),
+    editChannel: (id) => {
+      const c = channelStore.channel(id)
+      if (c) showChannelForm(c)
+    },
     removed: (id) => {
       if (id === selected && mode === 'thread') pickFirst()
     },
     openAutomations: () => void showAutomations(),
     openConnections: () => void showConnections(),
     screen: () => (mode === 'automations' || mode === 'connections' ? mode : null),
+  })
+  const channelHeader = new ChannelHeader({
+    ...ctx,
+    host: box,
+    channel,
+    members,
+    edit: () => {
+      const c = channel()
+      if (c) showChannelForm(c)
+    },
+    remove: () => {
+      const c = channel()
+      if (c)
+        void deleteChannel(ctx, c).then((gone) => {
+          if (gone && selected === c.id) pickFirst()
+        })
+    },
+    markUnread: () => {
+      const c = channel()
+      if (!c) return
+      channelStore.markUnread(c.id).then(
+        () => toast(`#${c.name} fica como não lido.`, 'ok'),
+        (err: unknown) => toast(chatError(err), 'err'),
+      )
+    },
+    openBot: (id) => void select(id),
+    close: () => void close(),
   })
   const header = new ChatHeader({
     ...ctx,
@@ -159,7 +211,12 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     bot,
     botName,
     live: (requestId) => state.permissions.has(requestId),
-    activity: () => botAgent(state, bot())?.activity ?? '',
+    activity: (botId) => botAgent(state, botId ? chatStore.bot(botId) : bot())?.activity ?? '',
+    channel: () => {
+      const c = channel()
+      if (!c || mode !== 'thread') return null
+      return { id: c.id, members, bot: (id) => chatStore.bot(id), reroute: (itemId, botId) => reroute(c.id, itemId, botId), menuHost: box }
+    },
     respond: async (d) => {
       try {
         await window.office.respond(d)
@@ -174,6 +231,8 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   const composer = new Composer({
     ...ctx,
     bot,
+    channel,
+    members,
     onSent: () => thread.toBottom(true),
     showRequest: (requestId) => {
       const id = thread.itemForRequest(requestId)
@@ -192,14 +251,15 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     editAutomation: (target) => void showAutomations(target),
   })
 
-  main.append(header.el, center)
+  main.append(header.el, channelHeader.el, center)
   box.append(sidebar.el, main, profile.el)
   modalA11y(el, box, sidebar.heading)
   root.append(el)
 
   // files dropped anywhere on the conversation go to the message box
+  const canDrop = () => mode === 'thread' && !!(bot() || channel())
   main.addEventListener('dragover', (e) => {
-    if (mode !== 'thread' || !bot() || !e.dataTransfer?.types.includes('Files')) return
+    if (!canDrop() || !e.dataTransfer?.types.includes('Files')) return
     e.preventDefault()
     main.classList.add('drop-target')
   })
@@ -208,7 +268,7 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   })
   main.addEventListener('drop', (e) => {
     main.classList.remove('drop-target')
-    if (mode !== 'thread' || !bot() || !e.dataTransfer?.files.length) return
+    if (!canDrop() || !e.dataTransfer?.files.length) return
     e.preventDefault()
     composer.attach([...e.dataTransfer.files])
     composer.focus()
@@ -219,7 +279,17 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     profileOpen = open
     localStorage.setItem(PROFILE_KEY, open ? '1' : '0')
     syncProfile()
-    header.render()
+    renderHeader()
+  }
+
+  /** A channel's thread swaps the bot's header for the channel's. */
+  function renderHeader(): void {
+    const showChannel = mode === 'thread' && !!channel()
+    header.el.hidden = showChannel
+    channelHeader.el.hidden = !showChannel
+    center.classList.toggle('is-channel', showChannel)
+    if (showChannel) channelHeader.render()
+    else header.render()
   }
 
   function syncProfile(): void {
@@ -234,7 +304,7 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     center.className = `ch-center mode-${next}`
     center.replaceChildren(...children)
     syncProfile()
-    header.render()
+    renderHeader()
     sidebar.render()
   }
 
@@ -311,6 +381,32 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     connections.focus()
   }
 
+  /** "＋ Canal" or "Editar canal". */
+  function showChannelForm(existing?: Channel): void {
+    const back = selected
+    const form = channelForm(
+      {
+        ...ctx,
+        floor: () => floor,
+        saved: (c) => void select(c.id),
+        removed: () => pickFirst(),
+        cancel: () => (back && (chatStore.bot(back) || channelStore.channel(back)) ? void select(back) : pickFirst()),
+      },
+      existing,
+    )
+    showCenter('form', form.el)
+    form.focus()
+  }
+
+  async function reroute(channelId: string, itemId: string, botId: string): Promise<void> {
+    try {
+      await window.office.rerouteChannelMessage(channelId, itemId, botId)
+      toast(`A mensagem foi para ${botName(botId)}.`, 'ok')
+    } catch (err) {
+      toast(chatError(err), 'err')
+    }
+  }
+
   function showEmptyFloor(): void {
     selected = null
     showCenter(
@@ -361,8 +457,8 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
 
   function setFloor(f: string): void {
     floor = f
-    const b = bot()
-    if (mode === 'thread' && b && (f === 'all' || b.floor === f)) return sidebar.render()
+    const on = bot() ?? channel()
+    if (mode === 'thread' && on && (f === 'all' || on.floor === f)) return sidebar.render()
     if (mode === 'form' || mode === 'gallery') return sidebar.render()
     if (mode === 'automations' || mode === 'connections') {
       sidebar.render()
@@ -378,18 +474,22 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     if (id !== selected && profile.hasChanges && !(await discardProfile())) return
     await chatStore.start()
     const b = chatStore.bot(id)
-    if (!b) {
+    const c = b ? undefined : await findChannel(id)
+    const target = b ?? c
+    if (closed) return
+    if (!target) {
       toast('Esse fio não existe mais.', 'err')
       return pickFirst()
     }
-    if (floor !== 'all' && b.floor !== floor) floor = b.floor
+    if (floor !== 'all' && target.floor !== floor) floor = target.floor
     const changed = id !== selected || mode !== 'thread'
     selected = id
     localStorage.setItem(LAST_KEY, id)
     if (changed) {
       showCenter('thread', thread.el, composer.el)
-      composer.setBot(b)
-      await thread.load(b)
+      if (c) composer.setChannel(c)
+      else composer.setBot(b)
+      await thread.load(c ? threadOf(c) : (b as Bot))
     } else sidebar.render()
     if (closed || selected !== id) return
     if (itemId && !(await thread.reveal(itemId))) toast('Essa mensagem não está mais no fio.')
@@ -411,7 +511,8 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     clearTimeout(readTimer)
     readTimer = window.setTimeout(() => {
       if (closed || mode !== 'thread' || !selected || document.visibilityState !== 'visible' || !thread.atBottom) return
-      chatStore.markRead(selected)
+      if (channel()) channelStore.markRead(selected)
+      else chatStore.markRead(selected)
     }, READ_MS)
   }
 
@@ -501,27 +602,41 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   }
 
   // ---------- events ----------
+  /** The bot or the channel on screen went away. */
+  const gone = (): boolean => {
+    if (mode !== 'thread' || !selected) return false
+    return !bot() && !channel()
+  }
   const offStore = chatStore.on(() => {
     if (closed) return
+    channelStore.botsSeen(chatStore.bots)
     if (chatStore.error && !chatStore.bots.length) {
       if (mode !== 'error') showError()
       return
     }
-    if (mode === 'error' || (mode === 'thread' && !selected)) return pickFirst()
-    if (selected && !chatStore.bot(selected) && mode === 'thread') return pickFirst()
+    if (mode === 'error' || (mode === 'thread' && !selected) || gone()) return pickFirst()
     sidebar.render()
-    header.render()
+    renderHeader()
     composer.sync()
     if (!profile.el.hidden) profile.show(bot())
     if (mode === 'automations') automations.refresh()
     else if (mode === 'connections') connections.refresh()
+  })
+  const offChannels = channelStore.on(() => {
+    if (closed) return
+    if (gone()) return pickFirst()
+    sidebar.render()
+    renderHeader()
+    composer.sync()
   })
   const offItems = chatStore.onItem((threadId, item, added) => {
     if (closed || threadId !== selected || mode !== 'thread') return
     thread.add(item)
     if (added && (item.kind === 'bot' || item.kind === 'approval')) {
       const what = item.kind === 'bot' ? snippet(item.text, 160) : `pede você: ${snippet(item.request.title, 120)}`
-      announce(`${botName(threadId)}: ${what}`, item.kind === 'approval' ? 'assertive' : 'polite')
+      const c = channel()
+      const who = c ? `${botName(item.botId)} em #${c.name}` : botName(threadId)
+      announce(`${who}: ${what}`, item.kind === 'approval' ? 'assertive' : 'polite')
     }
   })
   // agents and requests: status lines, the composer, the cards
@@ -531,7 +646,7 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
       frame = 0
       if (closed) return
       sidebar.render()
-      header.render()
+      renderHeader()
       composer.sync()
       if (mode === 'thread') thread.refresh()
       // the routines live in the office's state: the screen and the profile follow them
@@ -556,6 +671,7 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
     cancelAnimationFrame(frame)
     offStore()
     offItems()
+    offChannels()
     offState()
     document.removeEventListener('visibilitychange', onVisible)
     closeMenu()
@@ -587,14 +703,16 @@ function openChatScreen(root: HTMLElement, state: State, opts: ChatOptions, thre
   }
 
   // ---------- first paint ----------
-  header.render()
+  renderHeader()
   sidebar.render()
   syncProfile()
-  void chatStore.start().then(() => {
+  void chatStore.start().then(async () => {
     if (closed) return
     const target = threadId ?? localStorage.getItem(LAST_KEY)
-    const b = chatStore.bot(target)
-    if (b && (threadId || floor === 'all' || b.floor === floor)) void select(b.id)
+    // a channel's id waits for the channels; a bot's opens at once
+    const on = chatStore.bot(target) ?? (target ? await findChannel(target) : undefined)
+    if (closed) return
+    if (on && (threadId || floor === 'all' || on.floor === floor)) void select(on.id)
     else if (threadId) {
       toast('Esse fio não existe mais.', 'err')
       pickFirst()

@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { permissionNotice, realPathOf } from '@shared/permission-notice'
-import type { Actor, AgentBrain, OfficeEvent, PermissionRequest } from '@shared/types'
+import { BOT_GROUND_FLOOR, type Actor, type AgentBrain, type OfficeEvent, type PermissionRequest } from '@shared/types'
 import { Accounts, accountEnv } from './accounts'
 import { AgentManager } from './agents'
 import { badgePixels, encodePng } from './badge'
@@ -55,6 +55,10 @@ import { BotStore } from './bots/store'
 import { BotTools } from './bots/mcp'
 import { BotTriggers } from './bots/triggers'
 import { registerBotAutomationsIpc } from './ipc/bots-automations'
+import { ChannelService, runnerHost } from './bots/channels'
+import { makeRouter } from './bots/router'
+import { channelTools } from './bots/mcp-channels'
+import { registerBotChannelsIpc } from './ipc/bots-channels'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -319,10 +323,11 @@ app.whenReady().then(async () => {
   const player = (): Actor => ({ kind: 'player', name: store.settings.playerName })
   const defaultBrain = (): AgentBrain => ({ model: store.settings.defaultModel || undefined, effort: store.settings.defaultEffort || undefined })
 
-  // Chat dos bots, phase 2: event automations watch tickets and meetings (set further down).
-  const botEvents: { triggers?: BotTriggers } = {}
+  // Chat dos bots: event automations watch tickets and meetings; channels follow the bots (set further down).
+  const botEvents: { triggers?: BotTriggers; channels?: ChannelService } = {}
   const broadcast = (e: OfficeEvent) => {
     if (botEvents.triggers && (e.type.startsWith('ticket:') || e.type.startsWith('meeting:'))) botEvents.triggers.handle(e)
+    if (e.type === 'bots') botEvents.channels?.botsChanged()
     // A crashed page reloads by itself and gets the state again; sending now only makes noise (AO-27).
     if (win && !win.isDestroyed() && !win.webContents.isCrashed()) win.webContents.send('office:event', e)
     const strip = pet?.window
@@ -640,6 +645,28 @@ app.whenReady().then(async () => {
     scratchDir: () => app.getPath('userData'),
     book,
   })
+  // Chat dos bots, phase 3: channels with several bots and the player, the router that picks who
+  // answers, and the chat_post / bot_ask tools of a bot that is in a channel.
+  const chatFloors = () => [{ id: BOT_GROUND_FLOOR, name: 'Térreo' }, ...store.settings.projects.map((p) => ({ id: p.id, name: p.name }))]
+  const channels = new ChannelService({
+    store: botStore,
+    host: runnerHost(bots, (id) => botStore.bot(id)),
+    route: makeRouter({
+      model: () => store.settings.chat?.routerModel,
+      place: (floorId) => {
+        const floor = store.settings.projects.find((x) => x.id === floorId)
+        const account = accounts.pick({ cwd: floor?.cwd ?? '', accounts: floor?.accounts })
+        return { cwd: floor && isDir(floor.cwd) ? floor.cwd : app.getPath('userData'), env: accountEnv(account), account: account.id }
+      },
+      ledger: { book, category: 'bots' },
+    }),
+    floors: chatFloors,
+    chat: () => store.settings.chat ?? {},
+    broadcast,
+  })
+  botEvents.channels = channels
+  botTools.add(channelTools(channels))
+  registerBotChannelsIpc({ channels, bots: () => botStore.bots, floors: () => chatFloors().map((f) => f.id) })
   registerVoiceIpc()
   // Dev only: AGENT_OFFICE_MEETING_WAV feeds the meeting capture from a WAV instead of the mic.
   registerMeetingWavHook(app.isPackaged ? undefined : process.env.AGENT_OFFICE_MEETING_WAV)
