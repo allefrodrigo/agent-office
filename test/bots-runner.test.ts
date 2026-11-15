@@ -22,7 +22,7 @@ import {
   type WorktreeInfo,
 } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
-import { BotRunner, type BotHost } from '../src/main/bots/runner'
+import { BotRunner, type BotHost, type BotRunEnd } from '../src/main/bots/runner'
 import { BotStore } from '../src/main/bots/store'
 import type { BotIdentity, DecisionNote } from '../src/main/agents/types'
 
@@ -205,6 +205,7 @@ const thread = (id = 'gabi'): ThreadItem[] => store.thread(id).all()
 const kinds = (id = 'gabi') => thread(id).map((i) => i.kind)
 const lastOf = <K extends ThreadItem['kind']>(kind: K, id = 'gabi') => thread(id).filter((i) => i.kind === kind).at(-1) as Extract<ThreadItem, { kind: K }> | undefined
 const bot = (id = 'gabi') => store.bot(id)!
+const tick = () => new Promise((r) => setImmediate(r))
 
 function setup(bots: Bot[] = [makeBot()]): void {
   runner?.dispose()
@@ -511,8 +512,8 @@ describe('BotRunner: parar, rodar agora, automações, conversa nova', () => {
   it('automação: conversa nova, cabeçalho, tarefa e as últimas mensagens do fio', async () => {
     await runner.send('gabi', 'Prefiro tópicos curtos')
     manager.result(bot().agentId!, 'Anotado.')
-    const status = await runner.runScheduled('gabi', 'Resuma a manhã.', { kind: 'schedule', routineId: 'r1', label: 'Dias úteis às 07:30' })
-    expect(status).toBe('running')
+    const start = await runner.runScheduled('gabi', 'Resuma a manhã.', { kind: 'schedule', routineId: 'r1', label: 'Dias úteis às 07:30' })
+    expect(start).toEqual({ runId: lastOf('run')!.runId })
     expect(manager.cleared).toEqual([bot().agentId])
     expect(manager.configured.at(-1)?.patch).toMatchObject({ permissionMode: 'default' })
     const text = manager.sent.at(-1)!.text
@@ -527,8 +528,8 @@ describe('BotRunner: parar, rodar agora, automações, conversa nova', () => {
 
   it('automação com o bot ocupado vira rodada pulada com aviso', async () => {
     await runner.send('gabi', 'Longo')
-    const status = await runner.runScheduled('gabi', 'x', { kind: 'event', triggerId: 't1', label: '🎫 AO-44 criado' })
-    expect(status).toBe('skipped')
+    const start = await runner.runScheduled('gabi', 'x', { kind: 'event', triggerId: 't1', label: '🎫 AO-44 criado' })
+    expect(start).toEqual({ skipped: lastOf('notice')!.text })
     expect(thread().filter((i) => i.kind === 'run').map((i) => (i as { status: string }).status)).toEqual(['running', 'skipped'])
     expect(lastOf('notice')?.text).toMatch(/^Pulei a rodada das \d\d:\d\d: Gabi estava ocupado\.$/)
     expect(bot().runs[0]).toMatchObject({ status: 'skipped' })
@@ -536,11 +537,15 @@ describe('BotRunner: parar, rodar agora, automações, conversa nova', () => {
 
   it('automação com a pasta sumida vira falha com aviso e notificação', async () => {
     store.update({ ...bot(), cwd: join(dir, 'sumiu') })
-    const status = await runner.runScheduled('gabi', 'x', { kind: 'manual' })
-    expect(status).toBe('failed')
+    const ends: BotRunEnd[] = []
+    runner.on('run:end', (e: BotRunEnd) => ends.push(e))
+    const start = await runner.runScheduled('gabi', 'x', { kind: 'manual' })
+    expect(start).toEqual({ runId: lastOf('run')!.runId })
     expect(lastOf('run')?.status).toBe('failed')
     expect(notes.at(-1)?.title).toBe('Gabi: a rodada falhou')
-    expect(await runner.runScheduled('nada', 'x', { kind: 'manual' })).toBe('failed')
+    await tick()
+    expect(ends).toEqual([expect.objectContaining({ botId: 'gabi', status: 'failed', threadId: 'gabi' })])
+    expect(await runner.runScheduled('nada', 'x', { kind: 'manual' })).toEqual({ skipped: 'Esse bot não existe mais.' })
   })
 
   it('Nova conversa limpa o contexto e avisa; com o bot trabalhando, recusa', async () => {
@@ -595,7 +600,7 @@ describe('BotRunner: teto do dia', () => {
     expect(manager.sent).toEqual([])
     expect(kinds()).toEqual(['user', 'notice'])
     expect(lastOf('notice')?.text).toContain('Teto de custo atingido: Gabi gastou US$ 0,12 hoje')
-    expect(await runner.runScheduled('gabi', 'x', { kind: 'manual' })).toBe('skipped')
+    expect(await runner.runScheduled('gabi', 'x', { kind: 'manual' })).toHaveProperty('skipped')
     await runner.runNow('gabi')
     expect(manager.sent).toEqual([])
   })
@@ -666,5 +671,83 @@ describe('BotRunner: demonstração', () => {
     expect(lastOf('run')?.status).toBe('failed')
     await runner.send('gabi', '!ls')
     expect(lastOf('notice')?.text).toContain('modo demonstração')
+  })
+})
+
+describe('BotRunner: canais, perguntas entre bots e o fim da rodada', () => {
+  const channel = { id: 'geral', name: 'geral', floor: 'terreo', topic: '', members: ['gabi'], createdAt: 0, updatedAt: 0, lastReadAt: 0, order: 0 }
+
+  it('rodada de canal: os itens vão para o fio do canal; a mensagem do jogador não se repete', async () => {
+    store.channels = [channel]
+    const start = await runner.send('gabi', 'Alguém viu o deploy?', [], { kind: 'channel', channelId: 'geral' })
+    expect(start).toHaveProperty('runId')
+    const agentId = bot().agentId!
+    manager.log(agentId, 'tool', 'git log', 'Bash')
+    const req = manager.ask(agentId, {}, 'push')
+    manager.decide(req, { behavior: 'deny', message: 'Não' })
+    manager.result(agentId, 'O deploy saiu às 10h.')
+    expect(kinds('geral')).toEqual(['run', 'approval', 'bot'])
+    expect(lastOf('approval', 'geral')).toMatchObject({ status: 'denied' })
+    expect(lastOf('bot', 'geral')?.text).toBe('O deploy saiu às 10h.')
+    expect(thread('gabi')).toEqual([])
+    expect(bot().runs[0]).toMatchObject({ threadId: 'geral', status: 'ok' })
+    expect(events.some((e) => e.type === 'bot:item' && e.threadId === 'geral')).toBe(true)
+  })
+
+  it('canal com o bot ocupado: pulada no canal, sem erro; DM entra na fila', async () => {
+    store.channels = [channel]
+    await runner.send('gabi', 'Longo')
+    const start = await runner.send('gabi', 'Oi canal', [], { kind: 'channel', channelId: 'geral' })
+    expect(start).toEqual({ skipped: expect.stringMatching(/Gabi estava ocupado/) })
+    expect(lastOf('run', 'geral')?.status).toBe('skipped')
+    expect(await runner.send('gabi', 'Mais uma')).toMatchObject({ queued: true })
+  })
+
+  it('pergunta de outro bot: a rodada vai para o fio de quem perguntou; o run:end traz a resposta', async () => {
+    store.bots = [...store.bots, makeBot({ id: 'leo', name: 'Leo' })]
+    const ends: BotRunEnd[] = []
+    runner.on('run:end', (e: BotRunEnd) => ends.push(e))
+    const start = await runner.send('gabi', 'Qual o status do AO-44?', [], { kind: 'ask', fromBotId: 'leo' })
+    const runId = (start as { runId: string }).runId
+    manager.result(bot().agentId!, 'Em revisão.', false, 0.01)
+    await tick()
+    expect(ends).toEqual([{ botId: 'gabi', runId, threadId: 'leo', trigger: { kind: 'ask', fromBotId: 'leo' }, status: 'ok', costUsd: 0.01, text: 'Em revisão.' }])
+    expect(kinds('leo')).toEqual(['run', 'bot'])
+    expect(thread('gabi')).toEqual([])
+  })
+
+  it('canal com a pasta sumida: falha no canal, sem exceção', async () => {
+    store.channels = [channel]
+    store.update({ ...bot(), cwd: join(dir, 'sumiu') })
+    const start = await runner.send('gabi', 'Oi', [], { kind: 'channel', channelId: 'geral' })
+    expect(start).toHaveProperty('runId')
+    expect(lastOf('run', 'geral')?.status).toBe('failed')
+  })
+
+  it('run:end chega depois de o chamador ter o runId, mesmo quando a rodada fecha na hora', async () => {
+    await runner.ensureAgent('gabi')
+    manager.broke.add(bot().agentId!)
+    const ends: BotRunEnd[] = []
+    runner.on('run:end', (e: BotRunEnd) => ends.push(e))
+    const start = await runner.send('gabi', 'Oi')
+    expect(ends).toEqual([])
+    await tick()
+    expect(ends).toEqual([expect.objectContaining({ runId: (start as { runId: string }).runId, status: 'failed', error: 'Teto de custo do agente atingido.' })])
+  })
+})
+
+describe('BotRunner: a lista leva não lidas e a última mensagem', () => {
+  it('conta respostas e pedidos depois de lastReadAt e mostra a mensagem mais nova', async () => {
+    expect(runner.list()[0]).toMatchObject({ unread: 0 })
+    expect(runner.list()[0].last).toBeUndefined()
+    await runner.send('gabi', 'Oi')
+    const agentId = bot().agentId!
+    manager.ask(agentId)
+    manager.result(agentId, 'Olá!')
+    expect(runner.list()[0]).toMatchObject({ unread: 2, last: { text: 'Olá!', from: 'bot' } })
+    store.update({ ...bot(), lastReadAt: Date.now() + 1 })
+    expect(runner.list()[0]).toMatchObject({ unread: 0, last: { text: 'Olá!' } })
+    const sent = events.filter((e) => e.type === 'bots').at(-1) as Extract<OfficeEvent, { type: 'bots' }>
+    expect(sent.bots[0]).toHaveProperty('unread')
   })
 })

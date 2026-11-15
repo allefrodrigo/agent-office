@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { EventEmitter } from 'node:events'
 import {
   BOT_GROUND_FLOOR,
   BOT_LIMITS,
@@ -87,10 +88,37 @@ export interface BotRunnerDeps {
   now?: () => number
 }
 
+/** How a run asked for began: its id, or why it did not start. */
+export type RunStart = { runId: string; queued?: boolean } | { skipped: string }
+
+export interface SendOptions {
+  /** Where the run's items go. Default: the DM; a channel trigger's channel; an ask's asking bot. */
+  threadId?: string
+  /** The message shows in the thread as the player's. Default: only for DMs (a channel writes its own). */
+  showUser?: boolean
+  /** What the office panel's log shows instead of the text. */
+  display?: string
+}
+
+/** Emitted as 'run:end' when a run ends (not when it is skipped). */
+export interface BotRunEnd {
+  botId: string
+  runId: string
+  threadId: string
+  trigger: RunTrigger
+  status: BotRunStatus
+  costUsd?: number
+  error?: string
+  /** The reply bubble's text, when there is one. */
+  text?: string
+}
+
 /** A run the runner follows until its result arrives. */
 interface Active {
   botId: string
   agentId: string
+  /** The thread its items go to: the bot's own, or a channel's. */
+  threadId: string
   item: RunItem
   /** The item is in the thread. A run opens before its message goes, so a result that comes back at once still finds it. */
   shown: boolean
@@ -100,8 +128,8 @@ interface Active {
   sessionId?: string
   /** The last thing the bot said: the bubble when the result comes back empty. */
   candidate?: string
-  /** Messages sent while it ran: each is a turn of its own, so each gets a run after this one. */
-  queued: number
+  /** Messages sent while it ran (their threads): each is a turn of its own, so each gets a run after this one. */
+  queued: string[]
   /** Stop was pressed: the run ends with the interrupted turn's result, or after a grace time. */
   stopped?: NodeJS.Timeout
 }
@@ -111,6 +139,8 @@ const SWEEP_MS = 60_000
 /** After Stop, the interrupted turn's result has this long to arrive before the run is closed anyway. */
 const STOP_GRACE_MS = 5_000
 const STOPPED = 'Você parou esta rodada.'
+/** Items list() looks at per thread, from the end. */
+const GLANCE_MAX = 500
 const BUSY_STATUSES = new Set(['working', 'starting', 'waiting'])
 
 const money = (usd: number) => `US$ ${usd.toFixed(2).replace('.', ',')}`
@@ -127,13 +157,13 @@ const safeMode = (mode: string): OfficePermissionMode => (mode === 'bypassPermis
  *
  * Logs carry ids, counts, durations and the model, never what was said.
  */
-export class BotRunner {
+export class BotRunner extends EventEmitter {
   /** botId -> its run in progress. */
   private active = new Map<string, Active>()
   /** The user line the runner itself is sending, and whether the thread shows it. */
-  private own: { agentId: string; show: boolean } | null = null
-  /** requestId -> its approval item. */
-  private requests = new Map<string, ApprovalItem>()
+  private own: { agentId: string; show: boolean; threadId: string } | null = null
+  /** requestId -> its approval item and the thread it is in. */
+  private requests = new Map<string, { threadId: string; item: ApprovalItem }>()
   /** agentId -> the bot whose "!" command, sent from the Chat, is running. */
   private shells = new Map<string, string>()
   /** agentId -> when the runner last used it (for the idle sweep). */
@@ -150,6 +180,7 @@ export class BotRunner {
   demoSend?: (botId: string, text: string) => void
 
   constructor(private d: BotRunnerDeps) {
+    super()
     this.now = d.now ?? (() => Date.now())
     d.manager.on('event', (e) => this.onEvent(e))
     d.manager.on('decision', (n) => this.onDecision(n))
@@ -192,8 +223,23 @@ export class BotRunner {
 
   // ---------- reads ----------
 
+  /** The bots, each with its unread count and last message (the sidebar reads no thread). */
   list(): Bot[] {
-    return this.d.store.bots
+    return this.d.store.bots.map((b) => ({ ...b, ...this.glance(b) }))
+  }
+
+  /** Unread replies and approvals since lastReadAt, and the newest message, from the end of the thread. */
+  private glance(bot: Bot): Pick<Bot, 'unread' | 'last'> {
+    const items = this.d.store.thread(bot.id).all()
+    let unread = 0
+    let last: Bot['last']
+    for (let k = items.length - 1, seen = 0; k >= 0 && seen < GLANCE_MAX; k--, seen++) {
+      const i = items[k]
+      if (!last && (i.kind === 'user' || i.kind === 'bot' || i.kind === 'notice')) last = { t: i.t, text: clip(i.text, 160), from: i.kind }
+      if (i.t > bot.lastReadAt && (i.kind === 'bot' || i.kind === 'approval')) unread++
+      if (last && i.t <= bot.lastReadAt) break
+    }
+    return { unread, ...(last ? { last } : {}) }
   }
 
   /** The bot's run in progress, if any. */
@@ -222,47 +268,76 @@ export class BotRunner {
   // ---------- from the Chat ----------
 
   /**
-   * The player wrote to the bot. While it works, the message joins the queue of the current
-   * run (as in the panel) and becomes a run of its own when its turn comes. `!cmd` runs in the
-   * bot's folder like in the panel and its output comes back as a notice.
+   * A message to the bot. From the player (DM, `trigger` message): while it works, the message
+   * joins the queue of the current run (as in the panel) and becomes a run of its own when its
+   * turn comes; `!cmd` runs in the bot's folder like in the panel and its output comes back as a
+   * notice; a missing folder throws. From a channel or another bot (`trigger` channel or ask): the
+   * run's items go to that thread (SendOptions.threadId), and a busy bot, a bot past its daily
+   * cap or one that cannot start skips it with a notice there; it never throws.
    */
-  async send(botId: string, text: string, attachments: AttachmentInput[] = []): Promise<void> {
+  async send(botId: string, text: string, attachments: AttachmentInput[] = [], trigger: RunTrigger = { kind: 'message' }, opts: SendOptions = {}): Promise<RunStart> {
     const bot = this.must(botId)
+    const auto = trigger.kind !== 'message'
+    const threadId = opts.threadId ?? (trigger.kind === 'channel' ? trigger.channelId : trigger.kind === 'ask' ? trigger.fromBotId : bot.id)
+    const showUser = opts.showUser ?? !auto
     const body = text.trim()
-    if (!body && !attachments.length) return
-    const command = body.startsWith('!') && !attachments.length ? body.slice(1).trim() : ''
-    if (!command && this.overDay(bot)) {
-      this.put(bot.id, { id: randomUUID(), t: this.now(), kind: 'user', text })
-      this.notice(bot.id, `${this.overDayText(bot)} A mensagem não foi enviada.`, 'warn')
-      return
+    if (!body && !attachments.length) return { skipped: 'Mensagem vazia.' }
+    const command = !auto && body.startsWith('!') && !attachments.length ? body.slice(1).trim() : ''
+    if (command) return this.command(bot, command)
+    const userItem = (): ThreadItem => ({ id: randomUUID(), t: this.now(), kind: 'user', text })
+    if (this.overDay(bot)) {
+      if (showUser) this.put(threadId, userItem())
+      if (auto) return { skipped: this.skip(bot, trigger, this.overDayText(bot), threadId) }
+      this.notice(threadId, `${this.overDayText(bot)} A mensagem não foi enviada.`, 'warn')
+      return { skipped: this.overDayText(bot) }
     }
-    const a = await this.ensureAgent(bot.id)
+    const busyText = `Pulei a mensagem das ${hhmm(this.now())}: ${bot.name} estava ocupado com outra rodada.`
+    if (auto && this.busy(bot)) return { skipped: this.skip(bot, trigger, busyText, threadId) }
+    let a: AgentSummary
+    try {
+      a = await this.ensureAgent(bot.id)
+    } catch (err) {
+      if (!auto) throw err
+      return { runId: this.fail(bot, trigger, err instanceof Error ? err.message : String(err), threadId) }
+    }
     const m = this.d.manager
-    if (command) {
-      if (bot.demo) return this.notice(bot.id, 'No modo demonstração os comandos "!" não rodam.', 'info')
-      this.shells.set(a.id, bot.id)
-      this.touched.set(a.id, this.now())
-      const done = this.asOwn(a.id, true, () => m.runCommand(a.id, command))
-      await done.finally(() => this.shells.delete(a.id))
-      return
-    }
     const current = this.active.get(bot.id)
+    if (auto && (current || m.isBusy(a.id))) return { skipped: this.skip(bot, trigger, busyText, threadId) }
     const joins = !!current && current.agentId === a.id && !current.stopped && m.isBusy(a.id)
     // A run still open with its agent idle: stopped and waiting for its result, or lost track of.
     if (current && !joins) {
       if (current.stopped) this.closeStopped(current, true)
       else this.close(current, { text: 'A rodada terminou sem resposta.', isError: true })
     }
-    const run = joins ? undefined : this.open(bot.id, a, { kind: 'message' })
-    if (bot.demo) this.put(bot.id, { id: randomUUID(), t: this.now(), kind: 'user', text })
+    const run = joins ? undefined : this.open(bot.id, a, trigger, threadId)
+    if (bot.demo && showUser) this.put(threadId, userItem())
     try {
-      this.asOwn(a.id, true, () => this.deliverText(bot, a.id, text, undefined, attachments))
+      this.asOwn(a.id, showUser, threadId, () => this.deliverText(bot, a.id, text, opts.display, attachments))
     } catch (err) {
       if (run) this.discard(run)
-      throw err
+      if (!auto) throw err
+      return { skipped: err instanceof Error ? err.message : String(err) }
     }
-    if (run) this.show(run)
-    else if (current && this.active.get(bot.id) === current) current.queued++
+    if (run) {
+      this.show(run)
+      return { runId: run.item.runId }
+    }
+    if (current && this.active.get(bot.id) === current) current.queued.push(threadId)
+    return { runId: current?.item.runId ?? '', queued: true }
+  }
+
+  /** `!cmd` from the Chat: the panel's shell mode, in the bot's folder; no run, no tokens. */
+  private async command(bot: Bot, command: string): Promise<RunStart> {
+    if (bot.demo) {
+      this.notice(bot.id, 'No modo demonstração os comandos "!" não rodam.', 'info')
+      return { skipped: 'Modo demonstração.' }
+    }
+    const a = await this.ensureAgent(bot.id)
+    this.shells.set(a.id, bot.id)
+    this.touched.set(a.id, this.now())
+    const done = this.asOwn(a.id, true, bot.id, () => this.d.manager.runCommand(a.id, command))
+    await done.finally(() => this.shells.delete(a.id))
+    return { skipped: 'Comando "!": roda sem abrir rodada.' }
   }
 
   /** "Rodar agora": a run in the current conversation with the bot's job as the task. */
@@ -276,7 +351,7 @@ export class BotRunner {
     const run = this.open(bot.id, a, trigger)
     const text = `${runHeader(trigger, this.now())}\n\nFaça agora o seu trabalho, como o seu papel descreve.`
     try {
-      this.asOwn(a.id, false, () => this.deliverText(bot, a.id, text, runLabel(trigger)))
+      this.asOwn(a.id, false, bot.id, () => this.deliverText(bot, a.id, text, runLabel(trigger)))
     } catch (err) {
       this.discard(run)
       throw err
@@ -287,22 +362,23 @@ export class BotRunner {
   /**
    * A run started by an automation (phase 2): a fresh conversation, with the trigger's header,
    * the task and the latest messages of the thread. A bot already working skips it, with a
-   * notice; so does a bot past its daily cap. Never throws: the outcome is the run's status.
+   * notice; so does a bot past its daily cap. Never throws. The run's end comes as 'run:end'.
    */
-  async runScheduled(botId: string, task: string, trigger: RunTrigger): Promise<BotRunStatus> {
+  async runScheduled(botId: string, task: string, trigger: RunTrigger): Promise<RunStart> {
     const bot = this.d.store.bot(botId)
-    if (!bot) return 'failed'
+    if (!bot) return { skipped: 'Esse bot não existe mais.' }
     const at = this.now()
-    if (this.busy(bot)) return this.skip(bot, trigger, `Pulei a rodada das ${hhmm(at)}: ${bot.name} estava ocupado.`)
-    if (this.overDay(bot)) return this.skip(bot, trigger, this.overDayText(bot))
+    const busyText = `Pulei a rodada das ${hhmm(at)}: ${bot.name} estava ocupado.`
+    if (this.busy(bot)) return { skipped: this.skip(bot, trigger, busyText, bot.id) }
+    if (this.overDay(bot)) return { skipped: this.skip(bot, trigger, this.overDayText(bot), bot.id) }
     let a: AgentSummary
     try {
       a = await this.ensureAgent(bot.id)
     } catch (err) {
-      return this.fail(bot, trigger, err instanceof Error ? err.message : String(err))
+      return { runId: this.fail(bot, trigger, err instanceof Error ? err.message : String(err), bot.id) }
     }
     const m = this.d.manager
-    if (m.isBusy(a.id)) return this.skip(bot, trigger, `Pulei a rodada das ${hhmm(at)}: ${bot.name} estava ocupado.`)
+    if (this.active.has(bot.id) || m.isBusy(a.id)) return { skipped: this.skip(bot, trigger, busyText, bot.id) }
     // Each scheduled run starts a fresh conversation, so the context does not grow day after day.
     if (!bot.demo) {
       m.clearContext(a.id, 'Rodada de automação: conversa nova. A memória e as últimas mensagens do fio vão junto.')
@@ -312,13 +388,12 @@ export class BotRunner {
     const text = [runHeader(trigger, at), task.trim(), context].filter(Boolean).join('\n\n')
     const run = this.open(bot.id, this.d.manager.agent(a.id) ?? a, trigger)
     try {
-      this.asOwn(a.id, false, () => this.deliverText(bot, a.id, text, runLabel(trigger)))
+      this.asOwn(a.id, false, bot.id, () => this.deliverText(bot, a.id, text, runLabel(trigger)))
     } catch (err) {
       this.close(run, { text: err instanceof Error ? err.message : String(err), isError: true })
-      return 'failed'
     }
     this.show(run)
-    return this.active.get(bot.id) === run ? 'running' : (run.item.status as BotRunStatus)
+    return { runId: run.item.runId }
   }
 
   /** Interrupts the bot's run; the conversation stays. */
@@ -387,7 +462,7 @@ export class BotRunner {
     if (run?.stopped) clearTimeout(run.stopped)
     this.active.delete(botId)
     this.spend.delete(botId)
-    for (const [id, item] of this.requests) if (item.botId === botId) this.requests.delete(id)
+    for (const [id, r] of this.requests) if (r.item.botId === botId) this.requests.delete(id)
     const agentId = run?.agentId ?? this.d.store.bot(botId)?.agentId
     if (agentId && this.d.manager.agent(agentId)) this.d.manager.fire(agentId)
   }
@@ -472,8 +547,8 @@ export class BotRunner {
   }
 
   /** Runs fn with the user line it logs marked as the runner's own (sendMessage logs it at once). */
-  private asOwn<T>(agentId: string, show: boolean, fn: () => T): T {
-    this.own = { agentId, show }
+  private asOwn<T>(agentId: string, show: boolean, threadId: string, fn: () => T): T {
+    this.own = { agentId, show, threadId }
     try {
       return fn()
     } finally {
@@ -483,16 +558,16 @@ export class BotRunner {
 
   // ---------- runs ----------
 
-  private open(botId: string, a: AgentSummary, trigger: RunTrigger): Active {
+  private open(botId: string, a: AgentSummary, trigger: RunTrigger, threadId = botId): Active {
     const bot = this.must(botId)
     const at = this.now()
     const runId = randomUUID()
     const item: RunItem = { id: `rodada-${runId}`, t: at, kind: 'run', botId, runId, trigger, label: runLabel(trigger), status: 'running', steps: 0 }
-    const run: Active = { botId, agentId: a.id, item, shown: false, spentBefore: a.spentUsd ?? 0, sessionId: a.sessionId, queued: 0 }
+    const run: Active = { botId, agentId: a.id, threadId, item, shown: false, spentBefore: a.spentUsd ?? 0, sessionId: a.sessionId, queued: [] }
     this.active.set(botId, run)
     this.leftover.delete(a.id)
     this.touched.set(a.id, at)
-    const entry: BotRun = { id: runId, trigger, startedAt: at, status: 'running', steps: 0, threadId: botId, itemId: item.id }
+    const entry: BotRun = { id: runId, trigger, startedAt: at, status: 'running', steps: 0, threadId, itemId: item.id }
     bot.runs = [entry, ...bot.runs].slice(0, BOT_LIMITS.runs)
     this.d.store.update(bot)
     this.changed()
@@ -518,7 +593,7 @@ export class BotRunner {
 
   private putRun(run: Active): void {
     run.shown = true
-    this.put(run.botId, run.item)
+    this.put(run.threadId, run.item)
   }
 
   private setStatus(run: Active, status: BotRunStatus): void {
@@ -543,11 +618,13 @@ export class BotRunner {
     const out = closeRun(run.item, { ...end, costUsd: spent }, at, stopped ? undefined : run.candidate)
     run.item = stopped ? { ...out.run, error: STOPPED } : out.run
     this.putRun(run)
-    if (out.bubble && !stopped) this.put(run.botId, out.bubble)
-    if (out.notice) this.put(run.botId, stopped ? { ...out.notice, text: STOPPED, tone: 'info' } : out.notice)
+    const bubble = stopped ? undefined : out.bubble
+    if (bubble) this.put(run.threadId, bubble)
+    if (out.notice) this.put(run.threadId, stopped ? { ...out.notice, text: STOPPED, tone: 'info' } : out.notice)
+    const item = run.item
+    this.ended({ botId: run.botId, runId: item.runId, threadId: run.threadId, trigger: item.trigger, status: item.status, costUsd: item.costUsd, error: item.error, text: bubble?.text })
     const bot = this.d.store.bot(run.botId)
     if (!bot) return
-    const item = run.item
     if (item.costUsd) {
       this.spentToday(bot)
       const s = this.spend.get(bot.id)
@@ -570,14 +647,21 @@ export class BotRunner {
     this.changed()
     log.info(`[bots] rodada ${item.runId} de ${bot.id}: ${item.status}, ${item.steps} passos, ${item.durationMs ?? 0} ms, modelo ${agent?.model ?? bot.model ?? 'padrão'}`)
     const mode = this.chat().notify
-    if (item.status === 'failed' && !stopped && mode !== 'off') this.d.notify(`${bot.name}: a rodada falhou`, item.error ?? 'O bot parou com um erro.', bot.id)
-    else if (item.status === 'ok' && mode === 'all') this.d.notify(`${bot.name} respondeu`, clip(out.bubble?.text ?? 'Rodada concluída.', 140), bot.id)
+    if (item.status === 'failed' && !stopped && mode !== 'off') this.d.notify(`${bot.name}: a rodada falhou`, item.error ?? 'O bot parou com um erro.', run.threadId)
+    else if (item.status === 'ok' && mode === 'all') this.d.notify(`${bot.name} respondeu`, clip(bubble?.text ?? 'Rodada concluída.', 140), run.threadId)
     // A message sent while it ran is the next turn: it gets a run of its own.
-    if (run.queued > 0 && agent && !stopped) {
-      const next = this.open(bot.id, agent, { kind: 'message' })
-      next.queued = run.queued - 1
+    const [nextThread, ...rest] = run.queued
+    if (nextThread && agent && !stopped) {
+      const next = this.open(bot.id, agent, { kind: 'message' }, nextThread)
+      next.queued = rest
       this.show(next)
     }
+  }
+
+  /** 'run:end', after the caller of send or runScheduled has its runId (a run can end inside the call). */
+  private ended(e: BotRunEnd): void {
+    const clean = Object.fromEntries(Object.entries(e).filter(([, v]) => v !== undefined)) as unknown as BotRunEnd
+    setImmediate(() => this.emit('run:end', clean))
   }
 
   /** Stop: closes the run. `late`: its result never came, so a result that comes later is not news. */
@@ -587,29 +671,32 @@ export class BotRunner {
     this.close(run, { text: STOPPED, isError: true }, true)
   }
 
-  /** A run that did not start (busy, over the cap): its item, a notice and Bot.runs. */
-  private skip(bot: Bot, trigger: RunTrigger, why: string): BotRunStatus {
-    this.record(bot, trigger, 'skipped', why)
-    this.notice(bot.id, why, 'warn')
-    return 'skipped'
+  /** A run that did not start (busy, over the cap): its item, a notice and Bot.runs. Returns why. */
+  private skip(bot: Bot, trigger: RunTrigger, why: string, threadId: string): string {
+    this.record(bot, trigger, 'skipped', why, threadId)
+    this.notice(threadId, why, 'warn')
+    return why
   }
 
-  private fail(bot: Bot, trigger: RunTrigger, why: string): BotRunStatus {
-    this.record(bot, trigger, 'failed', why)
-    this.notice(bot.id, why, 'error')
-    if (this.chat().notify !== 'off') this.d.notify(`${bot.name}: a rodada falhou`, why, bot.id)
-    return 'failed'
+  /** A run that could not start (the folder is gone): recorded as failed, with 'run:end'. Returns its id. */
+  private fail(bot: Bot, trigger: RunTrigger, why: string, threadId: string): string {
+    const runId = this.record(bot, trigger, 'failed', why, threadId)
+    this.notice(threadId, why, 'error')
+    if (this.chat().notify !== 'off') this.d.notify(`${bot.name}: a rodada falhou`, why, threadId)
+    this.ended({ botId: bot.id, runId, threadId, trigger, status: 'failed', error: why })
+    return runId
   }
 
-  private record(bot: Bot, trigger: RunTrigger, status: 'skipped' | 'failed', why: string): void {
+  private record(bot: Bot, trigger: RunTrigger, status: 'skipped' | 'failed', why: string, threadId: string): string {
     const at = this.now()
     const runId = randomUUID()
     const item: RunItem = { id: `rodada-${runId}`, t: at, kind: 'run', botId: bot.id, runId, trigger, label: runLabel(trigger), status, steps: 0, error: why }
-    this.put(bot.id, item)
-    bot.runs = [{ id: runId, trigger, startedAt: at, endedAt: at, status, steps: 0, error: why, threadId: bot.id, itemId: item.id }, ...bot.runs].slice(0, BOT_LIMITS.runs)
+    this.put(threadId, item)
+    bot.runs = [{ id: runId, trigger, startedAt: at, endedAt: at, status, steps: 0, error: why, threadId, itemId: item.id }, ...bot.runs].slice(0, BOT_LIMITS.runs)
     this.d.store.update(bot)
     this.changed()
     log.info(`[bots] rodada de ${bot.id} ${status === 'skipped' ? 'pulada' : 'falhou antes de começar'} (${trigger.kind})`)
+    return runId
   }
 
   // ---------- from the manager ----------
@@ -641,10 +728,10 @@ export class BotRunner {
       const own = this.own?.agentId === agentId ? this.own : null
       if (own && !own.show) return
       const { user } = itemsFromLog(entry, undefined)
-      if (user) this.put(bot.id, user)
+      if (user) this.put(own?.threadId ?? bot.id, user)
       // Written in the office panel (or by a routine): it is work for the bot too.
       if (own || entry.text.startsWith('! ')) return
-      if (run && run.agentId === agentId) run.queued++
+      if (run && run.agentId === agentId) run.queued.push(bot.id)
       else {
         const a = this.d.manager.agent(agentId)
         if (a) this.show(this.open(bot.id, a, { kind: 'message' }))
@@ -710,14 +797,16 @@ export class BotRunner {
       request: approvalFromRequest(req, this.d.manager.requestSensitive(req.id)),
       status: 'pending',
     }
-    this.requests.set(req.id, item)
-    this.put(bot.id, item)
     const run = this.active.get(bot.id)
-    if (run && run.agentId === req.agentId) this.setStatus(run, 'waiting')
+    const mine = run && run.agentId === req.agentId ? run : undefined
+    const threadId = mine?.threadId ?? bot.id
+    this.requests.set(req.id, { threadId, item })
+    this.put(threadId, item)
+    if (mine) this.setStatus(mine, 'waiting')
     log.info(`[bots] ${bot.id} pede aprovação (${req.kind}${item.request.sensitive ? `, ${item.request.sensitive}` : ''})`)
     if (this.chat().notify !== 'off') {
       const what = req.kind === 'question' ? 'tem uma pergunta' : req.kind === 'plan' ? 'quer sua aprovação para um plano' : 'espera seu sim'
-      this.d.notify(`${bot.name} ${what}`, clip(req.title, 140), bot.id)
+      this.d.notify(`${bot.name} ${what}`, clip(req.title, 140), threadId)
     }
   }
 
@@ -729,11 +818,11 @@ export class BotRunner {
   }
 
   private onDecision(n: DecisionNote): void {
-    const item = this.requests.get(n.request.id)
-    if (!item) return
+    const r = this.requests.get(n.request.id)
+    if (!r) return
     this.requests.delete(n.request.id)
     const { status, note } = approvalOutcome(n.request.kind, n.decision, n.cancelled)
-    this.put(item.botId, { ...item, status, decidedAt: this.now(), ...(note ? { note } : {}) })
+    this.put(r.threadId, { ...r.item, status, decidedAt: this.now(), ...(note ? { note } : {}) })
   }
 
   private onResult(r: AgentResult): void {
