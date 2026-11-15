@@ -312,8 +312,8 @@ export function sanitizeImportedBots(data: unknown): unknown {
       })
     : data.bots
   const eventTriggers = Array.isArray(data.eventTriggers) ? data.eventTriggers.map((t) => (isObj(t) ? { ...t, enabled: false } : t)) : data.eventTriggers
-  // The worktrees are folders of the other machine, like the sessions.
-  const { worktrees: _worktrees, ...rest } = data
+  // The worktrees and agents are of the other machine, like the sessions.
+  const { worktrees: _worktrees, agents: _agents, ...rest } = data
   return { ...rest, bots, eventTriggers }
 }
 

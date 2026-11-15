@@ -24,7 +24,12 @@ interface Data {
   eventTriggers: BotEventTrigger[]
   /** Bot id -> the worktree its conversation lives in, so a bot that left the office comes back there. */
   worktrees?: Record<string, WorktreeInfo>
+  /** Bot id -> the office agents it ran on, oldest first: the cost book keeps spend by agent id. */
+  agents?: Record<string, string[]>
 }
+
+/** Agent ids kept per bot (each stay in the office is one; about a month of daily stays). */
+const AGENT_IDS = 100
 
 const DIR_MODE = 0o700
 const FILE_MODE = 0o600
@@ -105,6 +110,15 @@ function loadWorktrees(raw: unknown): Record<string, WorktreeInfo> {
   return out
 }
 
+function loadAgentIds(raw: unknown): Record<string, string[]> {
+  if (!isObj(raw)) return {}
+  const out: Record<string, string[]> = {}
+  for (const [id, list] of Object.entries(raw)) {
+    if (isThreadId(id) && Array.isArray(list)) out[id] = list.filter((a): a is string => isStr(a, 200)).slice(-AGENT_IDS)
+  }
+  return out
+}
+
 function loadChannel(raw: unknown): Channel | null {
   if (!isObj(raw) || !isThreadId(raw.id) || !isStr(raw.name, BOT_LIMITS.channelName)) return null
   return { ...(raw as unknown as Channel), members: Array.isArray(raw.members) ? raw.members.filter(isThreadId) : [] }
@@ -141,6 +155,7 @@ export class BotStore {
       channels: (raw.channels ?? []).map(loadChannel).filter((x): x is Channel => !!x),
       eventTriggers: (raw.eventTriggers ?? []).map(loadTrigger).filter((x): x is BotEventTrigger => !!x),
       worktrees: loadWorktrees(raw.worktrees),
+      agents: loadAgentIds(raw.agents),
     }
     if (r.status === 'restored') this.flush()
   }
@@ -184,6 +199,18 @@ export class BotStore {
     if (info) next[botId] = info
     else delete next[botId]
     this.data.worktrees = next
+    this.save()
+  }
+
+  /** The office agents the bot ran on, oldest first. */
+  agentIds(botId: string): string[] {
+    return this.data.agents?.[botId] ?? []
+  }
+
+  noteAgent(botId: string, agentId: string): void {
+    const list = this.agentIds(botId)
+    if (list.includes(agentId)) return
+    this.data.agents = { ...this.data.agents, [botId]: [...list, agentId].slice(-AGENT_IDS) }
     this.save()
   }
 
@@ -276,7 +303,8 @@ export class BotStore {
         bots: this.data.bots.filter((b) => !b.demo).map(({ agentId: _agentId, ...b }) => b as Bot),
         channels: this.data.channels,
         eventTriggers: this.data.eventTriggers.filter((t) => !this.bot(t.botId)?.demo),
-        worktrees: Object.fromEntries(Object.entries(this.data.worktrees ?? {}).filter(([id]) => this.bot(id) && !this.bot(id)?.demo)),
+        worktrees: Object.fromEntries(Object.entries(this.data.worktrees ?? {}).filter(([id]) => this.saved(id))),
+        agents: Object.fromEntries(Object.entries(this.data.agents ?? {}).filter(([id]) => this.saved(id))),
       } satisfies Data,
       { mode: FILE_MODE },
     )
@@ -287,6 +315,12 @@ export class BotStore {
     this.flush()
     for (const t of this.threads.values()) t.lock()
     this.locked = true
+  }
+
+  /** A bot that is saved: it exists and is not a demo one. */
+  private saved(id: string): boolean {
+    const bot = this.bot(id)
+    return !!bot && !bot.demo
   }
 
   /** userData/bots/<id>, made 0700 with its parent, checked to stay under userData/bots. */

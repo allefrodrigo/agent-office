@@ -10,9 +10,12 @@ import {
   type AttachmentInput,
   type Bot,
   type BotRun,
+  type BotSpend,
   type BotRunStatus,
   type ChatSettings,
   type EffortLevel,
+  type Ledger,
+  type LedgerQuery,
   type LogEntry,
   type OfficeEvent,
   type OfficePermissionMode,
@@ -85,6 +88,8 @@ export interface BotRunnerDeps {
   broadcast(e: OfficeEvent): void
   /** System notification; a click opens the Chat on `threadId` (bot:open). */
   notify(title: string, body: string, threadId: string): void
+  /** The cost book: what a bot spent is what its agents spent. Missing: the bot's runs say. */
+  book?: { query(q: LedgerQuery): Ledger }
   now?: () => number
 }
 
@@ -111,6 +116,12 @@ export interface BotRunEnd {
   error?: string
   /** The reply bubble's text, when there is one. */
   text?: string
+}
+
+/** Emitted as 'run:wait' when a run stops for the player's decision, and 'run:resume' when it goes on. */
+export interface BotRunWait {
+  botId: string
+  runId: string
 }
 
 /** A run the runner follows until its result arrives. */
@@ -141,6 +152,8 @@ const STOP_GRACE_MS = 5_000
 const STOPPED = 'Você parou esta rodada.'
 /** Items list() looks at per thread, from the end. */
 const GLANCE_MAX = 500
+const DAY_MS = 86_400_000
+const cents4 = (usd: number) => Math.round(usd * 10_000) / 10_000
 const BUSY_STATUSES = new Set(['working', 'starting', 'waiting'])
 
 const money = (usd: number) => `US$ ${usd.toFixed(2).replace('.', ',')}`
@@ -170,8 +183,8 @@ export class BotRunner extends EventEmitter {
   private touched = new Map<string, number>()
   /** Agents whose stopped run closed before its result: that result, if it comes, is dropped. */
   private leftover = new Set<string>()
-  /** botId -> what its runs spent today. */
-  private spend = new Map<string, { day: string; usd: number }>()
+  /** botId -> what its runs spent today (without a cost book). */
+  private spent = new Map<string, { day: string; usd: number }>()
   /** botId -> its agent on the way (summon is async): two messages never hire two agents. */
   private hiring = new Map<string, Promise<AgentSummary>>()
   private sweeper: NodeJS.Timeout | null = null
@@ -225,7 +238,38 @@ export class BotRunner extends EventEmitter {
 
   /** The bots, each with its unread count and last message (the sidebar reads no thread). */
   list(): Bot[] {
-    return this.d.store.bots.map((b) => ({ ...b, ...this.glance(b) }))
+    return this.d.store.bots.map((b) => this.view(b))
+  }
+
+  /** The bot as the renderer gets it: with its unread count and last message. */
+  view(bot: Bot): Bot {
+    return { ...bot, ...this.glance(bot) }
+  }
+
+  /**
+   * What the bot spent today, in 7 and in 30 local days: the cost book's entries of the agents
+   * it ran on. Without a book (tests), its runs (the last BOT_LIMITS.runs) say.
+   */
+  spend(botId: string): BotSpend {
+    const bot = this.must(botId)
+    const now = this.now()
+    const days = { today: localDay(now), week: localDay(now - 6 * DAY_MS), month: localDay(now - 29 * DAY_MS) }
+    const out: BotSpend = { today: 0, week: 0, month: 0 }
+    const add = (day: string, usd: number) => {
+      if (day >= days.month) out.month += usd
+      if (day >= days.week) out.week += usd
+      if (day >= days.today) out.today += usd
+    }
+    if (this.d.book && this.booked(bot)) {
+      const ids = new Set([...this.d.store.agentIds(bot.id), ...(bot.agentId ? [bot.agentId] : [])])
+      const book = this.d.book.query({ from: days.month })
+      for (const byDay of Object.values(book.days)) {
+        for (const [day, d] of Object.entries(byDay)) for (const [id, a] of Object.entries(d.agents)) if (ids.has(id)) add(day, a.costUsd || 0)
+      }
+    } else {
+      for (const r of bot.runs) add(localDay(r.startedAt), r.costUsd ?? 0)
+    }
+    return { today: cents4(out.today), week: cents4(out.week), month: cents4(out.month) }
   }
 
   /** Unread replies and approvals since lastReadAt, and the newest message, from the end of the thread. */
@@ -252,16 +296,23 @@ export class BotRunner extends EventEmitter {
     return this.active.size
   }
 
-  /** What the bot spent today: its runs of the day plus the one running now. */
+  /** The cost book says what the bot spent; demo bots (never in the book) and tests go by their runs. */
+  private booked(bot: Bot): boolean {
+    return !!this.d.book && !bot.demo
+  }
+
+  /** What the bot spent today: the cost book's day (or its runs of the day) plus the run going now. */
   spentToday(bot: Bot): number {
-    const day = localDay(this.now())
-    let s = this.spend.get(bot.id)
-    if (!s || s.day !== day) {
-      s = { day, usd: bot.runs.filter((r) => localDay(r.startedAt) === day).reduce((t, r) => t + (r.costUsd ?? 0), 0) }
-      this.spend.set(bot.id, s)
-    }
     const run = this.active.get(bot.id)
     const live = run ? Math.max(0, (this.d.manager.agent(run.agentId)?.spentUsd ?? 0) - run.spentBefore) : 0
+    // The book counts a turn when it ends, like spentUsd: the live part is only what it has not seen.
+    if (this.booked(bot)) return this.spend(bot.id).today + live
+    const day = localDay(this.now())
+    let s = this.spent.get(bot.id)
+    if (!s || s.day !== day) {
+      s = { day, usd: bot.runs.filter((r) => localDay(r.startedAt) === day).reduce((t, r) => t + (r.costUsd ?? 0), 0) }
+      this.spent.set(bot.id, s)
+    }
     return s.usd + live
   }
 
@@ -425,10 +476,13 @@ export class BotRunner extends EventEmitter {
   }
 
   /** Model and effort from the thread's header: they count from the next message. */
-  configure(botId: string, patch: { model?: string; effort?: EffortLevel }): Bot {
+  configure(botId: string, patch: { model?: string; effort?: EffortLevel | '' }): Bot {
     const bot = this.must(botId)
     if ('model' in patch) bot.model = patch.model || undefined
     if ('effort' in patch) bot.effort = patch.effort || undefined
+    // '' = the floor's default: the field goes, as in bots.json.
+    if (!bot.model) delete bot.model
+    if (!bot.effort) delete bot.effort
     bot.updatedAt = this.now()
     this.d.store.update(bot)
     if (bot.agentId && !bot.demo) this.d.manager.configure(bot.agentId, { model: bot.model, effort: bot.effort })
@@ -461,7 +515,7 @@ export class BotRunner extends EventEmitter {
     const run = this.active.get(botId)
     if (run?.stopped) clearTimeout(run.stopped)
     this.active.delete(botId)
-    this.spend.delete(botId)
+    this.spent.delete(botId)
     for (const [id, r] of this.requests) if (r.item.botId === botId) this.requests.delete(id)
     const agentId = run?.agentId ?? this.d.store.bot(botId)?.agentId
     if (agentId && this.d.manager.agent(agentId)) this.d.manager.fire(agentId)
@@ -519,6 +573,7 @@ export class BotRunner extends EventEmitter {
       this.changed()
     }
     if (a.worktree) this.d.store.setWorktree(bot.id, a.worktree)
+    this.d.store.noteAgent(bot.id, a.id)
     this.touched.set(a.id, this.now())
     return a
   }
@@ -598,7 +653,12 @@ export class BotRunner extends EventEmitter {
 
   private setStatus(run: Active, status: BotRunStatus): void {
     if (run.item.status === status) return
+    const was = run.item.status
     run.item = { ...run.item, status }
+    // After the caller has its runId, in order with 'run:end' (both go out on setImmediate).
+    const wait: BotRunWait = { botId: run.botId, runId: run.item.runId }
+    if (status === 'waiting') setImmediate(() => this.emit('run:wait', wait))
+    else if (was === 'waiting' && status === 'running') setImmediate(() => this.emit('run:resume', wait))
     if (run.shown) this.putRun(run)
     const bot = this.d.store.bot(run.botId)
     if (!bot) return
@@ -625,9 +685,9 @@ export class BotRunner extends EventEmitter {
     this.ended({ botId: run.botId, runId: item.runId, threadId: run.threadId, trigger: item.trigger, status: item.status, costUsd: item.costUsd, error: item.error, text: bubble?.text })
     const bot = this.d.store.bot(run.botId)
     if (!bot) return
-    if (item.costUsd) {
+    if (item.costUsd && !this.booked(bot)) {
       this.spentToday(bot)
-      const s = this.spend.get(bot.id)
+      const s = this.spent.get(bot.id)
       if (s) s.usd += item.costUsd
     }
     bot.runs = bot.runs.map((r) =>
@@ -758,6 +818,7 @@ export class BotRunner extends EventEmitter {
     let dirty = false
     if (bot.agentId !== a.id) {
       bot.agentId = a.id
+      this.d.store.noteAgent(bot.id, a.id)
       dirty = true
     }
     // The conversation to resume later: one that had a turn. A cleared one starts over.

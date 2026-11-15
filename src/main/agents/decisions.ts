@@ -194,10 +194,10 @@ export abstract class AgentDecisions extends AgentSubagents {
   protected deliver(agent: Agent, r: Omit<AgentResult, 'id' | 'agentId' | 'createdAt'>): void {
     this.dropResults(agent.summary.id)
     const result: AgentResult = { ...r, id: randomUUID(), agentId: agent.summary.id, createdAt: Date.now() }
-    // Chat dos bots: the result lands in the bot's thread, not as a card that walks to the player.
-    // A plan limit still comes as a card: only there can the player move it to another account.
-    if (agent.summary.bot && !r.limit && this.botHooks?.quietResult(agent.summary)) {
-      this.addLog(agent, 'result', r.text, undefined, r.isError)
+    // Chat dos bots: the result lands in the bot's thread, never as a card that walks to the player
+    // (a plan limit too: the thread says it, and the bot's profile picks the accounts).
+    if (agent.summary.bot && this.botHooks?.quietResult(agent.summary)) {
+      this.addLog(agent, 'result', r.text, undefined, r.isError, undefined, r.limit)
       agent.task = undefined
       this.setStatus(agent, 'idle', r.isError ? 'Parou com um erro (veja no Chat)' : 'Respondeu no Chat')
       this.emit('quietResult', result)
