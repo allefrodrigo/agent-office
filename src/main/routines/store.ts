@@ -11,7 +11,7 @@ interface Data {
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const RUN_STATUSES = new Set(['running', 'waiting', 'ok', 'failed', 'missed', 'skipped'])
 const SCHEDULES = new Set(['once', 'daily', 'weekly', 'interval', 'cron'])
-const WHO = new Set(['new', 'template', 'agent'])
+const WHO = new Set(['new', 'template', 'agent', 'bot'])
 
 /**
  * A routine read from routines.json, or null when its core is unusable (no id, name,
@@ -24,6 +24,7 @@ export function loadRoutine(raw: unknown): Routine | null {
   if (typeof r.id !== 'string' || typeof r.name !== 'string' || typeof r.prompt !== 'string') return null
   if (!isObj(r.schedule) || !SCHEDULES.has(r.schedule.kind as string)) return null
   if (!isObj(r.who) || !WHO.has(r.who.kind as string)) return null
+  if (r.who.kind === 'bot' && typeof r.who.botId !== 'string') return null
   const history = (Array.isArray(r.history) ? r.history : [])
     .filter((x): x is RoutineRun => isObj(x) && typeof x.id === 'string' && typeof x.startedAt === 'number' && RUN_STATUSES.has(x.status as string))
     .slice(0, ROUTINE_LIMITS.history)

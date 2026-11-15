@@ -11,7 +11,7 @@ const MAX_SWITCHES = 5000
  * Spend that is not an agent's: one-off Claude calls the office makes itself (runClaude).
  * Each category books like an agent named after it, so the reports list it with no extra code.
  */
-export const LEDGER_CATEGORIES = { reunioes: 'Reuniões' } as const
+export const LEDGER_CATEGORIES = { reunioes: 'Reuniões', bots: 'Chat dos bots' } as const
 export type LedgerCategory = keyof typeof LEDGER_CATEGORIES
 /** The book's agent id for a category. */
 export const categoryId = (c: LedgerCategory): string => `categoria:${c}`
