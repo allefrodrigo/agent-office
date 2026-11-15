@@ -5,7 +5,7 @@ import { beacon, costBoard, routinesBoard, sign } from './props'
 import { meetingRoom, type MeetingRoomView } from './meeting-room'
 import { workstation } from './workstation'
 import { mergeStatic } from './merge'
-import { DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
+import { CORRIDOR, DIRECTOR_RECT, ELEVATOR, H, W, type ProjectPlan, type SectorRoom } from './layout'
 import { buildPartitions, buildShell, CALM_BEACON, type Office } from './office'
 import { setNightLights } from './night'
 import { Grid } from './pathfinding'
@@ -47,7 +47,7 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
   }
 
   // planks in the Diretoria, carpet in the rooms (under their rugs), hall planks in the corridor
-  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...(plan.meeting ? [{ id: 'meeting' as const, label: '', rect: plan.meeting.rect }] : []), ...plan.commons.map((rect, i) => ({ id: COMMONS[i % COMMONS.length] === 'cafe' ? ('cafe' as const) : ('lounge' as const), label: '', rect }))])
+  const floor = buildShell(group, [{ id: 'boss', label: '', rect: DIRECTOR_RECT }, ...[...plan.team, ...plan.sectors, ...(plan.studio ? [plan.studio] : [])].map((r) => ({ id: 'team' as const, label: '', rect: r.rect })), ...(plan.meeting ? [{ id: 'meeting' as const, label: '', rect: plan.meeting.rect }] : []), ...plan.commons.map((rect) => ({ id: 'lounge' as const, label: '', rect }))])
   buildPartitions(group, grid, plan.partitions)
 
   // ---------- Diretoria ----------
@@ -109,6 +109,9 @@ export function buildUpperFloor(plan: ProjectPlan, brand: Brand): UpperFloor {
       grid.block(x1 - 1, z1 - 1)
     }
   })
+
+  // ---------- café corner at the corridor's end, against the side wall ----------
+  cafeCorner(place, grid)
 
   // ---------- common areas in the front rooms no sector took ----------
   plan.commons.forEach((rect, i) => commons(COMMONS[i % COMMONS.length], rect, place, grid, loops, brand.color))
@@ -203,8 +206,20 @@ function studioRoom(r: SectorRoom, place: (o: THREE.Object3D, x: number, z: numb
   return anchor
 }
 
-type Common = 'lounge' | 'cafe' | 'games' | 'quiet'
-const COMMONS: Common[] = ['lounge', 'cafe', 'games', 'quiet']
+/** Every project floor has one: a short counter with the espresso machine where the corridor meets the side wall. */
+function cafeCorner(place: (o: THREE.Object3D, x: number, z: number, rot?: number, y?: number) => THREE.Object3D, grid: Grid): void {
+  const [z0, z1] = CORRIDOR
+  const cz = (z0 + z1) / 2
+  place(F.kitchenCounter(z1 - z0), 0.35, cz, Math.PI / 2)
+  grid.blockRect(0, z0, 1, z1 - z0)
+  place(F.coffeeMachine(), 0.4, cz - 0.8, Math.PI / 2, 0.91)
+  place(F.mug('#e17055'), 0.45, cz + 0.1, 0, 0.91)
+  place(F.mug('#74b9ff'), 0.5, cz + 0.35, 0, 0.91)
+  place(F.microwave(), 0.4, cz + 0.9, Math.PI / 2, 0.91)
+}
+
+type Common = 'lounge' | 'games' | 'quiet'
+const COMMONS: Common[] = ['lounge', 'games', 'quiet']
 
 /** Furnishes an open front area (8 x 11 tiles); its back edge faces the corridor. */
 function commons(kind: Common, rect: [number, number, number, number], place: (o: THREE.Object3D, x: number, z: number, rot?: number, y?: number) => THREE.Object3D, grid: Grid, loops: LoopScreen[], accent: string): void {
@@ -228,22 +243,6 @@ function commons(kind: Common, rect: [number, number, number, number], place: (o
       place(F.plant('tall'), x1 - 0.5, z1 - 0.5)
       block(x1 - 1, z1 - 1)
       place(F.plant('bush'), x0 + 0.5, z1 - 0.5)
-      block(x0, z1 - 1)
-      break
-    case 'cafe':
-      place(F.kitchenCounter(3), cx, z1 - 0.7, Math.PI)
-      block(cx - 1.5, z1 - 1, 3)
-      place(F.coffeeMachine(), cx - 0.8, z1 - 0.75, Math.PI, 0.91)
-      place(F.microwave(), cx + 0.3, z1 - 0.75, Math.PI, 0.91)
-      place(F.fridge(), cx + 2.2, z1 - 0.6, Math.PI)
-      block(cx + 1.5, z1 - 1)
-      place(F.barTable(), cx - 1.5, cz - 1.5)
-      block(cx - 2, cz - 2)
-      for (const [dx, dz, c] of [[-0.8, 0, '#d97757'], [0.8, 0, '#2f8f83'], [0, -0.8, accent]] as const) place(F.stool(c), cx - 1.5 + dx, cz - 1.5 + dz)
-      place(F.roundTable(0.55), cx + 1.5, cz)
-      block(cx + 1, cz)
-      for (const [dx, dz, r] of [[-1, 0, Math.PI / 2], [1, 0, -Math.PI / 2], [0, -1, 0]] as const) place(F.simpleChair('#f4a259'), cx + 1.5 + dx, cz + dz, r)
-      place(F.plant('fern'), x0 + 0.5, z1 - 0.5)
       block(x0, z1 - 1)
       break
     case 'games': {
