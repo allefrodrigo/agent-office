@@ -1,18 +1,34 @@
 import {
-  botAutomations,
+  automationEntries,
   botSpending,
+  cleanApps,
   draftError,
   draftFromBot,
+  isOfficeServer,
   listTime,
+  mcpStatus,
   memorySizeLabel,
+  OFFICE_MCP,
+  scopeAutomations,
   triggerLabel,
   usd,
   utf8Bytes,
 } from '@shared/bots-view'
 import { templateAutomation, templateById } from '@shared/bot-templates'
-import { BOT_LIMITS, BOT_RUN_STATUS_LABEL, type Bot, type BotDraft } from '@shared/types'
+import { formatWhen } from '@shared/schedule'
+import {
+  BOT_LIMITS,
+  BOT_RUN_STATUS_LABEL,
+  type AutomationDraft,
+  type Bot,
+  type BotDraft,
+  type BotSpend,
+  type McpServerView,
+  type ToolsView,
+} from '@shared/types'
 import { h, icon } from '../dom'
 import { brainFields, meterField } from '../modals/brain'
+import type { AutomationTarget } from './automations/form'
 import { botAvatar } from './avatar'
 import { colorField, floorField, permissionsField } from './fields'
 import { chatStore } from './store'
@@ -26,6 +42,104 @@ export interface ProfileCtx extends ChatCtx {
   /** Scrolls the thread to a run (the history's link). */
   reveal(itemId: string): void
   close(): void
+  /** Opens the automation form (a saved one, or a new one for this bot); it comes back to the thread. */
+  editAutomation(target: AutomationTarget): void
+}
+
+/** The MCP servers of Claude Code, read at most once a minute for every profile. */
+let servers: { at: number; view: Promise<ToolsView> } | null = null
+const SERVERS_MS = 60_000
+
+function loadServers(): Promise<ToolsView> {
+  if (!servers || Date.now() - servers.at > SERVERS_MS) {
+    const view = window.office.toolsView()
+    servers = { at: Date.now(), view }
+    view.catch(() => {
+      if (servers?.view === view) servers = null
+    })
+  }
+  return servers.view
+}
+
+let appsSeq = 0
+
+/**
+ * Conexões: the bot sees every MCP server of Claude Code, or only the ones checked. The office's
+ * server (board, minutes, the Chat's tools) is always on and cannot be unchecked.
+ */
+function appsField(initial: Bot['apps'], onChange: () => void): { el: HTMLElement; value(): Bot['apps'] } {
+  const group = `ch-apps-${++appsSeq}`
+  const all = h('input', { type: 'radio', name: group, value: 'all', checked: initial === 'all' }) as HTMLInputElement
+  const some = h('input', { type: 'radio', name: group, value: 'list', checked: initial !== 'all' }) as HTMLInputElement
+  const picked = new Set(initial === 'all' ? [] : initial.filter((a) => a !== OFFICE_MCP))
+  const list = h('div', { class: 'ch-apps', role: 'group', 'aria-label': 'Servidores que o bot enxerga' })
+  const note = h('p', { class: 'ch-field-hint' })
+  let known: McpServerView[] | null = null
+  const draw = () => {
+    list.hidden = all.checked
+    const names = [...new Set([...(known ?? []).map((m) => m.name), ...picked])].sort((a, b) => a.localeCompare(b))
+    const office = h(
+      'label',
+      { class: 'ch-check' },
+      h('input', { type: 'checkbox', checked: true, disabled: true }),
+      h('span', {}, OFFICE_MCP, h('small', {}, 'sempre ligado: quadro, atas e as ferramentas do Chat')),
+    )
+    list.replaceChildren(
+      office,
+      ...names.map((n) => {
+        const m = known?.find((x) => x.name === n)
+        const box = h('input', { type: 'checkbox', checked: picked.has(n) }) as HTMLInputElement
+        box.addEventListener('change', () => {
+          if (box.checked) picked.add(n)
+          else picked.delete(n)
+          onChange()
+        })
+        const why = m ? mcpStatus(m).text : known ? 'não existe mais no Claude Code' : ''
+        return h('label', { class: 'ch-check' }, box, h('span', {}, n, why ? h('small', {}, why) : null))
+      }),
+    )
+  }
+  for (const r of [all, some])
+    r.addEventListener('change', () => {
+      draw()
+      onChange()
+    })
+  void loadServers().then(
+    (v) => {
+      known = v.mcp.filter((m) => !isOfficeServer(m))
+      note.textContent = known.length ? '' : 'O Claude Code não tem outros servidores MCP. Veja em Conexões como adicionar um.'
+      draw()
+    },
+    (err: unknown) => {
+      note.textContent = `Não consegui ler os servidores do Claude Code: ${chatError(err)} A lista mostra só os que o bot já tem.`
+      note.classList.add('err')
+      draw()
+    },
+  )
+  draw()
+  const el = h(
+    'div',
+    { class: 'ch-field' },
+    h(
+      'div',
+      { class: 'ch-apps-mode', role: 'radiogroup', 'aria-label': 'Servidores MCP que o bot enxerga' },
+      h(
+        'label',
+        { class: 'ch-check' },
+        all,
+        h('span', {}, 'Todos', h('small', {}, 'os servidores MCP do seu Claude Code, os de hoje e os novos')),
+      ),
+      h(
+        'label',
+        { class: 'ch-check' },
+        some,
+        h('span', {}, 'Só os marcados', h('small', {}, 'menos ferramentas no contexto, menos risco')),
+      ),
+    ),
+    list,
+    note,
+  )
+  return { el, value: () => cleanApps(all.checked ? 'all' : 'list', [...picked]) }
 }
 
 const RUN_ICON: Record<Bot['runs'][number]['status'], string> = {
@@ -54,10 +168,16 @@ export class ProfilePanel {
   private memDirty = false
   /** The read-only parts, redrawn when the bot changes (runs, spending). */
   private live: HTMLDivElement
+  /** The bot's automations: they change with the routines and the triggers, not with the bot. */
+  private autos: HTMLDivElement
+  private autosKey: unknown[] = []
+  /** What the cost book said (botSpend), for the bot and its newest run. */
+  private spend: { key: string; value: BotSpend | null; failed: boolean } | null = null
 
   constructor(private ctx: ProfileCtx) {
     this.body = h('div', { class: 'ch-profile-body' })
     this.live = h('div', { class: 'ch-profile-live' })
+    this.autos = h('div', { class: 'ch-profile-autos' })
     this.saveBtn = h('button', { type: 'button', class: 'btn ch-btn-accent', onclick: () => void this.save() }, 'Salvar alterações')
     this.foot = h(
       'div',
@@ -84,6 +204,20 @@ export class ProfilePanel {
     this.dirty = false
     this.foot.hidden = true
     this.build(bot)
+  }
+
+  /** Scrolls to Conexões and puts the focus on its choice ("Mudar no perfil" of the Conexões screen). */
+  showConnections(): void {
+    const sec = this.body.querySelector<HTMLElement>('#ch-profile-connections')
+    if (!sec) return
+    sec.scrollIntoView({ block: 'start', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' })
+    sec.querySelector<HTMLInputElement>('input:checked')?.focus({ preventScroll: true })
+  }
+
+  /** The routines or the triggers changed: the Automações section follows. */
+  refresh(): void {
+    const bot = chatStore.bot(this.botId)
+    if (bot && !this.el.hidden) this.renderAutos(bot)
   }
 
   private touch = (): void => {
@@ -127,6 +261,7 @@ export class ProfilePanel {
     const worktree = h('input', { type: 'checkbox', checked: bot.worktree }) as HTMLInputElement
     worktree.addEventListener('change', this.touch)
     const perms = permissionsField(ctx, { mode: bot.permissionMode, askBefore: bot.askBefore }, this.touch)
+    const apps = appsField(bot.apps, this.touch)
     const budget = h('input', {
       class: 'input ch-input-num',
       type: 'number',
@@ -155,42 +290,16 @@ export class ProfilePanel {
         worktree: worktree.checked,
         permissionMode: p.mode,
         askBefore: p.askBefore,
+        apps: apps.value(),
         dailyBudgetUsd: Number.isFinite(cap) && cap > 0 ? cap : 0,
       }
     }
 
     // ---------- automations and connections (phase 2) ----------
-    const autos = botAutomations(bot.id, ctx.state.routines, chatStore.triggers)
-    const tpl = templateById(bot.templateId)
-    const automations = section(
-      'Automações',
-      autos.length
-        ? h(
-            'ul',
-            { class: 'ch-autos' },
-            autos.map((a) => h('li', {}, icon(a.nextAt === null ? 'spark' : 'history', 14), a.label)),
-          )
-        : h(
-            'p',
-            { class: 'ch-soon' },
-            h('b', {}, 'Em breve. '),
-            tpl
-              ? `Este bot nasceu com a sugestão "${templateAutomation(tpl)}". Agenda e eventos chegam na próxima fase; até lá, use Rodar agora.`
-              : 'Agenda e eventos chegam na próxima fase; até lá, use Rodar agora.',
-          ),
-    )
-    const connections = section(
-      'Conexões',
-      h(
-        'p',
-        { class: 'ch-soon' },
-        h('b', {}, 'Em breve. '),
-        bot.apps === 'all'
-          ? 'Hoje o bot enxerga todos os servidores MCP do seu Claude Code.'
-          : `Hoje o bot enxerga: ${bot.apps.join(', ') || 'só o office'}.`,
-        ' O servidor office (quadro e atas) fica sempre ligado.',
-      ),
-    )
+    this.autosKey = []
+    const automations = section('Automações', this.autos)
+    const connections = section('Conexões', apps.el)
+    connections.id = 'ch-profile-connections'
 
     // ---------- memory ----------
     const memory = h('textarea', {
@@ -297,9 +406,106 @@ export class ProfilePanel {
     )
   }
 
+  /** The bot's routines and event triggers, with the next run; each opens its form. */
+  private renderAutos(bot: Bot): void {
+    const key = [bot.id, this.ctx.state.routines, chatStore.triggers, chatStore.triggersError]
+    if (key.every((k, i) => k === this.autosKey[i])) return
+    this.autosKey = key
+    const { routines, triggers } = scopeAutomations(this.ctx.state.routines, chatStore.triggers, [bot], { floor: 'all', botId: bot.id })
+    const entries = automationEntries(routines, triggers)
+    const tpl = templateById(bot.templateId)
+    // a bot from the gallery: "＋ Automação" comes filled with its template's suggestion
+    const when: AutomationDraft['when'] | undefined = tpl?.schedule
+      ? { kind: 'schedule', schedule: structuredClone(tpl.schedule) }
+      : tpl?.event
+        ? { kind: 'event', event: tpl.event.kind, filter: tpl.event.tags ? { tags: [...tpl.event.tags] } : {} }
+        : undefined
+    const suggested: AutomationDraft | undefined =
+      tpl && when
+        ? {
+            bot: { kind: 'existing', botId: bot.id },
+            name: tpl.name,
+            prompt: 'Faça a sua rodada de sempre, como a sua função descreve.',
+            when,
+            why: '',
+          }
+        : undefined
+    const next = (e: (typeof entries)[number]) =>
+      !e.enabled ? 'pausada' : e.kind === 'event' ? 'no evento' : e.nextAt === null ? 'sem próxima' : `próxima: ${formatWhen(e.nextAt)}`
+    this.autos.replaceChildren(
+      entries.length
+        ? h(
+            'ul',
+            { class: 'ch-autos' },
+            entries.map((e) =>
+              h(
+                'li',
+                {},
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    class: `ch-auto-link${e.enabled ? '' : ' paused'}`,
+                    title: 'Abrir para editar',
+                    onclick: () => this.ctx.editAutomation({ kind: e.kind, id: e.id }),
+                  },
+                  icon(e.kind === 'event' ? 'spark' : 'history', 14),
+                  h('span', { class: 'ch-auto-link-text' }, h('b', {}, e.name), h('span', {}, `${e.label} · ${next(e)}`)),
+                ),
+              ),
+            ),
+          )
+        : h(
+            'p',
+            { class: 'ch-field-hint' },
+            tpl && suggested
+              ? `Nenhuma ainda. O modelo sugere "${templateAutomation(tpl)}": a nova automação já vem com ela.`
+              : 'Nenhuma ainda: o bot roda quando você escreve ou usa Rodar agora.',
+          ),
+      chatStore.triggersError
+        ? h('p', { class: 'ch-field-hint err' }, `Os gatilhos de evento não carregaram: ${chatStore.triggersError}`)
+        : '',
+      h(
+        'button',
+        {
+          type: 'button',
+          class: 'btn btn-small ch-add-auto',
+          onclick: () => this.ctx.editAutomation({ kind: 'new', botId: bot.id, draft: entries.length ? undefined : suggested }),
+        },
+        icon('plus', 14),
+        'Automação',
+      ),
+    )
+  }
+
+  /** The cost book's numbers for the bot (botSpend), read again when a run starts or ends. */
+  private loadSpend(bot: Bot): void {
+    const key = `${bot.id}:${bot.runs[0]?.id ?? ''}:${bot.runs[0]?.status ?? ''}`
+    if (this.spend?.key === key) return
+    const mine: { key: string; value: BotSpend | null; failed: boolean } = { key, value: null, failed: false }
+    this.spend = mine
+    const redraw = () => {
+      const now = chatStore.bot(bot.id)
+      if (this.spend === mine && now && this.botId === bot.id) this.renderLive(now)
+    }
+    window.office.botSpend(bot.id).then(
+      (v) => {
+        mine.value = v
+        redraw()
+      },
+      () => {
+        mine.failed = true
+        redraw()
+      },
+    )
+  }
+
   /** Spending and history: they change with every run, the form does not. */
   private renderLive(bot: Bot): void {
-    const s = botSpending(bot.runs)
+    this.renderAutos(bot)
+    this.loadSpend(bot)
+    const book = this.spend?.key.startsWith(`${bot.id}:`) ? this.spend : null
+    const s = book?.value ?? botSpending(bot.runs)
     const runs = bot.runs.slice(0, BOT_LIMITS.runs)
     this.live.replaceChildren(
       h(
@@ -309,7 +515,15 @@ export class ProfilePanel {
         h('div', {}, h('dt', {}, '7 dias'), h('dd', {}, usd(s.week) || 'US$ 0,00')),
         h('div', {}, h('dt', {}, '30 dias'), h('dd', {}, usd(s.month) || 'US$ 0,00')),
       ),
-      h('p', { class: 'ch-field-hint' }, `Das últimas ${BOT_LIMITS.runs} rodadas do bot.`),
+      h(
+        'p',
+        { class: 'ch-field-hint' },
+        book?.value
+          ? 'Do livro de custos, em dias do seu relógio.'
+          : book?.failed
+            ? `Das últimas ${BOT_LIMITS.runs} rodadas do bot: o livro de custos não respondeu.`
+            : `Das últimas ${BOT_LIMITS.runs} rodadas do bot.`,
+      ),
       h('h3', { class: 'ch-sec-title ch-sec-sub' }, 'Histórico'),
       runs.length
         ? h(

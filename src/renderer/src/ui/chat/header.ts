@@ -1,4 +1,4 @@
-import { botState, botStatusLine, draftFromBot } from '@shared/bots-view'
+import { automationCounts, botState, botStatusLine, draftFromBot } from '@shared/bots-view'
 import type { Bot } from '@shared/types'
 import { BOT_LIMITS } from '@shared/types'
 import { h, icon } from '../dom'
@@ -6,13 +6,24 @@ import { MODELS } from '../modals'
 import { modelLabel } from '../panel/helpers'
 import { botAvatar } from './avatar'
 import { showMenu, type MenuItem } from './menu'
+import { chatStore } from './store'
 import { botAgent, botPending, chatError, floorName, type ChatCtx } from './util'
 
 // O cabeçalho do fio: avatar, nome (clique renomeia), seletor de modelo (vale a partir da próxima
-// mensagem), ⓘ abre o perfil e ⋯ abre as ações do bot.
+// mensagem), ⓘ abre o perfil e ⋯ abre as ações do bot. Nas telas de Automações e Conexões, o
+// título da tela no lugar do bot.
+
+/** A screen of the Chat that is not a thread (Automações, Conexões). */
+export interface HeaderScreen {
+  title: string
+  sub: string
+  icon: string
+}
 
 export interface HeaderCtx extends ChatCtx {
   bot(): Bot | undefined
+  /** Automações or Conexões on screen: their title instead of the bot. */
+  screen(): HeaderScreen | null
   /** The menu's host (the screen, so it shows over everything in it). */
   host: HTMLElement
   profileOpen(): boolean
@@ -91,9 +102,18 @@ export class ChatHeader {
   }
 
   render(): void {
-    const bot = this.ctx.bot()
+    const screen = this.ctx.screen()
+    const bot = screen ? undefined : this.ctx.bot()
     this.el.classList.toggle('empty', !bot)
     for (const el of [this.model, this.info, this.more]) el.hidden = !bot
+    if (screen) {
+      this.avatarSlot.replaceChildren(h('span', { class: 'ch-head-icon', 'aria-hidden': 'true' }, icon(screen.icon, 20)))
+      if (!this.editing) this.nameBtn.textContent = screen.title
+      this.nameBtn.disabled = true
+      this.sub.textContent = screen.sub
+      this.sub.className = 'ch-head-sub'
+      return
+    }
     if (!bot) {
       this.avatarSlot.replaceChildren()
       if (!this.editing) this.nameBtn.textContent = 'Chat dos bots'
@@ -142,6 +162,21 @@ export class ChatHeader {
     }
   }
 
+  /** "Pausar automações" / "Retomar automações": every routine and event trigger of the bot. */
+  private async setAutomations(bot: Bot, enabled: boolean): Promise<void> {
+    try {
+      await window.office.setBotAutomationsEnabled(bot.id, enabled)
+      this.ctx.toast(
+        enabled
+          ? `As automações de ${bot.name} voltaram a rodar.`
+          : `As automações de ${bot.name} estão pausadas. Mensagens e Rodar agora continuam.`,
+        'ok',
+      )
+    } catch (err) {
+      this.ctx.toast(chatError(err), 'err')
+    }
+  }
+
   private editName(): void {
     const bot = this.ctx.bot()
     if (!bot || this.editing) return
@@ -186,9 +221,25 @@ export class ChatHeader {
     const bot = this.ctx.bot()
     if (!bot) return
     const inOffice = !!botAgent(this.ctx.state, bot)
+    const autos = automationCounts(bot.id, this.ctx.state.routines, chatStore.triggers)
+    const automations: MenuItem = autos.active
+      ? {
+          label: 'Pausar automações',
+          icon: 'pause',
+          hint: autos.active === 1 ? '1 ativa' : `${autos.active} ativas`,
+          run: () => void this.setAutomations(bot, false),
+        }
+      : autos.paused
+        ? {
+            label: 'Retomar automações',
+            icon: 'reset',
+            hint: autos.paused === 1 ? '1 pausada' : `${autos.paused} pausadas`,
+            run: () => void this.setAutomations(bot, true),
+          }
+        : { label: 'Pausar automações', icon: 'pause', hint: 'nenhuma', disabled: true }
     const items: (MenuItem | 'sep')[] = [
       { label: 'Rodar agora', icon: 'play', run: () => this.ctx.runNow() },
-      { label: 'Pausar automações', icon: 'pause', hint: 'Em breve', disabled: true },
+      automations,
       { label: 'Nova conversa', icon: 'reset', run: () => this.ctx.newConversation() },
       'sep',
       { label: 'Ver no escritório', icon: 'walk', hint: inOffice ? undefined : 'fora agora', run: () => this.ctx.showInOffice() },
