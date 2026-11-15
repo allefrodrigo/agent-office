@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { BOT_LIMITS, type AttachmentInput, type Bot, type Channel } from '@shared/types'
+import { channelSlug } from '@shared/bots-mentions'
 import { attachmentsSchema, idSchema, messageSchema, parse } from '../validate'
 
 // Chat dos bots, canais (CB-17): o que chega do renderer para os canais passa por aqui antes de
@@ -22,23 +23,8 @@ const draftSchema = z.object({
   members: z.array(z.string().max(200)).max(500),
 })
 
-/**
- * A channel name as Slack writes it: lower case, words joined by "-", letters (accents too),
- * digits, "-" and "_". "# Lançamento 2026!" becomes "lançamento-2026".
- */
-export function channelName(raw: string): string {
-  return raw
-    .normalize('NFC')
-    .trim()
-    .replace(/^#+/, '')
-    .toLocaleLowerCase('pt-BR')
-    .replace(/\s+/g, '-')
-    .replace(/[^\p{L}\p{N}\p{M}_-]+/gu, '')
-    .replace(/-{2,}/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, BOT_LIMITS.channelName)
-    .replace(/-+$/, '')
-}
+/** The form shows the same name the main process keeps (shared/bots-mentions.ts). */
+export const channelName = channelSlug
 
 /** One line, no runs of spaces, at most BOT_LIMITS.topic characters. */
 export function cleanTopic(raw: string | undefined): string {

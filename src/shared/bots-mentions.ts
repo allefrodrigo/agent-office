@@ -319,7 +319,25 @@ export function answerPrompt(from: Member, answer: string): string {
   return `[Resposta de ${from.name}] ${answer.trim()}`
 }
 
-// ---------- the floor's channel ----------
+// ---------- channel names and the floor's channel ----------
+
+/**
+ * A channel name as Slack writes it: lower case, words joined by "-", letters (accents too),
+ * digits, "-" and "_". "# Lançamento 2026!" becomes "lançamento-2026".
+ */
+export function channelSlug(raw: string): string {
+  return raw
+    .normalize('NFC')
+    .trim()
+    .replace(/^#+/, '')
+    .toLocaleLowerCase('pt-BR')
+    .replace(/\s+/g, '-')
+    .replace(/[^\p{L}\p{N}\p{M}_-]+/gu, '')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, BOT_LIMITS.channelName)
+    .replace(/-+$/, '')
+}
 
 /** Each floor has one channel named after it, made on first use; its id comes from the floor's. */
 export function floorChannelId(floor: string): string {
