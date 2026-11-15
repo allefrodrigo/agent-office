@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { BOT_LIMITS, type Channel, type ThreadItem } from '@shared/types'
 import { floorChannelId } from '@shared/bots-mentions'
 import { channelName, cleanChannelDraft, cleanPost, cleanTopic } from '../src/main/bots/channels-validate'
+import { runnerHost } from '../src/main/bots/channels'
 import { registerBotChannelsIpc } from '../src/main/ipc/bots-channels'
 import { FLOORS, items, makeBot, setup, type Setup } from './mocks/channels'
 
@@ -258,6 +259,15 @@ describe('você escreve no canal', () => {
     expect(s.host.sent.map((x) => x.botId)).toEqual(['ada'])
   })
 
+  it('o runner pulou (agente ocupado): só o aviso dele, sem outro do canal', async () => {
+    const s = withChannel()
+    s.host.skipWith = 'Pulei a mensagem das 10:00: Ada estava ocupado com outra rodada.'
+    await s.svc.post(s.c.id, '@Ada oi')
+    await s.svc.idle()
+    expect(notices(s, s.c.id)).toHaveLength(0)
+    expect(s.host.sent).toHaveLength(0)
+  })
+
   it('o runner recusou: aviso de erro no canal', async () => {
     const s = withChannel()
     s.host.failWith = new Error('Teto de custo atingido.')
@@ -342,5 +352,41 @@ describe('IPC dos canais', () => {
   it('cleanPost aceita só anexos sem texto', () => {
     expect(cleanPost('', [{ name: 'a.png', path: '/a.png' }]).attachments).toHaveLength(1)
     expect(cleanPost('  oi  ', undefined)).toEqual({ text: 'oi', attachments: [] })
+  })
+})
+
+describe('o BotRunner como host', () => {
+  it('manda sem linha do usuário, ouve run:end e diz o fio da rodada em curso', async () => {
+    const calls: unknown[][] = []
+    const events: string[] = []
+    let active: { runId: string } | undefined
+    const runner = {
+      send: async (...args: unknown[]) => {
+        calls.push(args)
+        return { runId: 'r1' }
+      },
+      activeRun: () => active,
+      on: (event: string, fn: (e: unknown) => void) => {
+        events.push(event)
+        fn({ botId: 'ada', runId: 'r1' })
+        return runner
+      },
+    }
+    const bot = makeBot('ada', 'Ada', 'p1', {
+      runs: [{ id: 'r1', trigger: { kind: 'message' }, startedAt: 1, status: 'running', steps: 0, threadId: 'canal-x', itemId: 'i' }],
+    })
+    const host = runnerHost(runner as unknown as Parameters<typeof runnerHost>[0], (id) => (id === 'ada' ? bot : undefined))
+    const trigger = { kind: 'channel', channelId: 'canal-x' } as const
+    expect(await host.send('ada', 'oi', [], trigger, { threadId: 'canal-x', showUser: false })).toEqual({ runId: 'r1' })
+    expect(calls[0]).toEqual(['ada', 'oi', [], trigger, { threadId: 'canal-x', showUser: false }])
+    const seen: unknown[] = []
+    host.onRunEnd((e) => seen.push(e))
+    expect(events).toEqual(['run:end'])
+    expect(seen).toHaveLength(1)
+    expect(host.activeThread('ada')).toBeUndefined()
+    active = { runId: 'r1' }
+    expect(host.activeThread('ada')).toBe('canal-x')
+    active = { runId: 'outra' }
+    expect(host.activeThread('ada')).toBe('ada')
   })
 })

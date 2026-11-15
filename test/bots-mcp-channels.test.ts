@@ -3,6 +3,7 @@ process.env.TZ = 'America/Sao_Paulo'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { BOT_LIMITS, type AgentSummary, type Bot, type ThreadItem } from '@shared/types'
+import type { BotToolFactory } from '../src/main/bots/mcp'
 import { items, makeBot, setup, type Sent, type Setup } from './mocks/channels'
 
 // The MCP server is the SDK's business: each tool keeps its schema (parsed here like the SDK does) and handler.
@@ -57,6 +58,12 @@ describe('ferramentas dos canais', () => {
     s.store.channels = s.store.channels.filter((c) => c.floor !== 'p2')
     expect(toolsOf(s, loja).tools).toEqual([])
     expect(toolsOf(s, loja).instructions).toEqual([])
+  })
+
+  it('cabe em BotTools.add, o gancho do servidor office', () => {
+    const s = world()
+    const factory: BotToolFactory = channelTools(s.svc)
+    expect(factory({ id: 'agente-ada', bot: 'ada' } as AgentSummary, ada).instructions[0]).toContain('#lançamento')
   })
 
   it('as instruções dizem os canais e quem está em cada um', () => {
@@ -236,6 +243,19 @@ describe('bot_ask', () => {
     await s.svc.idle()
     expect(sides(s, s.lanc)[0].status).toBe('failed')
     expect(items(s, s.lanc).at(-1)).toMatchObject({ kind: 'notice', tone: 'error' })
+  })
+
+  it('o runner pulou a pergunta (agente ocupado, teto do dia): sem resposta e aviso no canal', async () => {
+    const s = world()
+    s.host.skipWith = 'Pulei a mensagem das 10:00: Revisor do dia estava ocupado com outra rodada.'
+    await toolsOf(s, chefe).call('bot_ask', { bot: 'rev', question: 'x' })
+    await s.svc.idle()
+    expect(sides(s, s.lanc)[0].status).toBe('failed')
+    expect(items(s, s.lanc).at(-1)).toMatchObject({
+      kind: 'notice',
+      tone: 'warn',
+      text: expect.stringContaining('Revisor do dia não recebeu a pergunta'),
+    })
   })
 
   it('bot apagado no meio: a pergunta fica sem resposta', async () => {

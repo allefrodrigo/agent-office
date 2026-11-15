@@ -27,6 +27,7 @@ import { buildMessage } from '../attachments'
 import { log } from '../log'
 import { channelName, type CleanChannelDraft } from './channels-validate'
 import type { Route, RouteFn } from './router'
+import type { BotRunner, RunStart } from './runner'
 
 // Chat dos bots, canais (CB-17 a CB-19): os canais de cada andar, a mensagem do jogador que vai para
 // quem foi mencionado (ou para quem o roteador escolheu), o "trocar" e o que os bots fazem nos canais
@@ -67,18 +68,36 @@ export interface RunEndEvent {
   trigger?: RunTrigger
 }
 
-/** What the service needs from the BotRunner. */
+/** What the service needs from the BotRunner (runnerHost below adapts it). */
 export interface ChannelRunHost {
   /**
-   * Sends a message to the bot as a run with `trigger`, whose items (the run line, approvals, the
-   * reply bubble) land in `threadId`: a channel id, or the bot's own id. The text goes as is, with
-   * no user line in any thread (the channel already shows the player's message). Resolves with
-   * the run id, or undefined when the message joined a run already going.
+   * BotRunner.send: a run with `trigger`, whose items (the run line, approvals, the reply bubble)
+   * land in `opts.threadId` (a channel id, or the bot's own id), with no user line. A busy bot or
+   * one past its daily cap skips it with a notice in that thread ({ skipped }).
    */
-  send(botId: string, text: string, attachments: AttachmentInput[], trigger: RunTrigger, threadId: string): Promise<string | undefined>
+  send(
+    botId: string,
+    text: string,
+    attachments: AttachmentInput[],
+    trigger: RunTrigger,
+    opts: { threadId: string; showUser: false },
+  ): Promise<RunStart>
   onRunEnd(listener: (e: RunEndEvent) => void): void
   /** The thread of the bot's run in progress (a channel id or its own id); undefined when idle. */
   activeThread(botId: string): string | undefined
+}
+
+/** The BotRunner as the service's host: run:end, and the thread of a bot's run in progress (from Bot.runs). */
+export function runnerHost(runner: Pick<BotRunner, 'send' | 'activeRun' | 'on'>, bot: (id: string) => Bot | undefined): ChannelRunHost {
+  return {
+    send: (botId, text, attachments, trigger, opts) => runner.send(botId, text, attachments, trigger, opts),
+    onRunEnd: (listener) => void runner.on('run:end', listener),
+    activeThread: (botId) => {
+      const run = runner.activeRun(botId)
+      if (!run) return undefined
+      return bot(botId)?.runs.find((r) => r.id === run.runId)?.threadId ?? botId
+    },
+  }
 }
 
 export interface ChannelDeps {
@@ -106,6 +125,8 @@ interface Delivery {
   depth: number
   started?(runId: string | undefined): void
   failed(message: string): void
+  /** The runner skipped it (busy, daily cap) and told so in `threadId`. */
+  skipped?(why: string): void
 }
 
 /** A bot_ask whose answer has not come yet. */
@@ -540,6 +561,11 @@ export class ChannelService {
           this.fail(ask)
           this.notice(c.id, `${to.name} não recebeu a pergunta de ${from.name}: ${msg}`, 'error')
         },
+        // the runner's notice went to the asked bot's own thread: the channel hears it too
+        skipped: (why) => {
+          this.fail(ask)
+          this.notice(c.id, `${to.name} não recebeu a pergunta de ${from.name}: ${why}`, 'warn')
+        },
       }),
     )
     return `Perguntei ao ${to.name}; a resposta chega como mensagem nova.`
@@ -611,7 +637,13 @@ export class ChannelService {
     const keep: { d: number; runId?: string } | undefined = d.depth > 0 ? { d: d.depth } : undefined
     if (keep) this.depth.set(botId, keep)
     try {
-      const runId = await this.d.host.send(botId, d.text, d.attachments, d.trigger, d.threadId)
+      const r = await this.d.host.send(botId, d.text, d.attachments, d.trigger, { threadId: d.threadId, showUser: false })
+      if ('skipped' in r) {
+        if (keep && this.depth.get(botId) === keep) this.depth.delete(botId)
+        d.skipped?.(clip(r.skipped, 300))
+        return
+      }
+      const runId = r.queued ? undefined : r.runId
       if (keep && runId && this.depth.get(botId) === keep) keep.runId = runId
       d.started?.(runId)
     } catch (err) {

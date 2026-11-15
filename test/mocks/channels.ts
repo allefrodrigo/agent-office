@@ -11,6 +11,7 @@ import {
 import { lookFromSeed } from '@shared/describe'
 import { ChannelService, type ChannelRunHost, type ChannelStore, type RunEndEvent, type ThreadLike } from '../../src/main/bots/channels'
 import type { Route, RouteRequest } from '../../src/main/bots/router'
+import type { RunStart } from '../../src/main/bots/runner'
 
 // Fakes for the channel tests: the BotStore's bots, channels and threads in memory, and a
 // BotRunner that records what it was asked to send.
@@ -103,6 +104,8 @@ export class FakeHost implements ChannelRunHost {
   /** botId -> the thread of its run in progress. */
   busy = new Map<string, string>()
   failWith: Error | null = null
+  /** The runner skips the next sends with this reason (busy agent, daily cap). */
+  skipWith: string | null = null
   private listeners: ((e: RunEndEvent) => void)[] = []
   private n = 0
   async send(
@@ -110,13 +113,14 @@ export class FakeHost implements ChannelRunHost {
     text: string,
     attachments: AttachmentInput[],
     trigger: RunTrigger,
-    threadId: string,
-  ): Promise<string | undefined> {
+    opts: { threadId: string; showUser: false },
+  ): Promise<RunStart> {
     if (this.failWith) throw this.failWith
+    if (this.skipWith) return { skipped: this.skipWith }
     const runId = `run-${++this.n}`
-    this.sent.push({ botId, text, attachments, trigger, threadId, runId })
-    this.busy.set(botId, threadId)
-    return runId
+    this.sent.push({ botId, text, attachments, trigger, threadId: opts.threadId, runId })
+    this.busy.set(botId, opts.threadId)
+    return { runId }
   }
   onRunEnd(listener: (e: RunEndEvent) => void): void {
     this.listeners.push(listener)
