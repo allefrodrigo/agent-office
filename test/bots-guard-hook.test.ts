@@ -66,11 +66,36 @@ describe('appsHook', () => {
   })
 
   it('appAllowed: a configured server called office is not the office', () => {
-    expect(appAllowed([], 'mcp__office__x', { name: 'office', source: 'user' })).toBe(false)
-    expect(appAllowed([], 'mcp__office__x')).toBe(true)
-    expect(appAllowed(['gmail'], 'mcp__gmail__send_email')).toBe(true)
-    expect(appAllowed(['gmail'], 'mcp__gmail')).toBe(true)
-    expect(appAllowed(['gmail'], 'Read')).toBe(true)
+    expect(appAllowed([], 'mcp__office__x', {}, { name: 'office', source: 'user' })).toBe(false)
+    expect(appAllowed([], 'mcp__office__x', {})).toBe(true)
+    expect(appAllowed(['gmail'], 'mcp__gmail__send_email', {})).toBe(true)
+    expect(appAllowed(['gmail'], 'mcp__gmail', {})).toBe(true)
+    expect(appAllowed(['gmail'], 'mcp__', {})).toBe(false)
+    expect(appAllowed(['gmail'], 'Read', {})).toBe(true)
+  })
+
+  it('the built-in resource tools count as calls to the server they name', () => {
+    expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'github', uri: 'x' })).toBe(true)
+    expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'gmail', uri: 'x' })).toBe(false)
+    expect(appAllowed(['github'], 'ReadMcpResourceDirTool', { server: 'drive', uri: 'x' })).toBe(false)
+    expect(appAllowed(['github'], 'ReadMcpResourceTool', { server: 'office', uri: 'x' })).toBe(true)
+    // A list over every server, or no server it can read: denied unless the bot sees them all.
+    expect(appAllowed(['github'], 'ListMcpResourcesTool', {})).toBe(false)
+    expect(appAllowed(['github'], 'ListMcpResourcesTool', { server: 42 })).toBe(false)
+    expect(appAllowed(['github'], 'ListMcpResourcesTool', { server: 'github' })).toBe(true)
+    expect(appAllowed(['github'], 'RefreshMcpTools', {})).toBe(false)
+    expect(appAllowed(['github'], 'SomeNewMcpTool', null)).toBe(false)
+    expect(appAllowed('all', 'ListMcpResourcesTool', {})).toBe(true)
+  })
+
+  it('the hook denies a resource read of another server, with what to do', async () => {
+    const hook = appsHook(() => ['github'])
+    const denied = await fire(hook, 'ReadMcpResourceTool', { server: 'gmail', uri: 'gmail://inbox' })
+    expect(denied).toHaveProperty('hookSpecificOutput.permissionDecision', 'deny')
+    expect(JSON.stringify(denied)).toContain('gmail')
+    const list = await fire(hook, 'ListMcpResourcesTool', {})
+    expect(list).toHaveProperty('hookSpecificOutput.permissionDecision', 'deny')
+    expect(await fire(hook, 'ReadMcpResourceTool', { server: 'github', uri: 'x' })).toEqual({})
   })
 })
 

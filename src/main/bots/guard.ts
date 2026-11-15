@@ -47,26 +47,52 @@ function serverOf(tool: string): string | null {
   return i < 0 ? rest : rest.slice(0, i)
 }
 
-/** Whether a bot with these connections may call this tool. The office's own server always. */
-export function appAllowed(apps: 'all' | readonly string[], tool: string, mcp?: { name: string; source: string }): boolean {
+/**
+ * The built-in tools that reach MCP servers by name in their input (ListMcpResourcesTool,
+ * ReadMcpResourceTool, ReadMcpResourceDirTool, RefreshMcpTools…): any tool called *Mcp* that
+ * is not an mcp__ tool counts as one.
+ */
+const isMcpBuiltin = (tool: string) => !tool.startsWith('mcp__') && /mcp/i.test(tool)
+
+/** The server a built-in MCP tool names in its input; '' when it names none. */
+function namedServer(input: unknown): string {
+  const server = input && typeof input === 'object' ? (input as Record<string, unknown>).server : undefined
+  return typeof server === 'string' ? server : ''
+}
+
+/**
+ * Whether a bot with these connections may call this tool. Fails closed: an MCP call whose
+ * server cannot be worked out, or a resource list over every server, is denied unless the bot
+ * sees them all. The office's own server always passes (by provenance for mcp__ tools).
+ */
+export function appAllowed(apps: 'all' | readonly string[], tool: string, input: unknown, mcp?: { name: string; source: string }): boolean {
+  if (apps === 'all') return true
+  if (isMcpBuiltin(tool)) {
+    const server = namedServer(input)
+    return !!server && (server === 'office' || apps.includes(server))
+  }
   const server = mcp?.name ?? serverOf(tool)
-  if (server === null || apps === 'all') return true
+  if (server === null) return true
   if (server === 'office' && (!mcp || mcp.source === 'sdk')) return true
-  return apps.includes(server)
+  return !!server && apps.includes(server)
 }
 
 /**
  * A bot sees only the connections ticked in its profile. The manager turns the others off when
- * the CLI starts (toggleMcpServer); this hook closes the gap until then, and covers its subagents.
+ * the CLI starts (toggleMcpServer); this hook closes the gap until then, covers its subagents
+ * and the built-in resource tools, which name the server in their input.
  */
 export function appsHook(apps: () => 'all' | readonly string[]): HookCallbackMatcher[] {
   return [
     {
       hooks: [
         async (input) => {
-          if (input.hook_event_name !== 'PreToolUse' || appAllowed(apps(), input.tool_name, input.mcp_server)) return {}
-          const server = input.mcp_server?.name ?? serverOf(input.tool_name)
-          return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: `Este bot não tem acesso à conexão ${server}. Para usar, marque-a nas conexões do perfil do bot.` } }
+          if (input.hook_event_name !== 'PreToolUse' || appAllowed(apps(), input.tool_name, input.tool_input, input.mcp_server)) return {}
+          const server = isMcpBuiltin(input.tool_name) ? namedServer(input.tool_input) : (input.mcp_server?.name ?? serverOf(input.tool_name))
+          const why = server
+            ? `Este bot não tem acesso à conexão ${server}. Para usar, marque-a nas conexões do perfil do bot.`
+            : 'Este bot só vê as conexões marcadas no perfil: diga de qual delas quer os recursos.'
+          return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: why } }
         },
       ],
     },
