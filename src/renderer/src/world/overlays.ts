@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { botTagTitle, type BotTagInfo } from './bot-tag'
 import type { Viewport } from './viewport'
 
 export type BubbleKind = 'work' | 'wait' | 'done' | 'error' | 'idle' | 'talk'
@@ -11,6 +12,10 @@ export class Tag {
   private bubbleEl: HTMLDivElement
   private helpersEl: HTMLSpanElement
   private accountEl: HTMLSpanElement
+  /** The "bot" chip, made the first time the agent turns out to run a bot. */
+  private botEl: HTMLButtonElement | null = null
+  private botKey = ''
+  private onBot: (() => void) | null = null
   private bubbleText = ''
   private bubbleKind: BubbleKind | null = null
   hidden = false
@@ -65,6 +70,38 @@ export class Tag {
     this.accountEl.className = name ? 'tag-account' : 'tag-account hidden'
     this.accountEl.style.setProperty('--acct', color)
     this.accountEl.title = name ? `Conta ${name}` : ''
+  }
+
+  /**
+   * The "bot" chip in the bot's color, for an agent of the Chat; null hides it. Clicking the
+   * chip runs `onClick` instead of the tag's own click.
+   */
+  setBot(bot: BotTagInfo | null, onClick?: () => void): void {
+    this.onBot = onClick ?? null
+    const key = bot ? `${bot.name}|${bot.color}` : ''
+    if (key === this.botKey) return
+    this.botKey = key
+    if (!bot) {
+      this.botEl?.classList.add('hidden')
+      return
+    }
+    if (!this.botEl) {
+      const chip = document.createElement('button')
+      chip.type = 'button'
+      chip.className = 'tag-bot'
+      chip.textContent = 'bot'
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation()
+        this.onBot?.()
+      })
+      this.nameEl.after(chip)
+      this.botEl = chip
+    }
+    const title = botTagTitle(bot)
+    this.botEl.classList.remove('hidden')
+    this.botEl.title = title
+    this.botEl.setAttribute('aria-label', title)
+    this.botEl.style.setProperty('--bot', bot.color)
   }
 
   setDot(status: string): void {

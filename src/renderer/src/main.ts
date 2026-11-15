@@ -40,6 +40,7 @@ import { OPEN_AGENT_EVENT } from './ui/meetings/office'
 import { meetingLive, onMeetingLive, setMeetingLive } from './meetings/live'
 import { doNotDisturb, waitingSummary } from '@shared/meeting-map'
 import { chatShowsAgent, chatStore, mountChat, openChat } from './ui/chat'
+import { botOf, onBotsIndex } from './ui/chat/bots-index'
 import { badgeText } from '@shared/bots-view'
 
 /** localStorage: '1' when the office lights are off (modo noturno). */
@@ -246,6 +247,9 @@ async function boot(): Promise<void> {
     },
     onTv: () => void radio.toggle(),
     onCoffee: () => openCoffee(ui, state, toast),
+    // Chat dos bots (CB-11): the "bot" chip on an agent's name opens the bot's thread
+    botOf: (a) => botOf(a.id, a.bot),
+    onBotTag: (botId) => openChat(botId),
     onRoutines: () =>
       openRoutines(ui, state, {
         toast,
@@ -260,6 +264,9 @@ async function boot(): Promise<void> {
         project: () => game.currentProject,
       }),
   })
+
+  // a bot renamed, recolored or with a new agent: the chips and diamonds follow (no per-frame work)
+  onBotsIndex(() => game.refreshBots())
 
   const hud = new Hud(ui, state, {
     openAgent: (id) => {

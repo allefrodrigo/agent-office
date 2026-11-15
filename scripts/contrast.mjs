@@ -157,6 +157,13 @@ Object.assign(BG, {
   'chat: menu + hover': stack(MENU, css('.ch-menu-item:hover')),
 })
 
+// Etiqueta "bot" no nome do agente (CB-11): texto escuro sobre a cor do bot, uma por BOT_COLORS
+// (world/bot-tag.ts aceita só essas). A lista vem do contrato, para uma cor nova entrar sozinha.
+const BOTS_TS = join(CSS_DIR, '../../../shared/types/bots.ts')
+const BOT_COLORS = [...(/BOT_COLORS = \[([^\]]+)\]/.exec(readFileSync(BOTS_TS, 'utf8'))?.[1] ?? '').matchAll(/'(#[0-9a-f]{6})'/gi)].map((m) => m[1])
+if (!BOT_COLORS.length) throw new Error('não achei BOT_COLORS em src/shared/types/bots.ts')
+for (const c of BOT_COLORS) BG[`etiqueta bot ${c}`] = parseColor(c)
+
 /** [what, text selector, background name or [selector, prop] over a named background]. */
 const PAIRS = [
   ['Estatísticas no topo', '.brand-stats', 'mundo'],
@@ -336,6 +343,8 @@ const PAIRS = [
   ['Chat: menu', '.ch-menu-item', 'chat: menu + hover'],
   ['Chat: menu (perigo)', '.ch-menu-item.danger', 'chat: menu + hover'],
   ['Chat: menu (dica)', '.ch-menu-hint', 'chat: menu + hover'],
+  // a etiqueta "bot" no nome do agente, em cada cor de bot
+  ...BOT_COLORS.map((c) => [`Etiqueta bot ${c}`, '.tag-bot', `etiqueta bot ${c}`]),
 ]
 
 export function measure() {
