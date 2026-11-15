@@ -10,7 +10,7 @@ import { badgePixels, encodePng } from './badge'
 import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
-import { prepareStress, startDemo, startRoutineDemo, startStress } from './demo'
+import { prepareStress, startBotDemo, startDemo, startRoutineDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
 import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
@@ -49,6 +49,10 @@ import { registerCreativeIpc } from './ipc/creative'
 import { registerVoiceIpc } from './ipc/voice'
 import { registerCreativeLibraryIpc } from './ipc/creative-library'
 import { registerMeetingsIpc } from './ipc/meetings'
+import { registerBotsIpc } from './ipc/bots'
+import { BotRunner } from './bots/runner'
+import { BotStore } from './bots/store'
+import { BotTools } from './bots/mcp'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -157,6 +161,57 @@ function openFromNotice(target: NoticeTarget): void {
   win.webContents.send('office:event', { type: 'notice:open', ...target } satisfies OfficeEvent)
 }
 
+/** A bot's notification was clicked: the office window comes forward with the Chat on the thread. */
+function openBotThread(threadId: string): void {
+  // The Chat lives in the office window: the modo mini gives way to it.
+  if (pet?.on) void pet.leave()
+  if (!win || win.isDestroyed()) win = createWindow()
+  else {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+  }
+  const target = win
+  const send = () => target.webContents.send('office:event', { type: 'bot:open', threadId } satisfies OfficeEvent)
+  if (target.webContents.isLoading()) target.webContents.once('did-finish-load', send)
+  else send()
+}
+
+/** Bot notices held while a meeting records with "Não perturbe" on: the newest per thread. */
+const heldBotNotices = new Map<string, { title: string; body: string }>()
+
+/** "Não perturbe" (RN-17, doNotDisturb in meeting-map.ts) holds the bots' notices; the Chat's thread keeps them. */
+function botsQuiet(store: Store): boolean {
+  return meetingLive() && store.settings.meetings?.doNotDisturb !== false
+}
+
+/**
+ * A bot's system notification (the BotRunner already follows Configurações → Chat → notify).
+ * During a meeting it waits; when the meeting ends, what waited comes as one notice.
+ */
+function notifyBot(store: Store, title: string, body: string, threadId: string): void {
+  if (botsQuiet(store)) {
+    heldBotNotices.delete(threadId)
+    heldBotNotices.set(threadId, { title, body })
+    return
+  }
+  if (!canNotify(store)) return
+  const n = new Notification({ title, body, silent: false })
+  n.on('click', () => openBotThread(threadId))
+  keepNotice(`bot:${threadId}`, n)
+  n.show()
+}
+
+/** The meeting ended: the bots' held notices, one by itself or a count that opens the newest thread. */
+function releaseBotNotices(store: Store): void {
+  if (botsQuiet(store) || !heldBotNotices.size) return
+  const held = [...heldBotNotices]
+  heldBotNotices.clear()
+  const [threadId, last] = held[held.length - 1]
+  if (held.length === 1) return notifyBot(store, last.title, last.body, threadId)
+  notifyBot(store, 'Chat dos bots', `${held.length} conversas com novidades durante a reunião. A mais recente: ${last.title}.`, threadId)
+}
+
 function canNotify(store: Store): boolean {
   return store.settings.notifications && Notification.isSupported() && !win?.isFocused()
 }
@@ -241,6 +296,9 @@ app.whenReady().then(async () => {
   const board = new TicketBoard(app.getPath('userData'))
   const routineStore = new RoutineStore(app.getPath('userData'))
   const meetingStore = new MeetingStore(app.getPath('userData'))
+  // Chat dos bots: bots.json and each bot's folder (thread, memory).
+  const botStore = new BotStore(app.getPath('userData'))
+  const botTools = new BotTools(botStore)
   // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
   meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
@@ -249,8 +307,9 @@ app.whenReady().then(async () => {
     board.flush()
     routineStore.flush()
     meetingStore.flush()
+    botStore.flush()
   })
-  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore)
+  manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore, botTools)
   const desk = new TicketDesk(board, manager, () => store.settings)
   // Old tickets in "Feito" close by themselves: now, then every hour.
   board.autoClose(store.settings.ticketAutoCloseDays)
@@ -289,6 +348,7 @@ app.whenReady().then(async () => {
     } else app.setBadgeCount(count)
   }
   onMeetingLiveChange(updateBadge)
+  onMeetingLiveChange(() => releaseBotNotices(store))
 
   // Windows: blink the taskbar button when something new waits for the user and the
   // window is not focused (macOS keeps its Dock bounce).
@@ -311,14 +371,17 @@ app.whenReady().then(async () => {
   manager.on('event', (e: OfficeEvent) => {
     broadcast(e)
     if (e.type === 'permission:new') {
-      notifyPermission(store, manager, e.request, callerOf(e.request.agentId), manager.list().find((a) => a.id === e.request.agentId)?.cwd)
+      const caller = manager.list().find((a) => a.id === e.request.agentId)
+      // A bot's approval is noticed by the BotRunner, with a click that opens its thread.
+      if (!caller?.bot) notifyPermission(store, manager, e.request, callerOf(e.request.agentId), caller?.cwd)
       if (process.platform === 'darwin' && !win?.isFocused()) app.dock?.bounce('informational')
       flash()
     } else if (e.type === 'result:new') {
       // Runs before the scheduler's own listener, so the run is still on.
       const routine = routines.activeRun(e.result.agentId)?.routine
       const title = !routine ? `${nameOf(e.result.agentId)} terminou` : e.result.isError ? `Rotina ${routine.name} falhou` : `Rotina ${routine.name}: ${nameOf(e.result.agentId)} terminou`
-      notify(store, title, e.result.text.slice(0, 140), { agentId: e.result.agentId, itemId: e.result.id })
+      // A bot's result is noticed by the BotRunner (Configurações > Chat > entregar no escritório too).
+      if (!manager.list().find((a) => a.id === e.result.agentId)?.bot) notify(store, title, e.result.text.slice(0, 140), { agentId: e.result.agentId, itemId: e.result.id })
       flash()
     } else if (e.type === 'permission:resolved') dropNotice(e.requestId)
     else if (e.type === 'result:acked') dropNotice(e.resultId)
@@ -338,6 +401,16 @@ app.whenReady().then(async () => {
   })
   // Timers stop while the Mac sleeps: runs whose time passed follow the routine's choice.
   powerMonitor.on('resume', () => routines.check())
+  // Chat dos bots: each bot runs on an office agent; its work goes into its thread.
+  const bots = new BotRunner({
+    store: botStore,
+    manager,
+    settings: () => store.settings,
+    broadcast,
+    notify: (title, body, threadId) => notifyBot(store, title, body, threadId),
+    book,
+  })
+  manager.botHooks = bots.hooks()
   // launchd's own schedules (Mochilinho, backups…), read only, beside the routines
   const macJobs = new MacJobs()
   macJobs.on('jobs', (jobs) => broadcast({ type: 'macJobs', jobs }))
@@ -370,6 +443,8 @@ app.whenReady().then(async () => {
   manager.on('event', (e: OfficeEvent) => {
     if (e.type === 'result:new') usage.nudge()
   })
+  // A bot's result that stays in the Chat moves the numbers too.
+  manager.on('quietResult', () => usage.nudge())
 
   const bridge = new Bridge(manager, store.settings.bridgePort, join(app.getPath('userData'), 'bridge-token'), (status) =>
     broadcast({ type: 'bridge:status', status }),
@@ -422,6 +497,7 @@ app.whenReady().then(async () => {
       board.flush()
       routineStore.flush()
       meetingStore.flush()
+      botStore.flush()
     },
     broadcast,
   })
@@ -456,6 +532,7 @@ app.whenReady().then(async () => {
     board.flush()
     routineStore.flush()
     meetingStore.flush()
+    botStore.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
@@ -470,6 +547,7 @@ app.whenReady().then(async () => {
       board.lock()
       routineStore.lock()
       meetingStore.lock()
+      botStore.lock()
     },
   })
 
@@ -497,6 +575,8 @@ app.whenReady().then(async () => {
     stats,
     backstage,
     tools,
+    botStore,
+    bots,
     broadcast,
     updateBadge,
     nameOf,
@@ -519,6 +599,7 @@ app.whenReady().then(async () => {
   registerCreativeIpc(ipc)
   registerCreativeLibraryIpc(ipc)
   registerMeetingsIpc(ipc)
+  registerBotsIpc(ipc)
   registerVoiceIpc()
   // Dev only: AGENT_OFFICE_MEETING_WAV feeds the meeting capture from a WAV instead of the mic.
   registerMeetingWavHook(app.isPackaged ? undefined : process.env.AGENT_OFFICE_MEETING_WAV)
@@ -569,9 +650,12 @@ app.whenReady().then(async () => {
   if (process.env.AGENT_OFFICE_DEMO === '1') {
     startDemo(manager, squadDefs())
     startRoutineDemo(manager, routines)
+    startBotDemo(manager, botStore, bots)
   }
   // After the demo is in place: what was due while the app was closed runs (or is skipped) now.
   routines.start()
+  // Bot agents restored from office.json go back to their bots; idle ones leave after a while.
+  bots.start()
   macJobs.start()
   if (stress) startStress(manager)
   if (process.env.AGENT_OFFICE_SEED) seedAgents(manager, process.env.AGENT_OFFICE_SEED)
@@ -598,12 +682,14 @@ app.whenReady().then(async () => {
     manager.shutdown()
     book.stop()
     routines.stop()
+    bots.dispose()
     macJobs.stop()
     void stopAllWhisper()
     store.flush()
     board.flush()
     routineStore.flush()
     meetingStore.flush()
+    botStore.flush()
   }
   app.on('before-quit', (e) => {
     // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.
