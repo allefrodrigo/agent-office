@@ -7,6 +7,8 @@ import { claudeNotFoundMessage } from '../claude-messages'
 import { findClaude } from '../claude-path'
 import { findSquad, memberAgents, orchestratorPrompt, teamGuard, type SquadDefinition } from '../squads'
 import { takeSnapshot } from '../git'
+import { SENSITIVE_KINDS } from '@shared/types'
+import { appsHook, cliMode, guardHook } from '../bots/guard'
 import { InputQueue, kTokens, toMs, WRITE_TOOLS, type Agent, type Prompt } from './types'
 import { AgentOffice } from './office'
 
@@ -40,6 +42,8 @@ export abstract class AgentSdk extends AgentOffice {
       // Squad cycles touch real systems: never without approvals, whatever was saved.
       if (s.permissionMode === 'bypassPermissions') s.permissionMode = 'default'
     }
+    // Bots run on their own, on a timer or an event: never "Sem pedir nada" (checked again here, whatever set it).
+    if (s.bot && s.permissionMode === 'bypassPermissions') s.permissionMode = 'default'
     if (this.overBudget(agent)) return
     const wt = s.worktree
     const workDir = wt?.path ?? s.cwd
@@ -97,6 +101,12 @@ export abstract class AgentSdk extends AgentOffice {
     ]
     const budget = Math.min(...left) < Infinity ? Math.max(0.01, Math.min(...left)) : undefined
     this.setStatus(agent, 'starting', s.status === 'starting' ? s.activity : 'Voltando ao trabalho')
+    // Chat dos bots: the guard asks before sensitive calls (any mode), next to the squad's own hook.
+    const bot = s.bot ? this.botHooks : undefined
+    // Chat dos bots: the guard asks before sensitive calls; connections not ticked in the profile are denied.
+    const botGuard = s.bot ? [...appsHook(() => bot?.apps(s) ?? 'all'), ...guardHook(() => bot?.askBefore(s) ?? SENSITIVE_KINDS)] : []
+    const hooks = [...(squad ? teamGuard(squad) : []), ...botGuard]
+    const botText = bot?.prompt(s)
 
     const q = query({
       prompt: input,
@@ -105,10 +115,10 @@ export abstract class AgentSdk extends AgentOffice {
         model: s.model,
         effort: s.effort,
         pathToClaudeCodeExecutable: claude,
-        permissionMode: s.permissionMode,
+        permissionMode: s.bot ? cliMode(s.permissionMode) : s.permissionMode,
         // Subagent text comes too (not only tools), for the helper's own log (AO-46).
         forwardSubagentText: true,
-        allowDangerouslySkipPermissions: s.permissionMode === 'bypassPermissions',
+        allowDangerouslySkipPermissions: !s.bot && s.permissionMode === 'bypassPermissions',
         ...(budget !== undefined ? { maxBudgetUsd: budget } : {}),
         ...(agent.started ? { resume: s.sessionId } : { sessionId: s.sessionId }),
         systemPrompt: {
@@ -125,9 +135,11 @@ export abstract class AgentSdk extends AgentOffice {
               ? `\n\nYou work in your own git worktree at ${wt.root} on branch ${wt.branch}, so other agents never touch your files. ` +
                 `Make every change here; do not edit the main checkout at ${wt.repo}. The user reviews, commits and opens the pull request from the office.`
               : '') +
-            (squad ? `\n\n${orchestratorPrompt(squad)}` : ''),
+            (squad ? `\n\n${orchestratorPrompt(squad)}` : '') +
+            (botText ? `\n\n${botText}` : ''),
         },
-        ...(squad ? { agents: memberAgents(squad), hooks: { PreToolUse: teamGuard(squad) } } : {}),
+        ...(squad ? { agents: memberAgents(squad) } : {}),
+        ...(hooks.length ? { hooks: { PreToolUse: hooks } } : {}),
         ...(this.officeTools ? { mcpServers: { office: this.officeTools(s) } } : {}),
         // Lets the terminal bridge ignore hook events coming from office-managed sessions.
         env: {

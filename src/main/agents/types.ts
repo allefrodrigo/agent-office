@@ -1,7 +1,7 @@
 import { type ChildProcess } from 'node:child_process'
 import { type FSWatcher } from 'node:fs'
 import { type Query, type SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { AgentSummary, LogEntry, PermissionDecision, PermissionRequest } from '@shared/types'
+import type { AgentSummary, LogEntry, Look, PermissionDecision, PermissionRequest, SensitiveKind } from '@shared/types'
 import { type SquadDefinition } from '../squads'
 import { type Snapshot } from '../git'
 import { Coalescer, SubagentLogs } from '../subagent-log'
@@ -112,6 +112,41 @@ export const WRITE_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit'
 export interface Pending {
   request: PermissionRequest
   resolve: (d: PermissionDecision) => void
+}
+
+// ---------- Chat dos bots (docs/prd/chat-de-bots.md) ----------
+
+/** Who a bot's agent is: the BotRunner calls it into the office with the bot's id, name and look. */
+export interface BotIdentity {
+  bot: string
+  name: string
+  look: Look
+}
+
+/**
+ * A request answered or dropped, with what was decided: the manager emits it as 'decision'
+ * (permission:resolved, sent to the renderer, does not carry the decision).
+ */
+export interface DecisionNote {
+  request: PermissionRequest
+  decision: PermissionDecision
+  /** Dropped without an answer (interrupted, fired, cleared, aborted by the CLI). */
+  cancelled?: boolean
+}
+
+/**
+ * What the Chat plugs into the manager for agents with `summary.bot` (BotRunner.hooks()).
+ * Read on every use, so an edited bot counts from the next call.
+ */
+export interface BotHooks {
+  /** Appended to the system prompt after the office's own text. */
+  prompt(summary: AgentSummary): string | undefined
+  /** Kinds held for a yes (the guard); undefined = all of them. */
+  askBefore(summary: AgentSummary): readonly SensitiveKind[] | undefined
+  /** MCP servers the bot sees: 'all', or a list (office is always on). */
+  apps(summary: AgentSummary): 'all' | string[]
+  /** The result goes to the thread only: no report card walks to the player. */
+  quietResult(summary: AgentSummary): boolean
 }
 
 /** Sent after moving to another account, so the agent picks up the interrupted turn. */

@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { AgentResult, AgentSummary, Ledger, LogEntry, Settings } from '@shared/types'
+import { CHAT_DEFAULTS, type AgentResult, type AgentSummary, type Ledger, type LogEntry, type Settings } from '@shared/types'
 import { lookFromSeed } from '@shared/describe'
 import { floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { MAIN_ACCOUNT } from '@shared/accounts'
@@ -13,7 +13,7 @@ import { loadTemplates } from './templates'
 import type { SessionMark } from './ledger'
 import { backupCopies, shapeOf } from './backups'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
-import { cleanMeetings, cleanVideo } from './validate'
+import { cleanChatSettings, cleanMeetings, cleanVideo } from './validate'
 
 export interface PersistedAgent {
   summary: AgentSummary
@@ -57,6 +57,7 @@ const DEFAULT_SETTINGS: Settings = {
   templates: [],
   video: DEFAULT_VIDEO,
   meetings: DEFAULT_MEETING_SETTINGS,
+  chat: CHAT_DEFAULTS,
 }
 
 /** Up to v0.2 one squad folder made a single squad floor; it becomes the first project floor. */
@@ -81,6 +82,8 @@ function migrateSettings(raw: Record<string, unknown> | undefined): Settings {
   // Reuniões came in v0.4: older files have no section or miss newer keys (each gets its default);
   // broken templates and recipes are dropped.
   settings.meetings = cleanMeetings(settings.meetings, DEFAULT_SETTINGS.meetings, settings.projects)
+  // Chat dos bots came in v0.5: older files have no section; a bad value falls back to the default.
+  settings.chat = cleanChatSettings(settings.chat, CHAT_DEFAULTS)
   return settings
 }
 

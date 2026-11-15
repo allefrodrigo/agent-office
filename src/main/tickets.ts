@@ -21,6 +21,7 @@ import type {
 } from '@shared/types'
 import { backupCopies, shapeOf } from './backups'
 import { meetingTools, type MeetingReader } from './meetings/mcp'
+import type { BotToolSet } from './bots/mcp'
 import { loadJson, reportLoad, writeJsonAtomic } from './fs-safe'
 
 const KEY_PREFIX = 'AO'
@@ -361,9 +362,11 @@ export class TicketBoard extends EventEmitter {
   /**
    * In-process MCP server an office agent uses to work the board as itself.
    * Agents can open, read, comment and move tickets up to review; closing ("done")
-   * stays with the people who review the work.
+   * stays with the people who review the work. A bot's agent also gets the bot tools (`bots`:
+   * its memory, and what the Chat's other modules add), bound to its own bot.
    */
-  toolsFor(agent: AgentSummary, projects: () => ProjectFloor[], meetings?: MeetingReader): McpSdkServerConfigWithInstance {
+  toolsFor(agent: AgentSummary, projects: () => ProjectFloor[], meetings?: MeetingReader, bots?: { for(agent: AgentSummary): BotToolSet }): McpSdkServerConfigWithInstance {
+    const extra = bots?.for(agent) ?? { tools: [], instructions: [] }
     const me: Actor = { kind: 'agent', name: agent.name, id: agent.id }
     // The agent's floor as the board sees it (agent.project, from its cwd at hire); its cwd when that floor is gone.
     const myFloor = () => projects().find((p) => p.id === agent.project) ?? projectFor(projects(), agent.cwd)
@@ -393,7 +396,8 @@ export class TicketBoard extends EventEmitter {
         'Crie tickets quando o usuário pedir ou quando achar trabalho que não cabe na tarefa atual. ' +
         'Um bom ticket se explica sozinho: título no imperativo, contexto com arquivos e passos de reprodução, critérios de aceite verificáveis. ' +
         'Só pessoas movem para done. Tickets fechados (arquivados depois de done) saem do quadro: consulte só quando precisar, com tickets_list closed=true ou ticket_get. ' +
-        'Reuniões do seu andar: meetings_list, meeting_get e meetings_search leem atas e itens de ação (transcrição só se o andar permitir); cite os trechos com a marca [r:<id>#s<n>].',
+        'Reuniões do seu andar: meetings_list, meeting_get e meetings_search leem atas e itens de ação (transcrição só se o andar permitir); cite os trechos com a marca [r:<id>#s<n>].' +
+        extra.instructions.map((x) => ` ${x}`).join(''),
       tools: [
         tool(
           'tickets_list',
@@ -511,6 +515,7 @@ export class TicketBoard extends EventEmitter {
             })(),
         ),
         ...(meetings ? meetingTools(meetings, myFloor) : []),
+        ...extra.tools,
       ],
     })
   }

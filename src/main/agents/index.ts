@@ -38,7 +38,9 @@ export class AgentManager extends AgentDecisions {
 
   /** On or off in every live CLI now; the caller keeps the choice for the next ones. */
   async toggleMcp(name: string, enabled: boolean): Promise<void> {
-    await Promise.allSettled(this.liveQueries().map((a) => a.query!.toggleMcpServer(name, enabled)))
+    // Turning a server back on skips the bots that were not given it.
+    const agents = this.liveQueries().filter((a) => !enabled || this.mcpAllowed(a, name))
+    await Promise.allSettled(agents.map((a) => a.query!.toggleMcpServer(name, enabled)))
   }
 
   async reconnectMcp(name: string): Promise<void> {
