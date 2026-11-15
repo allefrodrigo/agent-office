@@ -110,7 +110,34 @@ export const HAIR_COLORS = ['#2b1d16', '#4a3022', '#7a4b2a', '#c98d4b', '#e8c26e
 export const SHIRT_COLORS = ['#e2574c', '#f0a23b', '#f2d34f', '#57b65f', '#3fa7a0', '#4a8fe0', '#6c5ce7', '#c56cd6', '#f27ea9', '#f4f4f4', '#2f3542', '#ff7f50']
 export const PANTS_COLORS = ['#2f3b5c', '#3d3d46', '#5a4636', '#24496b', '#6b6f7a', '#1e1e24', '#7a5c3e']
 export const SHOE_COLORS = ['#1e1e24', '#f4f4f4', '#7a4b2a', '#c0392b']
-export const HAIR_STYLES = 6
+/**
+ * Hair cuts (Look.hairStyle), in the order of the 2D sheets (scripts/iso/people.mjs). `kind`: M
+ * masculine, F feminine, U either. `shape`: the closest of the six 3D hair shapes (null: bald).
+ */
+export const HAIR_STYLE_INFO: { name: string; kind: 'M' | 'F' | 'U'; shape: number | null }[] = [
+  { name: 'Curto com risca', kind: 'U', shape: 0 },
+  { name: 'Espetado', kind: 'U', shape: 1 },
+  { name: 'Comprido', kind: 'U', shape: 2 },
+  { name: 'Coque', kind: 'U', shape: 3 },
+  { name: 'Maria-chiquinha', kind: 'U', shape: 4 },
+  { name: 'Black power', kind: 'U', shape: 5 },
+  { name: 'Careca', kind: 'M', shape: null },
+  { name: 'Raspado', kind: 'M', shape: 0 },
+  { name: 'Topete', kind: 'M', shape: 1 },
+  { name: 'Cacheado com degradê', kind: 'M', shape: 5 },
+  { name: 'Dreads', kind: 'M', shape: 2 },
+  { name: 'Chanel com franja', kind: 'F', shape: 2 },
+  { name: 'Rabo de cavalo', kind: 'F', shape: 3 },
+  { name: 'Tranças', kind: 'F', shape: 4 },
+  { name: 'Ondulado longo', kind: 'F', shape: 2 },
+  { name: 'Pixie', kind: 'F', shape: 0 },
+]
+export const HAIR_STYLES = HAIR_STYLE_INFO.length
+
+/** The 3D hair shape (0-5) of a cut; null when bald. */
+export function hairShape(style: number): number | null {
+  return HAIR_STYLE_INFO[((style % HAIR_STYLES) + HAIR_STYLES) % HAIR_STYLES].shape
+}
 
 function hash(s: string): number {
   let h = 2166136261
@@ -132,7 +159,7 @@ export function lookFromSeed(seed: string): Look {
   return {
     skin: pick(SKIN_TONES),
     hair: pick(HAIR_COLORS),
-    hairStyle: pick([0, 1, 2, 3, 4, 5]),
+    hairStyle: pick([...HAIR_STYLE_INFO.keys()]),
     shirt: pick(SHIRT_COLORS),
     pants: pick(PANTS_COLORS),
     shoes: pick(SHOE_COLORS),

@@ -16,7 +16,8 @@ const HEX = /^#[0-9a-f]{6}$/i
 export function cleanLook(raw: unknown): Look | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
   const r = raw as Record<string, unknown>
-  if (Object.keys(r).some((k) => k !== 'hairStyle' && !LOOK_COLORS.includes(k as never))) return undefined
+  // 'habbo': a look saved by 0.4.0-beta.3, whose 2D view dressed people in Habbo art; dropped
+  if (Object.keys(r).some((k) => k !== 'hairStyle' && k !== 'habbo' && !LOOK_COLORS.includes(k as never))) return undefined
   if (!LOOK_COLORS.every((k) => typeof r[k] === 'string' && HEX.test(r[k] as string))) return undefined
   if (!Number.isInteger(r.hairStyle) || (r.hairStyle as number) < 0 || (r.hairStyle as number) >= HAIR_STYLES) return undefined
   return { skin: r.skin, hair: r.hair, hairStyle: r.hairStyle, shirt: r.shirt, pants: r.pants, shoes: r.shoes } as Look

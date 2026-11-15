@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import type { Account, ProjectFloor, Settings } from '@shared/types'
 import { DEFAULT_VIDEO, QUALITY_PRESETS } from '@shared/video'
+import { HAIR_STYLES } from '@shared/describe'
 import { DEFAULT_MEETING_SETTINGS } from '@shared/meetings'
 import {
   assigneeSchema,
@@ -357,7 +358,7 @@ describe('cleanSettings', () => {
     const look = { skin: '#000000', hair: '#111111', hairStyle: 5, shirt: '#222222', pants: '#333333', shoes: '#444444', extra: 'x' }
     const { extra: _extra, ...clean } = look
     expect(cleanSettings({ playerLook: look }, settings()).playerLook).toEqual(clean)
-    expect(cleanSettings({ playerLook: { ...look, hairStyle: 6 } }, settings()).playerLook).toEqual(settings().playerLook)
+    expect(cleanSettings({ playerLook: { ...look, hairStyle: HAIR_STYLES } }, settings()).playerLook).toEqual(settings().playerLook)
   })
   it('playerName vazio mantém o atual; modelo e esforço vazios são o padrão', () => {
     const cur = { ...settings(), defaultModel: 'opus', defaultEffort: 'high' as const }

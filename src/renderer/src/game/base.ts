@@ -9,7 +9,6 @@ import { setMerging } from '../world/merge'
 import { px } from '../world/pixel-tag'
 import type { Viewport } from '../world/viewport'
 import { PixelEngine } from '../pixel/engine'
-import { adaptGround } from '../pixel/layout2d'
 import { buildOffice, type GroundFloor, type Office } from '../world/office'
 import { Overlays, Tag } from '../world/overlays'
 import { Effects } from '../world/effects'
@@ -88,7 +87,6 @@ export abstract class GameBase {
     setMerging(!this.flat)
     this.engine = this.flat ? new PixelEngine(container) : new Engine(container, state.settings.pixelSize)
     this.office = buildOffice()
-    if (this.flat) adaptGround(this.office)
     this.engine.scene.add(this.office.group)
     this.overlays = new Overlays(overlayRoot, this.engine)
 
@@ -115,7 +113,7 @@ export abstract class GameBase {
     this.playerTag.setDot('you')
     this.engine.jumpTo(this.player.position.x, this.player.position.z)
 
-    // hovered tile outline, Habbo style
+    // hovered tile outline, classic isometric style
     const g = new THREE.BufferGeometry().setFromPoints(
       [[0, 0], [1, 0], [1, 0], [1, 1], [1, 1], [0, 1], [0, 1], [0, 0]].map(([x, z]) => new THREE.Vector3(x, 0.03, z)),
     )
