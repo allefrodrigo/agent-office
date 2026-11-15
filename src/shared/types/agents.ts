@@ -74,6 +74,8 @@ export interface AgentSummary {
   role?: 'orchestrator'
   /** Squad code, for orchestrators. */
   squad?: string
+  /** Bot.id when this agent runs a bot of the Chat (docs/prd/chat-de-bots.md). */
+  bot?: string
   /** Where the cycle is, read from squads/<code>/state.json. */
   squadStep?: SquadProgress
   /**

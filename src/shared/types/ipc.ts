@@ -35,6 +35,7 @@ import type {
   WhisperModelsInfo,
 } from './meetings'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
+import type { Bot, BotDraft, BotEventTrigger, Channel, ThreadHit, ThreadItem, ThreadPage } from './bots'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
 export interface SystemStats {
@@ -181,6 +182,16 @@ export type OfficeEvent =
   | { type: 'meeting:removed'; meetingId: string }
   /** The menu bar icon's "Abrir a sala" (RN-08): open the meeting room of that floor now. */
   | { type: 'meeting:open'; floor: string; meetingId: string }
+  /** Chat dos bots: the bots changed (saved, ran, read): the whole list. */
+  | { type: 'bots'; bots: Bot[] }
+  /** A thread item was added or updated (same id = update). threadId is a Bot.id or a Channel.id. */
+  | { type: 'bot:item'; threadId: string; item: ThreadItem }
+  /** Chat dos bots, phase 3: the channels changed. */
+  | { type: 'channels'; channels: Channel[] }
+  /** Chat dos bots, phase 2: the event triggers changed. */
+  | { type: 'botTriggers'; triggers: BotEventTrigger[] }
+  /** A system notification of a bot was clicked: open the Chat on that thread. */
+  | { type: 'bot:open'; threadId: string }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -479,6 +490,35 @@ export interface OfficeAPI {
   petFocus(): void
   /** Pet window: the last measure of the floor and the Dock (null before the first one). */
   petGeometry(): Promise<PetGeometry | null>
+  // ---------- Chat dos bots (docs/prd/chat-de-bots.md) ----------
+  listBots(): Promise<Bot[]>
+  /** Creates (no id) or replaces a bot; throws a message for the form when something is off. */
+  saveBot(draft: BotDraft): Promise<Bot>
+  /** Deletes the bot, its folder (thread, memory) and its automations; its agent leaves the office. */
+  deleteBot(id: string): Promise<void>
+  /** A copy with no thread, no runs and its automations paused. */
+  duplicateBot(id: string): Promise<Bot>
+  setBotFlags(id: string, patch: { pinned?: boolean; hidden?: boolean; order?: number }): Promise<Bot>
+  /** The player read the thread up to `at` (default now); 0 marks it unread. */
+  markBotRead(threadId: string, at?: number): Promise<void>
+  /** A page of the thread, oldest first; `before` = id of the oldest item already shown. */
+  botThread(threadId: string, opts?: { before?: string; limit?: number }): Promise<ThreadPage>
+  /** Searches the threads of a floor (all floors when missing); newest first. */
+  searchBots(query: string, floor?: string): Promise<ThreadHit[]>
+  /** The player wrote to the bot (DM). `!cmd` runs in the bot's folder like in the panel. */
+  sendToBot(botId: string, text: string, attachments?: AttachmentInput[]): Promise<void>
+  /** "Rodar agora": a run with the bot's job as the task. */
+  runBotNow(botId: string): Promise<void>
+  /** Interrupts the bot's run (the conversation stays). */
+  stopBot(botId: string): Promise<void>
+  /** The next message starts a fresh conversation (a notice goes into the thread). */
+  newBotConversation(botId: string): Promise<void>
+  /** Model and effort from the thread header; apply from the next message. */
+  configureBot(botId: string, patch: { model?: string; effort?: Bot['effort'] }): Promise<Bot>
+  /** memoria.md of the bot ('' when empty). */
+  botMemory(botId: string): Promise<string>
+  /** Saves memoria.md (cut at BOT_LIMITS.memoryBytes). */
+  saveBotMemory(botId: string, text: string): Promise<void>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

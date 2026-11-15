@@ -155,6 +155,21 @@ const api: OfficeAPI = {
   petInteractive: (on) => ipcRenderer.send('office:petInteractive', on === true),
   petFocus: () => ipcRenderer.send('office:petFocus'),
   petGeometry: () => ipcRenderer.invoke('office:petGeometry'),
+  listBots: () => ipcRenderer.invoke('office:listBots'),
+  saveBot: (draft) => ipcRenderer.invoke('office:saveBot', draft),
+  deleteBot: (id) => ipcRenderer.invoke('office:deleteBot', id),
+  duplicateBot: (id) => ipcRenderer.invoke('office:duplicateBot', id),
+  setBotFlags: (id, patch) => ipcRenderer.invoke('office:setBotFlags', id, patch),
+  markBotRead: (threadId, at) => ipcRenderer.invoke('office:markBotRead', threadId, at),
+  botThread: (threadId, opts) => ipcRenderer.invoke('office:botThread', threadId, opts ?? {}),
+  searchBots: (query, floor) => ipcRenderer.invoke('office:searchBots', query, floor),
+  sendToBot: (botId, text, attachments) => ipcRenderer.invoke('office:sendToBot', botId, text, attachments ?? []),
+  runBotNow: (botId) => ipcRenderer.invoke('office:runBotNow', botId),
+  stopBot: (botId) => ipcRenderer.invoke('office:stopBot', botId),
+  newBotConversation: (botId) => ipcRenderer.invoke('office:newBotConversation', botId),
+  configureBot: (botId, patch) => ipcRenderer.invoke('office:configureBot', botId, patch),
+  botMemory: (botId) => ipcRenderer.invoke('office:botMemory', botId),
+  saveBotMemory: (botId, text) => ipcRenderer.invoke('office:saveBotMemory', botId, text),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)
