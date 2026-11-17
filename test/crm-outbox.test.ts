@@ -58,7 +58,8 @@ class FakeLog implements ConversationLog {
   }
 }
 
-type Step = Error | 'hang'
+/** 'sent-then-timeout': the server sends it, then the answer is lost (the double-send case). */
+type Step = Error | 'hang' | 'sent-then-timeout'
 
 class FakeSender implements EvolutionSender {
   calls: { number: string; text: string; at: number }[] = []
@@ -76,7 +77,10 @@ class FakeSender implements EvolutionSender {
       this.onSend?.()
       const step = this.plan.shift()
       if (step === 'hang') await new Promise(() => undefined)
-      else if (step) throw step
+      else if (step === 'sent-then-timeout') {
+        this.sent.push({ number, text, at: Date.now() })
+        throw new EvolutionError('A Evolution não respondeu a tempo.', 'timeout')
+      } else if (step) throw step
       await new Promise((r) => setTimeout(r, 200))
       this.sent.push({ number, text, at: Date.now() })
       return { waId: `wa-${this.sent.length}` }
@@ -89,6 +93,14 @@ class FakeSender implements EvolutionSender {
   }
   async presence(number: string, ms: number): Promise<void> {
     this.presences.push({ number, ms, at: Date.now() })
+  }
+  finds: { number: string; text: string; since: number }[] = []
+  findError?: Error
+  async findSent(number: string, text: string, since: number): Promise<{ waId: string } | null> {
+    this.finds.push({ number, text, since })
+    if (this.findError) throw this.findError
+    const i = this.sent.findIndex((x) => x.number === number && x.text === text && x.at >= since)
+    return i >= 0 ? { waId: `wa-${i + 1}` } : null
   }
 }
 
@@ -465,6 +477,49 @@ describe('Outbox: falha no meio não duplica', () => {
     expect(only()).toMatchObject({ state: 'sent', attempts: 3, waId: 'wa-1' })
     expect(only()).not.toHaveProperty('error')
     expect(lines().filter((e) => e.outcome === 'sent')).toHaveLength(1)
+  })
+
+  it('tempo esgotado depois de o servidor mandar: confere e não manda de novo', async () => {
+    sender.plan = ['sent-then-timeout']
+    outbox.start()
+    outbox.enqueue(draft(), { run: run() })
+    await vi.advanceTimersByTimeAsync(MIN)
+    expect(sender.calls).toHaveLength(1)
+    expect(sender.sent).toHaveLength(1)
+    expect(sender.finds).toHaveLength(1)
+    expect(only()).toMatchObject({ state: 'sent', attempts: 1, waId: 'wa-1' })
+    expect(lines().filter((e) => e.outcome === 'sent')).toHaveLength(1)
+  })
+
+  it('tempo esgotado na última tentativa: confere antes de dar como falha', async () => {
+    sender.plan = [net(), net(), 'sent-then-timeout']
+    outbox.start()
+    outbox.enqueue(draft(), { run: run() })
+    await vi.advanceTimersByTimeAsync(MIN)
+    expect(sender.calls).toHaveLength(3)
+    expect(sender.sent).toHaveLength(1)
+    expect(only()).toMatchObject({ state: 'sent', attempts: 3 })
+  })
+
+  it('sem como conferir se saiu: para e devolve o rascunho, nunca manda às cegas', async () => {
+    sender.plan = [new EvolutionError('Tempo esgotado.', 'timeout')]
+    sender.findError = new EvolutionError('A Evolution não respondeu.', 'network')
+    outbox.start()
+    const d = outbox.enqueue(draft(), { run: run() })
+    await vi.advanceTimersByTimeAsync(MIN)
+    expect(sender.calls).toHaveLength(1)
+    expect(only()).toMatchObject({ state: 'failed', attempts: 1 })
+    expect(log.draft(maria.id, d.id)?.decision?.reason).toContain('Confira no celular')
+  })
+
+  it('conexão recusada: nada chegou ao servidor, repete sem conferir', async () => {
+    sender.plan = [new EvolutionError('Servidor desligado.', 'refused'), new EvolutionError('Servidor desligado.', 'refused')]
+    outbox.start()
+    outbox.enqueue(draft(), { run: run() })
+    await vi.advanceTimersByTimeAsync(MIN)
+    expect(sender.calls).toHaveLength(3)
+    expect(sender.finds).toEqual([])
+    expect(only()).toMatchObject({ state: 'sent', attempts: 3 })
   })
 
   it('erro 4xx não repete: falhou, o rascunho espera você com o motivo', async () => {

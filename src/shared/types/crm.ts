@@ -281,7 +281,7 @@ export type GateAction = 'send' | 'hold' | 'block' | 'schedule'
 
 export interface GateDecision {
   action: GateAction
-  /** The rule of the spec table that decided (1 to 14); 0 = it passed every rule. */
+  /** The rule of the spec table that decided (1 to 14); 0 = no gate rule: it passed every rule, or the queue stopped it (failed send, draft gone, app closed mid-send). */
   rule: number
   /** pt-BR, for the draft card: "Espera você: 2ª oferta em 30 dias". */
   reason: string
@@ -341,6 +341,8 @@ export type ConversationItem =
       status: DeliveryStatus
       waId?: string
       draftId?: string
+      /** The inbound message it answered: an answer is not a contact we started (gate rules 10 and 11). */
+      replyTo?: string
       /** One per send, so a retry never sends twice. */
       key?: string
     }

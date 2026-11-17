@@ -470,16 +470,22 @@ export class Outbox {
       }
       // On disk before the call: an app closed from here on loads it as failed, never sends it twice.
       item = this.put({ ...item, state: 'sending', attempts: item.attempts + 1 }, true)
-      let reply: { waId: string }
+      const tried = this.now()
+      let reply: { waId: string } | null | undefined
       try {
         reply = await sender.sendText(number, item.text)
       } catch (err) {
         const e = err instanceof EvolutionError ? err : null
         if (e) error = e.message
         log.warn(`CRM: envio ${item.key} para ${maskPhone(number)} falhou (${e?.kind ?? 'erro'}; tentativa ${attempt} de ${MAX_ATTEMPTS})`)
-        if (!e?.retryable || attempt === MAX_ATTEMPTS) break
-        await sleep(RETRY_WAIT[attempt - 1])
-        continue
+        if (!e?.retryable) break
+        const last = attempt === MAX_ATTEMPTS
+        if (!last || e.maybeDelivered) await sleep(RETRY_WAIT[Math.min(attempt, RETRY_WAIT.length) - 1])
+        // A timeout or a 5xx may come after the server sent it: ask before sending again (or
+        // before calling the last one failed). No way to tell = stop and hand it to the player.
+        reply = e.maybeDelivered ? await this.alreadySent(number, item.text, tried) : null
+        if (reply === undefined || (!reply && last)) break
+        if (!reply) continue
       }
       // Outside the try: a disk error while saving "sent" is not a failed send to try again.
       this.sent(item, draft, reply.waId, number, attempt)
@@ -490,6 +496,21 @@ export class Outbox {
     this.saveDraft({ ...draft, status: 'held', decision: queueHold(`Não saiu: ${error} Confira no celular antes de mandar de novo.`) })
     this.record(draft, item.text, 'failed', 0, item.key)
     this.freeAt = this.now() + this.interval()
+  }
+
+  /**
+   * After an ambiguous failure: the server's copy of what we sent since `since` (a little before,
+   * for clock skew). null = it did not go out; undefined = no way to tell, so the queue stops.
+   */
+  private async alreadySent(number: string, text: string, since: number): Promise<{ waId: string } | null | undefined> {
+    try {
+      return await this.deps.sender.findSent(number, text, since - 60_000)
+    } catch (err) {
+      log.warn(
+        `CRM: não deu para conferir se o envio para ${maskPhone(number)} saiu (${err instanceof EvolutionError ? err.kind : 'erro'})`,
+      )
+      return undefined
+    }
   }
 
   /** It went out: the queue first (on disk), then the conversation, the draft, the audit and the customer. */
