@@ -61,6 +61,8 @@ export default defineConfig({
         'src/shared/bots.ts',
         'src/shared/bots-guard.ts',
         'src/main/bots/*.ts',
+        'src/shared/crm.ts',
+        'src/main/crm/*.ts',
       ],
       thresholds: { lines: 70 },
     },

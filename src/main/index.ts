@@ -10,7 +10,7 @@ import { badgePixels, encodePng } from './badge'
 import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
-import { prepareStress, startBotDemo, startDemo, startRoutineDemo, startStress } from './demo'
+import { prepareStress, startBotDemo, startCrmDemo, startDemo, startRoutineDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
 import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
@@ -59,6 +59,8 @@ import { ChannelService, runnerHost } from './bots/channels'
 import { makeRouter } from './bots/router'
 import { channelTools } from './bots/mcp-channels'
 import { registerBotChannelsIpc } from './ipc/bots-channels'
+import { CrmStore } from './crm/store'
+import { registerCrmIpc } from './ipc/crm'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -305,6 +307,8 @@ app.whenReady().then(async () => {
   // Chat dos bots: bots.json and each bot's folder (thread, memory).
   const botStore = new BotStore(app.getPath('userData'))
   const botTools = new BotTools(botStore)
+  // Sala de CRM: crm.json (customers, deals, payments, recurrences and the rules).
+  const crmStore = new CrmStore(app.getPath('userData'))
   // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
   meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
@@ -314,6 +318,7 @@ app.whenReady().then(async () => {
     routineStore.flush()
     meetingStore.flush()
     botStore.flush()
+    crmStore.flush()
   })
   manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore, botTools)
   const desk = new TicketDesk(board, manager, () => store.settings)
@@ -525,6 +530,7 @@ app.whenReady().then(async () => {
       routineStore.flush()
       meetingStore.flush()
       botStore.flush()
+      crmStore.flush()
     },
     broadcast,
   })
@@ -560,6 +566,7 @@ app.whenReady().then(async () => {
     routineStore.flush()
     meetingStore.flush()
     botStore.flush()
+    crmStore.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
@@ -575,6 +582,7 @@ app.whenReady().then(async () => {
       routineStore.lock()
       meetingStore.lock()
       botStore.lock()
+      crmStore.lock()
     },
   })
 
@@ -609,6 +617,7 @@ app.whenReady().then(async () => {
       routines.removeForBot(id)
       triggers.removeForBot(id)
     },
+    crmStore,
     broadcast,
     updateBadge,
     nameOf,
@@ -632,6 +641,8 @@ app.whenReady().then(async () => {
   registerCreativeLibraryIpc(ipc)
   registerMeetingsIpc(ipc)
   registerBotsIpc(ipc)
+  // Sala de CRM, phase 1: customers, deals, payments; the api also runs the recurrences once a day.
+  const crm = registerCrmIpc(ipc)
   registerBotAutomationsIpc({
     triggers,
     routines,
@@ -718,9 +729,14 @@ app.whenReady().then(async () => {
     startDemo(manager, squadDefs())
     startRoutineDemo(manager, routines)
     startBotDemo(manager, botStore, bots)
+    startCrmDemo(crmStore)
   }
   // After the demo is in place: what was due while the app was closed runs (or is skipped) now.
   routines.start()
+  // Recurrences make the payments already due: now, then on each new local day (checked hourly and on wake).
+  crm.tick()
+  setInterval(() => crm.tick(), 3_600_000).unref()
+  powerMonitor.on('resume', () => crm.tick())
   // Bot agents restored from office.json go back to their bots; idle ones leave after a while.
   bots.start()
   macJobs.start()
@@ -757,6 +773,7 @@ app.whenReady().then(async () => {
     routineStore.flush()
     meetingStore.flush()
     botStore.flush()
+    crmStore.flush()
   }
   app.on('before-quit', (e) => {
     // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.
