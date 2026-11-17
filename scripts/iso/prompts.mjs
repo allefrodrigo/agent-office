@@ -23,12 +23,18 @@ const ROUND = 'It is round or symmetric, seen from the isometric angle above.'
  */
 const job = (size, how, what) => ({ size, w: Math.max(10, Math.round((size[0] + size[1]) * 32)), prompt: `${what}\n${how}` })
 
-/** The ruler: drawn first, it rides along with every other drawing as the style reference. */
-export const RULER = 'desk'
+/**
+ * The ruler: drawn first, it rides along with every other drawing as the style reference. The
+ * executive desk, not the work desk: the work desk was redrawn in 0.4.0-beta.6 and still needs
+ * a reference from the first set.
+ */
+export const RULER = 'bossDesk'
 
 export const ISO_JOBS = {
   // ---------- desks and computers ----------
-desk: job([2, 1, 0.75], FRONT, 'An office work desk, two floor tiles long and one deep: a warm honey-oak wooden top, slim charcoal metal legs, a small two-drawer pedestal with charcoal handles under one end. The top is empty.'),
+desk: job([2, 1, 0.75], FRONT, 'A modern sit-stand office desk, two floor tiles long and one deep, the kind tech startups use: a smooth light honey-oak top with softly rounded corners, a black powder-coated steel frame with two slim telescopic legs on flat T-shaped feet joined by a thin crossbar, a black cable tray under the back edge. The top is empty.'),
+'desk-white': job([2, 1, 0.75], FRONT, 'A modern sit-stand office desk, two floor tiles long and one deep, the kind tech startups use: a smooth warm white top with softly rounded corners, a warm white powder-coated steel frame with two slim telescopic legs on flat T-shaped feet joined by a thin crossbar, a light-gray cable tray under the back edge. The top is empty.'),
+'desk-dark': job([2, 1, 0.75], FRONT, 'A modern sit-stand office desk, two floor tiles long and one deep, the kind tech startups use: a smooth dark walnut top with softly rounded corners, a black powder-coated steel frame with two slim telescopic legs on flat T-shaped feet joined by a thin crossbar, a black cable tray under the back edge. The top is empty.'),
 bossDesk: job([2.4, 1.1, 0.78], FRONT, 'A big executive desk, wider than a normal desk: dark walnut wood with a thin brass trim line, a solid front modesty panel, drawers on both sides. The top is empty.'),
   monitor: job(
     [0.6, 0.2, 0.55],
@@ -43,8 +49,10 @@ mug: job([0.1, 0.1, 0.12], FRONT, 'A plain coral-red coffee mug with a handle on
 paperStack: job([0.25, 0.3, 0.06], FRONT, 'A neat stack of white paper sheets, slightly uneven, a yellow sticky note on top.'),
 
   // ---------- chairs ----------
-officeChair: job([0.6, 0.6, 1], FRONT, 'A swivel office chair: a teal fabric seat and tall backrest, charcoal armrests, a gas lift post and a five-star charcoal base on small wheels.'),
-'officeChair-back': job([0.6, 0.6, 1], BACK, 'The same swivel office chair seen from BEHIND: the back of the teal backrest, charcoal armrests, the post and the five-star base on small wheels.'),
+officeChair: job([0.62, 0.62, 1.05], FRONT, 'A premium ergonomic mesh office task chair: a tall curved backrest of dark graphite mesh stretched on a slim black frame, a lumbar support pad across the lower back, a matching graphite mesh seat with a rounded waterfall front edge, height-adjustable black armrests with padded tops, a gas lift post and a polished aluminum five-star base on black casters.'),
+'officeChair-back': job([0.62, 0.62, 1.05], BACK, 'The same premium ergonomic mesh office task chair seen from BEHIND: the back of the tall curved dark graphite mesh backrest on its slim black frame, the lumbar support pad, the black armrests, the gas lift post and the polished aluminum five-star base on black casters.'),
+meetingChair: job([0.55, 0.55, 0.95], FRONT, 'A modern mid-back conference chair: a light-gray mesh backrest on a slim polished aluminum frame, a padded seat in warm gray fabric, slim polished aluminum armrests, one post on a polished aluminum four-star base on small glides (no wheels).'),
+'meetingChair-back': job([0.55, 0.55, 0.95], BACK, 'The same modern mid-back conference chair seen from BEHIND: the back of the light-gray mesh backrest on its slim polished aluminum frame, the armrests, the post and the polished aluminum four-star base.'),
 bossChair: job([0.7, 0.7, 1.2], FRONT, 'A big executive office chair: high padded backrest and seat in cognac-brown leather with tufted seams, charcoal armrests, a five-star chrome base on wheels.'),
 'bossChair-back': job([0.7, 0.7, 1.2], BACK, 'The same big cognac-brown leather executive chair seen from BEHIND: the tall padded back, armrests, the five-star chrome base on wheels.'),
 simpleChair: job([0.5, 0.5, 0.9], FRONT, 'A simple modern dining chair: honey-oak wooden legs and frame, a coral upholstered seat cushion and backrest panel.'),
@@ -90,7 +98,20 @@ clock: job([0.5, 0.05, 0.5], WALL, 'A round wall clock: warm white face, charcoa
   'carry-report': job([0.3, 0.05, 0.4], FRONT, 'A single sheet of white paper held upright like a finished report: a green header band at the top, a few gray text lines below, a small green check mark. Slightly curled corner.'),
   'carry-alert': job([0.3, 0.05, 0.4], FRONT, 'A single sheet of pale pink paper held upright like an urgent request: a coral-red header band at the top, a few gray text lines below, a small red exclamation mark.'),
 
+  // ---------- startup pieces (0.4.0-beta.6) ----------
+phoneBooth: job([1, 1, 2.1], FRONT, 'A one-person acoustic phone booth pod of a modern office, one floor tile wide and deep: a tall box with honey-oak wooden outer walls and a flat roof, the whole front is a glass door in a slim black frame with a long black bar handle; through the glass, charcoal felt acoustic walls inside, a small oak shelf-desk and a round stool, a warm little light on the ceiling.'),
+sectional: job([3, 1.8, 0.8], FRONT, 'A big L-shaped sectional sofa, three floor tiles long: plump terracotta-rust fabric seat and back cushions, a low backrest along its back, a chaise longue extending toward the front at its lower-left end, low rounded arms, small honey-oak wooden feet, two mustard-yellow throw pillows.'),
+bleachers: job([3, 2, 1.1], FRONT, 'Wooden amphitheater bleacher seating like tech startups have for all-hands talks, three floor tiles long and two deep: three broad steps rising from the front to the back, built from light honey-oak boards, loose square seat cushions in teal, mustard and coral on the steps, two small potted plants on the top step.'),
+communalTable: job([3, 1.6, 0.75], FRONT, 'A long communal dining table of a startup cafe, three floor tiles long: a thick solid light-oak top with rounded corners on black steel trestle legs, with two matching long light-oak benches, one along each long side, tucked a little under the top. The top is empty.'),
+kitchenIsland: job([3, 1, 0.95], FRONT, 'A kitchen island of an office cafe, three floor tiles long and one deep: warm white flat cabinet doors with slim charcoal handles, a thick light-gray stone countertop that overhangs the front side for bar stools, a small round steel sink with a tall tap near one end, a wooden bowl with oranges near the other.'),
+shelfDivider: job([2, 0.45, 1.5], FRONT, 'An open shelving unit used as a room divider in a modern office, two floor tiles long and open from both sides: a slim black metal frame with three light-oak shelves holding potted plants (one with pothos vines trailing down), a few books lying and standing, small ceramic vases in terracotta and white.'),
+greenWall: job([2, 0.12, 1.2], WALL, 'A living plant wall panel: a wide rectangle densely covered in moss and lush plants (ferns, pothos, small leafy plants) in many shades of green, a thin honey-oak wooden frame around it.'),
+credenza: job([2, 0.5, 0.65], FRONT, 'A low modern media sideboard, two floor tiles long: a dark walnut body, four doors with vertical light-oak slat fronts, slim black metal legs. The top is empty.'),
+mobileWhiteboard: job([1.3, 0.5, 1.8], FRONT, 'A mobile whiteboard on wheels: a white rectangular board in a slim black metal frame on two legs with caster wheels, a marker tray under the board; on the board, colorful marker sketches: boxes joined by arrows, a small bar chart and three sticky notes (yellow, pink, teal). No letters and no words anywhere.'),
+eggChair: job([1, 1, 1.9], FRONT, 'A hanging egg chair: a rounded egg-shaped seat woven from natural rattan wicker with a wide opening at its front, a plump cream cushion inside, hanging by a short chain from a tall curved black metal stand on a round black base.'),
+
   // ---------- plants ----------
+planter: job([2, 0.45, 0.85], FRONT, 'A long low planter box used as a room divider in a modern office, two floor tiles long and narrow: a honey-oak wooden trough on slim black metal legs, overflowing with lush green plants (upright snake plants, leafy ferns, trailing pothos vines over the front edge).'),
 'plant-tall': job([0.6, 0.6, 1.8], ROUND, 'A tall indoor plant in a round white ceramic pot: a fiddle-leaf fig with big glossy green leaves on a thin trunk.'),
 'plant-bush': job([0.8, 0.8, 1], ROUND, 'A bushy indoor plant in a round terracotta pot: a full rounded mass of small green leaves.'),
 'plant-fern': job([0.7, 0.7, 0.9], ROUND, 'A leafy fern in a round charcoal pot: long arching green fronds spilling outward.'),

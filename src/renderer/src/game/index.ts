@@ -5,6 +5,7 @@ import { PixelEngine } from '../pixel/engine'
 import { PixelPainter } from '../pixel/painter'
 import { figureOf } from '../pixel/people'
 import type * as THREE from 'three'
+import { behindWall } from '../world/layout'
 import { WindowSky } from '../world/textures'
 import { GameInput } from './input'
 import { LOUNGE_AFTER_MS, type GameHooks } from './types'
@@ -83,6 +84,17 @@ export class Game extends GameInput {
     for (const u of this.uppers) u.scene.setNight(on)
   }
 
+  /** 3D view: whoever stands behind a room wall shows through it (the 2D painter does its own). */
+  private updateXray(): void {
+    const view = this.player.floor
+    const walls = this.floorOf(view).walls
+    const check = (av: Avatar) => av.setXray(av.floor === view && behindWall(walls, av.position.x, av.position.z))
+    check(this.player)
+    for (const a of this.actors.values()) check(a.avatar)
+    for (const h of this.helpers.values()) check(h.avatar)
+    for (const m of this.members.values()) check(m.avatar)
+  }
+
   /** Moves everything by dt seconds; draws nothing (see draw). */
   update(dt: number): void {
     this.time += dt
@@ -102,6 +114,7 @@ export class Game extends GameInput {
     this.boardsIn -= dt
     if (this.boardsIn <= 0) this.syncBoards()
     this.showFloor()
+    if (!this.flat) this.updateXray()
     this.tickMeeting()
     this.updateSkull()
     this.updateRoutines(dt)

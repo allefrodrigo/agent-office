@@ -1,7 +1,9 @@
+import { botsOnFloor, sortBots } from '@shared/bots-view'
 import { describeSchedule, formatWhen, isPast, MIN_INTERVAL_MIN, nextRuns, scheduleError } from '@shared/schedule'
-import { ROUTINE_LIMITS } from '@shared/types'
+import { BOT_GROUND_FLOOR, ROUTINE_LIMITS } from '@shared/types'
 import type { OfficePermissionMode, ProjectFloor, Routine, RoutineDraft, RoutineWho, Schedule } from '@shared/types'
 import type { State } from '../../state'
+import { chatStore } from '../chat/store'
 import { h, icon } from '../dom'
 import { brainFields, meterField, MODES } from '../modals/brain'
 import { field, LAST_CWD } from '../modals/common'
@@ -51,8 +53,11 @@ const WEEK: [number, string][] = [
 const pad = (n: number) => String(n).padStart(2, '0')
 const localDate = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 
-/** The schedule part of the form: preset, its fields, and the preview below. */
-function scheduleFields(initial: Schedule | undefined): { el: HTMLElement; value(): Schedule; error(): string | null } {
+/**
+ * The schedule part of the form: preset, its fields, and the preview below (the sentence and
+ * the next 3 runs). The Chat's automation form uses it too.
+ */
+export function scheduleFields(initial: Schedule | undefined): { el: HTMLElement; value(): Schedule; error(): string | null } {
   const preset = h('select', { class: 'input', 'aria-label': 'Tipo de agenda' }, ...PRESETS.map((p) => h('option', { value: p.value }, p.label))) as HTMLSelectElement
   preset.value = initial?.kind ?? 'daily'
   const time = h('input', { class: 'input rt-time', type: 'time', value: '09:00', 'aria-label': 'Horário' }) as HTMLInputElement
@@ -170,6 +175,7 @@ export function routineEditor(
     h('option', { value: 'new' }, 'Um agente novo'),
     h('option', { value: 'template' }, 'Um modelo salvo'),
     h('option', { value: 'agent' }, 'Um agente do escritório'),
+    h('option', { value: 'bot' }, 'Um bot do Chat'),
   ) as HTMLSelectElement
   kind.value = who.kind
   const newName = h('input', { class: 'input', maxlength: 40, placeholder: 'Nome (opcional)', value: who.kind === 'new' ? (who.name ?? '') : '' }) as HTMLInputElement
@@ -188,6 +194,19 @@ export function routineEditor(
     ...(agents.length ? agents.map((a) => h('option', { value: a.id }, `${a.name} · …/${a.cwd.split(/[\\/]/).filter(Boolean).slice(-2).join('/')}`)) : [h('option', { value: '' }, 'Nenhum agente do escritório agora')]),
   ) as HTMLSelectElement
   if (who.kind === 'agent') agent.value = who.agentId
+  // a bot of the Chat: it runs with its own job, memory, floor and permissions
+  const bots = sortBots(botsOnFloor(chatStore.bots, 'all', true))
+  const botSel = h(
+    'select',
+    { class: 'input', 'aria-label': 'Bot' },
+    ...(bots.length
+      ? bots.map((b) => h('option', { value: b.id }, b.hidden ? `${b.name} (escondido)` : b.name))
+      : [h('option', { value: '' }, 'Nenhum bot ainda (crie no Chat, tecla C)')]),
+  ) as HTMLSelectElement
+  if (who.kind === 'bot') {
+    if (!bots.some((b) => b.id === who.botId)) botSel.append(h('option', { value: who.botId }, 'Bot apagado'))
+    botSel.value = who.botId
+  }
   const whoNew = h('div', { class: 'rt-col' }, newName, field('Modelo', brain.model, brain.hint), meterField('Esforço', brain.meter))
   const whoHint = h('span', { class: 'field-hint' })
 
@@ -224,13 +243,16 @@ export function routineEditor(
     whoNew.classList.toggle('hidden', k !== 'new')
     template.classList.toggle('hidden', k !== 'template')
     agent.classList.toggle('hidden', k !== 'agent')
-    whereField.classList.toggle('hidden', k === 'agent')
-    modeField.classList.toggle('hidden', k === 'agent')
+    botSel.classList.toggle('hidden', k !== 'bot')
+    whereField.classList.toggle('hidden', k === 'agent' || k === 'bot')
+    modeField.classList.toggle('hidden', k === 'agent' || k === 'bot')
     pathRow.classList.toggle('hidden', !!where.value)
     whoHint.textContent =
       k === 'agent'
         ? 'A tarefa chega na conversa atual dele, na pasta e com as permissões dele. Se estiver ocupado na hora, a execução é pulada.'
-        : 'Contratado na primeira execução e reaproveitado nas seguintes, cada vez com a conversa limpa. Se estiver ocupado na hora, a execução é pulada.'
+        : k === 'bot'
+          ? 'O bot roda no andar e com as permissões dele, com a memória e as últimas mensagens do fio. O resultado fica no Chat. Se estiver ocupado na hora, a execução é pulada.'
+          : 'Contratado na primeira execução e reaproveitado nas seguintes, cada vez com a conversa limpa. Se estiver ocupado na hora, a execução é pulada.'
     const m = MODES.find((x) => x.value === mode.value)!
     modeHint.textContent = m.hint
     modeHint.classList.toggle('rt-danger', m.value === 'bypassPermissions')
@@ -256,6 +278,21 @@ export function routineEditor(
   const draft = (): RoutineDraft => {
     const k = kind.value as RoutineWho['kind']
     const b = brain.value()
+    if (k === 'bot') {
+      // where and how come from the bot (it never runs in "Sem pedir nada")
+      const bot = chatStore.bot(botSel.value)
+      return {
+        ...(initial?.id ? { id: initial.id } : {}),
+        name: name.value,
+        prompt: prompt.value,
+        who: { kind: 'bot', botId: botSel.value },
+        ...(bot ? (bot.floor === BOT_GROUND_FLOOR ? (bot.cwd ? { cwd: bot.cwd } : {}) : { floor: bot.floor }) : {}),
+        permissionMode: bot?.permissionMode ?? 'default',
+        schedule: sched.value(),
+        enabled: enabled.checked,
+        missed: missedSkip.checked ? 'skip' : 'run',
+      }
+    }
     const w: RoutineWho =
       k === 'agent'
         ? { kind: 'agent', agentId: agent.value }
@@ -279,6 +316,7 @@ export function routineEditor(
   save.addEventListener('click', async () => {
     const err = sched.error()
     if (err) return opts.toast(err, 'err')
+    if (kind.value === 'bot' && !chatStore.bot(botSel.value)) return opts.toast('Escolha um bot do Chat. Para criar um, abra o Chat (tecla C) e use Novo bot.', 'err')
     const d = draft()
     if (d.permissionMode === 'bypassPermissions' && d.who.kind !== 'agent' && !(await opts.confirmBypass())) return
     save.setAttribute('disabled', '')
@@ -298,7 +336,7 @@ export function routineEditor(
     { class: 'rt-form' },
     field('Nome', name),
     field('Tarefa', prompt, 'Cada execução chega ao agente com um cabeçalho: a rotina e a data. O resultado vem até a sua sala.'),
-    field('Quem roda', h('div', { class: 'rt-col' }, kind, whoNew, template, agent), whoHint),
+    field('Quem roda', h('div', { class: 'rt-col' }, kind, whoNew, template, agent, botSel), whoHint),
     whereField,
     modeField,
     sched.el,

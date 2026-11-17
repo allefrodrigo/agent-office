@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { meetingClock } from '@shared/meeting-map'
 import * as F from './furniture'
 import { box, panel } from './kit'
-import type { MeetingRoom } from './layout'
+import { DOOR_H, WALL_FACE, type MeetingRoom } from './layout'
 import { animated } from './merge'
 import type { Grid } from './pathfinding'
 import { live, px } from './pixel-tag'
@@ -68,8 +68,8 @@ function drawText(c: CanvasRenderingContext2D, text: string, x: number, y: numbe
 }
 
 /**
- * The TV during a meeting: the timer on top (in 2D the corridor glass covers the TV's lower
- * half) and REC with a blinking dot below it (two bars while paused).
+ * The TV during a meeting: the timer on top and REC with a blinking dot below it (two bars
+ * while paused).
  */
 function timerPainter(state: () => MeetingRoomLive | null) {
   return (c: CanvasRenderingContext2D, t: number, w: number, h: number): void => {
@@ -97,7 +97,7 @@ function timerPainter(state: () => MeetingRoomLive | null) {
   }
 }
 
-/** The sign over the door, with a lamp on top: "Sala de reunião", or red "EM REUNIÃO" while live. */
+/** The sign on the lintel over the door, with a lamp on top: "Sala de reunião", or red "EM REUNIÃO" while live. */
 function liveSign(name: string, width = 2.2): { group: THREE.Group; set(on: boolean): void } {
   const g = animated(new THREE.Group())
   const c = document.createElement('canvas')
@@ -135,9 +135,9 @@ function liveSign(name: string, width = 2.2): { group: THREE.Group; set(on: bool
 
 /**
  * The Sala de reunião (RN-14), upstairs in a front room and downstairs at the lounge's end:
- * rug, sign over the door, a long table with six chairs, the wall TV (LoopScreen) left of
- * the door and the whiteboard right of it. During a meeting (RN-17) the sign lights up
- * "EM REUNIÃO" and the TV shows the timer.
+ * rug, sign over the door, a long table with six chairs, the wall TV (LoopScreen) over a
+ * sideboard left of the door, the whiteboard right of it, a living wall on the side. During a
+ * meeting (RN-17) the sign lights up "EM REUNIÃO" and the TV shows the timer.
  */
 export function meetingRoom(
   room: MeetingRoom,
@@ -150,21 +150,24 @@ export function meetingRoom(
   const [x0, z0, x1, z1] = room.rect
   const cx = (x0 + x1) / 2
   const { table } = room
-  place(F.rug(x1 - x0 - 1, z1 - z0 - 1, rugTexture(x1 - x0 - 1, z1 - z0 - 1, '#e9eef0', '#8aa1ab', accent)), cx, (z0 + z1) / 2)
+  // a rug just around the table and its chairs, on the room's carpet
+  place(F.rug(5, 5, rugTexture(5, 5, '#e9eef0', '#4f6d7a', accent)), table.x, table.z)
   // the table runs along z: built along x, turned a quarter
   place(F.meetingTable(table.d, table.w), table.x, table.z, Math.PI / 2)
-  for (const s of room.seats) {
-    const west = s.x < table.x
-    place(F.simpleChair(west ? '#4f6d7a' : accent), s.x, s.z, west ? Math.PI / 2 : -Math.PI / 2)
-  }
+  for (const s of room.seats) place(F.meetingChair(), s.x, s.z, s.x < table.x ? Math.PI / 2 : -Math.PI / 2)
   // corridor wall: TV left of the door, sign over it, whiteboard to the right
   const sign = liveSign(room.name)
-  place(sign.group, cx, z0 + 0.06, 0, 1.62)
+  place(sign.group, cx, z0 + WALL_FACE, 0, DOOR_H + 0.03)
   let state: MeetingRoomLive | null = null
   const tv = new LoopScreen(48, 26, timerPainter(() => state), 11)
   loops.push(tv)
-  place(F.tv(tv.texture), x0 + 1.5, z0 + 0.06, 0, 1.55)
-  place(F.whiteboard(1.6, 0.95), x1 - 1.5, z0 + 0.06, 0, 1.7)
+  place(F.tv(tv.texture), x0 + 1.5, z0 + WALL_FACE, 0, 1.55)
+  place(F.credenza(2), x0 + 1.5, z0 + 0.38)
+  place(F.plant('flower', '#f5f3ee'), x0 + 2.1, z0 + 0.38, 0, 0.64)
+  // a living wall on the side, the outer wall's face or a room wall's
+  place(F.greenWall(2, 1.1), x0 === 0 ? 0.04 : x0 + WALL_FACE, table.z, Math.PI / 2, 2.1)
+  place(F.credenza(2), x0 + 0.3, table.z - 0.5, Math.PI / 2)
+  place(F.whiteboard(1.6, 0.95), x1 - 1.5, z0 + WALL_FACE, 0, 1.7)
   place(F.plant('tall'), x1 - 0.5, z1 - 0.5)
   place(F.plant('fern'), x0 + 0.5, z1 - 0.5)
   // the table and the plants take the tiles the plan says (tested in test/layout.test.ts)

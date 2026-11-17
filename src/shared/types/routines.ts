@@ -25,6 +25,8 @@ export type RoutineWho =
   | { kind: 'new'; name?: string; model?: string; effort?: EffortLevel }
   | { kind: 'template'; templateId: string }
   | { kind: 'agent'; agentId: string }
+  /** Chat dos bots (CB-12): the bot runs it, with a fresh conversation and its thread's recent context. */
+  | { kind: 'bot'; botId: string }
 
 /** rodando, esperando você, rodou, falhou, perdida (app fechado), pulada (ainda rodando ou agente ocupado). */
 export type RoutineRunStatus = 'running' | 'waiting' | 'ok' | 'failed' | 'missed' | 'skipped'

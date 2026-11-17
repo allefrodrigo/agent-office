@@ -6,22 +6,17 @@ import { glow } from './night'
 import { LoopScreen } from './screens'
 import { px } from './pixel-tag'
 
-// A desk with someone's setup on it. Each desk number gets its own: one monitor,
-// two, an ultrawide, a laptop beside a monitor, or a monitor turned on its side,
-// on white, wood or dark desks. Centered on the desk, front (+z) toward the chair.
+// A sit-stand desk with someone's setup on it and an ergonomic chair. Each desk number gets its
+// own setup: one monitor, two, an ultrawide, a laptop beside a monitor, or a monitor turned on
+// its side. The finish (oak, white, walnut) comes from the bench the desk belongs to, so a bench
+// reads as one piece. Centered on the desk, front (+z) toward the chair.
 
 const DARK = '#2b2d3a'
 const TOP = 0.76
 
 type Setup = 'single' | 'dual' | 'ultrawide' | 'laptop' | 'portrait'
 const SETUPS: Setup[] = ['dual', 'single', 'ultrawide', 'laptop', 'portrait', 'dual', 'single', 'laptop', 'ultrawide', 'portrait']
-const DESK_TOPS: [string, string][] = [
-  ['#f3efe6', '#4b4f63'],
-  ['#c8925e', '#5c3d28'],
-  ['#3a3d4d', '#24262f'],
-]
 const MATS = ['#3d4a6b', '#2f8f83', '#6c5ce7', '#d35454', '#2d3436']
-const CHAIRS = ['#3d4a6b', '#d35454', '#2f8f83', '#6c5ce7', '#e1873b']
 const CODE = ['#82aaff', '#c792ea', '#c3e88d', '#ffcb6b', '#89ddff', '#f78c6c']
 
 /** Scrolling code for the second screens, a different speed per desk. */
@@ -59,10 +54,10 @@ export interface Workstation {
 }
 
 /**
- * Desk number `index` with its setup. `screen` is the agent's own screen (what it is
+ * Desk number `index` with its setup, in `finish`. `screen` is the agent's own screen (what it is
  * doing) and `led` the totem's light; the extra screens only scroll code.
  */
-export function workstation(index: number, screen: THREE.Texture, led: THREE.Material): Workstation {
+export function workstation(index: number, screen: THREE.Texture, led: THREE.Material, finish: F.DeskFinish = 'oak'): Workstation {
   const g = new THREE.Group()
   const loops: LoopScreen[] = []
   const second = () => {
@@ -70,8 +65,7 @@ export function workstation(index: number, screen: THREE.Texture, led: THREE.Mat
     loops.push(l)
     return l.texture
   }
-  const [top, legs] = DESK_TOPS[index % DESK_TOPS.length]
-  g.add(F.desk(2, top, legs))
+  g.add(F.desk(2, finish))
   const setup = SETUPS[index % SETUPS.length]
 
   // mouse mat and keyboard in front of whatever screen is there
@@ -140,7 +134,7 @@ export function workstation(index: number, screen: THREE.Texture, led: THREE.Mat
   box(g, 0.05, 0.42, 0.05, DARK, 0.92, TOP, -0.4)
   animated(box(g, 0.11, 0.11, 0.11, led, 0.92, TOP + 0.42, -0.4, false))
 
-  const chair = F.officeChair(CHAIRS[index % CHAIRS.length])
+  const chair = F.officeChair()
   chair.position.set(0, 0, 0.9)
   chair.rotation.y = Math.PI
   g.add(chair)

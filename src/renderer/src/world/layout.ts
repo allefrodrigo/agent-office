@@ -5,6 +5,18 @@ export const W = 32
 export const H = 24
 export const WALL_H = 2.7
 
+/**
+ * Room walls (the Partitions): solid, a little lower than the outer walls so the rooms behind
+ * them still read, with a lintel over every door. Whoever walks behind one shows through it as
+ * a silhouette (pixel/painter.ts in 2D, Avatar.setXray in 3D).
+ */
+export const ROOM_WALL_H = 2.45
+export const ROOM_WALL_T = 0.2
+/** Top of a door opening: the lintel runs from here to the wall's top; room signs hang on it. */
+export const DOOR_H = 1.98
+/** Distance from a room wall's line to its face: whatever hangs on the wall goes there. */
+export const WALL_FACE = ROOM_WALL_T / 2 + 0.03
+
 export type FloorStyle = 'hall' | 'boss' | 'team' | 'lounge' | 'cafe' | 'meeting'
 
 export interface Zone {
@@ -26,7 +38,7 @@ export const ZONES: Zone[] = [
   { id: 'meeting', label: MEETING_ROOM, rect: GROUND_MEETING_RECT },
 ]
 
-/** Glass partition along a tile edge. axis 'x' = line x = at, spanning z in [from, to). */
+/** A room wall along a tile edge, solid, doors open. axis 'x' = line x = at, spanning z in [from, to). */
 export interface Partition {
   axis: 'x' | 'z'
   at: number
@@ -38,11 +50,34 @@ export interface Partition {
 export const PARTITIONS: Partition[] = [
   { axis: 'x', at: BOSS_RECT[2], from: 0, to: BOSS_RECT[3], doors: [5, 6] },
   { axis: 'z', at: BOSS_RECT[3], from: 0, to: BOSS_RECT[2], doors: [] },
-  // glass around the meeting room: the door on the corridor, a wall on the lounge side
+  // walls around the meeting room: the door on the corridor, a wall on the lounge side
   ...meetingPartitions(GROUND_MEETING_RECT),
 ]
 
-/** Glass of a meeting room: corridor side (z0) with a door in the middle, and the open side (x0, or x1 against the side wall). */
+/**
+ * Is someone at (x, z) hidden, at least in part, by a room wall in front of them? Looks from
+ * each of `heights` toward the isometric camera (45° around, 30° up: the line of sight rises
+ * 0.816 per tile it crosses toward +x or +z) and asks whether it meets a wall tile, or a lintel,
+ * below the wall's top. The 3D view turns its through-wall silhouette on with it.
+ */
+export function behindWall(walls: Partition[], x: number, z: number, heights: number[] = [0.3, 0.8, 1.3]): boolean {
+  const RISE = 0.816
+  for (const p of walls) {
+    const ahead = p.axis === 'z' ? p.at - z : p.at - x
+    if (ahead <= 0 || ahead * RISE >= ROOM_WALL_H) continue
+    const along = p.axis === 'z' ? x + ahead : z + ahead
+    const tile = Math.floor(along)
+    if (tile < p.from || tile >= p.to) continue
+    const door = p.doors.includes(tile)
+    for (const h of heights) {
+      const y = h + ahead * RISE
+      if (y < ROOM_WALL_H && (!door || y >= DOOR_H)) return true
+    }
+  }
+  return false
+}
+
+/** Walls of a meeting room: corridor side (z0) with a door in the middle, and the open side (x0, or x1 against the side wall). */
 function meetingPartitions([x0, z0, x1, z1]: [number, number, number, number]): Partition[] {
   const mid = Math.floor((x0 + x1) / 2)
   return [
@@ -50,6 +85,9 @@ function meetingPartitions([x0, z0, x1, z1]: [number, number, number, number]): 
     { axis: 'x', at: x0 === 0 ? x1 : x0, from: z0, to: z1, doors: [] },
   ]
 }
+
+/** Left end of the ground floor's desk benches. */
+export const BENCH_X = 12
 
 export interface DeskSlot {
   index: number
@@ -61,12 +99,17 @@ export interface DeskSlot {
   approach: [number, number]
 }
 
+/**
+ * The ground floor's team: two benches of five desks side by side, like a startup's open plan,
+ * with a planter behind each (world/office.ts). The front bench comes first, so the first agents
+ * sit nearest the corridor.
+ */
 export const DESKS: DeskSlot[] = (() => {
   const out: DeskSlot[] = []
   let index = 0
-  for (const z of [2, 7]) {
+  for (const z of [6, 2]) {
     for (let k = 0; k < 5; k++) {
-      const x = 12 + k * 3
+      const x = BENCH_X + k * 2
       out.push({ index: index++, x, z, seat: { x: x + 1, z: z + 1.45 }, approach: [x, z + 1] })
     }
   }
@@ -100,21 +143,23 @@ export interface HangSpot {
   kind: 'sit' | 'stand' | 'play'
 }
 
-// Lounge furniture centers, shared with office.ts.
+// Lounge furniture centers, shared with office.ts. Three areas left to right: a living room
+// around the sectional, the games with oak bleachers facing the ping-pong table, and the café
+// (terrazzo floor) with its island and a long communal table.
 export const LOUNGE = {
-  sofaA: { x: 14.5, z: 16.45 },
-  tableA: { x: 14.5, z: 18.5 },
-  armchairs: [
-    { x: 12.45, z: 18.5 },
-    { x: 16.55, z: 18.5 },
+  /** The L-shaped sectional (3 x 1.8), facing the camera, its chaise at the right end. */
+  sofaA: { x: 14.5, z: 16.5 },
+  tableA: { x: 14, z: 18.5 },
+  armchairs: [{ x: 12.45, z: 18.5 }],
+  /** Bean bags facing Claude FM (the monitor on the left), in front of the living room. */
+  tvBags: [
+    { x: 13.8, z: 20.9, color: '#a29bfe' },
+    { x: 14, z: 22.3, color: '#55efc4' },
+    { x: 15.2, z: 21.6, color: '#ff7675' },
   ],
   foosball: { x: 21, z: 17.5 },
-  circle: { x: 20.5, z: 21.5 },
-  circleBags: [
-    { x: 19.4, z: 21.5, color: '#a29bfe' },
-    { x: 21.6, z: 21.5, color: '#ff7675' },
-    { x: 20.5, z: 22.6, color: '#55efc4' },
-  ],
+  /** Oak bleachers (3 long along z, 2 deep), their steps facing the ping-pong table. */
+  bleachers: { x: 19.5, z: 21.5 },
   /** Two arcades by the corridor, between the games and the café corner. */
   arcades: [
     { x: 22.5, z: 15.5 },
@@ -122,16 +167,17 @@ export const LOUNGE = {
   ],
   /** Ping-pong table along z, its net across x. */
   pingPong: { x: 22.5, z: 20 },
-  /** The café corner at the lounge's right end: counter on the corridor side facing the room. */
+  /** The café at the lounge's right end: counter on the corridor side, an island, a communal table. */
   cafe: {
+    rect: [25, 15, 32, 24] as [number, number, number, number],
     counter: { x: 28, z: 15.35, w: 4 },
     fridge: { x: 30.5, z: 15.4 },
-    bar: { x: 26.5, z: 19.5 },
-    table: { x: 29.5, z: 20.5 },
+    island: { x: 28, z: 18.5 },
+    table: { x: 28, z: 21.5 },
   },
 }
 
-const sofaSeat = (x: number, z: number): HangSpot => ({ x, z, look: [x, z + 2], approach: [Math.floor(x), Math.floor(z) + 1], kind: 'sit' })
+const sofaSeat = (x: number, z: number, approach: [number, number]): HangSpot => ({ x, z, look: [x, z + 2], approach, kind: 'sit' })
 const around = (p: { x: number; z: number }, c: { x: number; z: number }, approach: [number, number]): HangSpot => ({
   x: p.x,
   z: p.z,
@@ -139,10 +185,12 @@ const around = (p: { x: number; z: number }, c: { x: number; z: number }, approa
   approach,
   kind: 'sit',
 })
+/** A step of the bleachers, looking at the ping-pong table. */
+const bleacher = (z: number): HangSpot => ({ x: 20.2, z, look: [22.5, 20.5], approach: [21, Math.floor(z)], kind: 'sit' })
 
 /** Ordered so even a few idle agents spread across the lounge. */
 export const LOUNGE_SEATS: HangSpot[] = [
-  sofaSeat(14.5, 16.45),
+  sofaSeat(14.5, 16.15, [14, 17]),
   { x: 21, z: 16.55, look: [21, 17.5], approach: [21, 16], kind: 'play' },
   { x: 21, z: 18.45, look: [21, 17.5], approach: [21, 18], kind: 'play' },
   { x: 22.5, z: 18.3, look: [22.5, 20], approach: [22, 18], kind: 'play' },
@@ -150,17 +198,24 @@ export const LOUNGE_SEATS: HangSpot[] = [
   // a coffee at the café counter
   { x: 26.6, z: 16.5, look: [26.6, 15.4], approach: [26, 16], kind: 'stand' },
   around(LOUNGE.armchairs[0], LOUNGE.tableA, [12, 19]),
-  around(LOUNGE.circleBags[0], LOUNGE.circle, [19, 20]),
-  sofaSeat(13.5, 16.45),
+  bleacher(21.5),
+  sofaSeat(13.5, 16.15, [13, 17]),
   { x: 22.5, z: 21.7, look: [22.5, 20], approach: [22, 21], kind: 'play' },
-  around(LOUNGE.armchairs[1], LOUNGE.tableA, [16, 19]),
-  around(LOUNGE.circleBags[1], LOUNGE.circle, [21, 20]),
-  sofaSeat(15.5, 16.45),
+  // the communal table's far bench, facing the camera
+  { x: 27.2, z: 20.85, look: [27.2, 21.5], approach: [27, 19], kind: 'sit' },
+  bleacher(20.5),
+  sofaSeat(15.5, 16.3, [16, 17]),
   { x: 23.5, z: 16.45, look: [23.5, 15.5], approach: [23, 16], kind: 'play' },
-  around(LOUNGE.circleBags[2], LOUNGE.circle, [20, 23]),
-  { x: 18.5, z: 19.5, look: [17.5, 19.5], approach: [18, 19], kind: 'stand' },
+  { x: 28.8, z: 20.85, look: [28.8, 21.5], approach: [28, 19], kind: 'sit' },
+  // a chat over the island, mug in hand
+  { x: 27.6, z: 17.4, look: [27.6, 18.5], approach: [27, 17], kind: 'stand' },
   { x: 28.5, z: 16.5, look: [28.5, 15.4], approach: [28, 16], kind: 'stand' },
-  { x: 26.5, z: 20.5, look: [26.5, 19.5], approach: [26, 20], kind: 'stand' },
+  bleacher(22.5),
+  { ...LOUNGE.tvBags[0], look: [11.4, 21], approach: [13, 19], kind: 'sit' },
+  { x: 27.5, z: 22.15, look: [27.5, 21.5], approach: [27, 23], kind: 'sit' },
+  { x: 28.6, z: 17.4, look: [28.6, 18.5], approach: [28, 17], kind: 'stand' },
+  { ...LOUNGE.tvBags[2], look: [11.4, 21], approach: [16, 21], kind: 'sit' },
+  { ...LOUNGE.tvBags[1], look: [11.4, 21], approach: [14, 23], kind: 'sit' },
 ]
 
 /**
@@ -174,7 +229,7 @@ export interface MeetingRoom extends SectorRoom {
   seats: HangSpot[]
   /** World point over the door where the room's tag goes (RN-15). */
   anchor: [number, number, number]
-  /** Tiles the furniture takes: the table and the two plants in the far corners. */
+  /** Tiles the furniture takes: the table, the sideboard under the TV and the two plants in the far corners. */
   blocked: [number, number][]
 }
 
@@ -196,10 +251,17 @@ export function meetingRoomPlan(rect: Rect): MeetingRoom {
   const blocked: [number, number][] = [
     [x0, z1 - 1],
     [x1 - 1, z1 - 1],
+    // the sideboard under the TV, left of the door, and the one under the living wall
+    [x0, z0],
+    [x0 + 1, z0],
+    [x0 + 2, z0],
+    [x0, tz - 1.5],
+    [x0, tz - 0.5],
   ]
   for (let x = Math.floor(table.x - table.w / 2); x < Math.ceil(table.x + table.w / 2); x++)
     for (let z = Math.floor(table.z - table.d / 2); z < Math.ceil(table.z + table.d / 2); z++) blocked.push([x, z])
-  return { name: MEETING_ROOM, rect, top: false, desks: [], stand: [], members: [], table, seats, anchor: [cx, 2.1, z0 + 0.3], blocked }
+  // the tag floats over the wall above the door, clear of the sign and its lamp
+  return { name: MEETING_ROOM, rect, top: false, desks: [], stand: [], members: [], table, seats, anchor: [cx, ROOM_WALL_H + 0.35, z0 + 0.3], blocked }
 }
 
 /** The ground floor's meeting room, in the front-left corner. */
@@ -290,25 +352,30 @@ export interface ProjectPlan {
 /** Squad members share one floor: `squad/member` ids keep two squads with the same member id apart. */
 export const memberKey = (squad: string, member: string) => `${squad}/${member}`
 
-/** Desks of a room, rows nearest the door first so a lone agent doesn't walk to the far wall. */
+/**
+ * Desks of a room as benches: desks side by side in rows, every agent facing the back wall (its
+ * screen toward the camera). Back rooms (11 x 10) take two benches of three by the windows and
+ * keep the front, behind the corridor wall, for walking; front rooms (8 x 11) take three
+ * benches of two on the left and keep the right, behind the next room's wall, as the aisle.
+ * Rows nearest the door first, so a lone agent doesn't walk to the far wall. `stand`: free tiles
+ * behind the benches where members wait when every desk is taken.
+ */
 function roomDesks(rect: Rect, top: boolean, count: number, first: number): { desks: DeskSlot[]; stand: [number, number][] } {
   const [x0, z0, x1] = rect
-  const rows = top ? [z0 + 7, z0 + 4, z0 + 1] : [z0 + 2, z0 + 5, z0 + 8]
-  // two-tile desks every four tiles, as many as the room is wide, centered
-  const n = Math.floor((x1 - x0 - 4) / 4) + 1
-  const left = x0 + Math.floor((x1 - x0 - (n * 4 - 2)) / 2)
-  const cols = Array.from({ length: n }, (_, i) => left + i * 4)
+  const rows = top ? [z0 + 4, z0 + 1] : [z0 + 2, z0 + 5, z0 + 8]
+  const perRow = top ? 3 : 2
+  const left = top ? x0 + Math.floor((x1 - x0 - perRow * 2) / 2) : x0 + 1
   const desks: DeskSlot[] = []
   for (const z of rows) {
-    for (const x of cols) {
+    for (let k = 0; k < perRow; k++) {
       if (desks.length >= Math.min(DESKS_PER_ROOM, count)) break
+      const x = left + k * 2
       desks.push({ index: first + desks.length, x, z, seat: { x: x + 1, z: z + 1.45 }, approach: [x, z + 1] })
     }
   }
+  // the walkway behind each bench's chairs
   const stand: [number, number][] = []
-  // the aisle between the first two desk columns
-  const aisle = cols[0] + 2
-  for (const z of rows) stand.push([aisle, z + 1], [aisle + 1, z + 1], [aisle, z], [aisle + 1, z])
+  for (const z of rows) for (let k = 0; k < perRow * 2; k++) stand.push([left + k, z + 2])
   return { desks, stand }
 }
 

@@ -211,9 +211,26 @@ export abstract class AgentSubagents extends AgentRotation {
   /** MCP servers turned off in Bastidores stay off for every new CLI. */
   protected applyMcpOff(agent: Agent): void {
     const q = agent.query
-    for (const name of this.store.settings.disabledMcp ?? []) {
+    const off = new Set(this.store.settings.disabledMcp ?? [])
+    for (const name of off) {
       if (name !== 'office') q?.toggleMcpServer(name, false).catch(() => undefined)
     }
+    // Chat dos bots: a bot sees only the connections ticked in its profile (appsHook denies the rest meanwhile).
+    const apps = agent.summary.bot ? this.botHooks?.apps(agent.summary) : 'all'
+    if (!q || !apps || apps === 'all') return
+    q.mcpServerStatus()
+      .then((list) => {
+        if (agent.query !== q) return
+        for (const s of list) if (!off.has(s.name) && !this.mcpAllowed(agent, s.name)) q.toggleMcpServer(s.name, false).catch(() => undefined)
+      })
+      .catch(() => undefined)
+  }
+
+  /** Whether this agent may see an MCP server: a bot only the ones ticked in its profile, the office's always. */
+  protected mcpAllowed(agent: Agent, name: string): boolean {
+    if (name === 'office' || !agent.summary.bot) return true
+    const apps = this.botHooks?.apps(agent.summary) ?? 'all'
+    return apps === 'all' || apps.includes(name)
   }
 
   protected clearSubagents(agent: Agent): void {

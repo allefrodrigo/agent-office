@@ -4,6 +4,7 @@ import type { VideoSettings } from '../video'
 import type { Account } from './accounts'
 import type { AgentTemplate, EffortLevel, Look, OfficePermissionMode } from './agents'
 import type { MeetingSettings } from './meetings'
+import type { ChatSettings } from './bots'
 
 export interface BridgeStatus {
   installed: boolean
@@ -56,6 +57,8 @@ export interface Settings {
   meetings: MeetingSettings
   /** Café corner (lounge): keep the screen awake. Missing = 'off'. */
   caffeine?: CaffeineMode
+  /** Configurações → Chat (bots). Missing = CHAT_DEFAULTS. */
+  chat?: ChatSettings
 }
 
 /** Café corner: never keep the screen on, only while agents work, or always. */

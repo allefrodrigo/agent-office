@@ -60,6 +60,9 @@ export class Avatar {
   private gemOn = false
   /** Effort aura, built on first use. */
   private aura: Aura | null = null
+  /** The silhouette meshes that show through walls (3D view), and whether they're on. */
+  private ghosts: THREE.Mesh[] = []
+  private xray = false
   private gemHex: string | null = null
   private effortLevel: EffortLevel | undefined
   private auraWorking = false
@@ -175,6 +178,39 @@ export class Avatar {
     this.body.traverse((o) => {
       o.userData.avatarId = this.id
     })
+    this.buildGhosts(L.shirt)
+  }
+
+  /**
+   * Seen through walls (3D view): every body mesh gets a twin in one flat color that draws only
+   * where something already stands in front of it (depth test inverted), drawn after the floor's
+   * furniture and walls and before the body itself, so the body never shades its own twin.
+   * The 2D view draws its own silhouette (pixel/people.ts).
+   */
+  private buildGhosts(shirt: string): void {
+    const fill = new THREE.MeshBasicMaterial({ color: shadeHex(shirt, 60), depthFunc: THREE.GreaterDepth, depthWrite: false, toneMapped: false })
+    const meshes: THREE.Mesh[] = []
+    this.body.traverse((o) => {
+      if ((o as THREE.Mesh).isMesh) meshes.push(o as THREE.Mesh)
+    })
+    this.ghosts = meshes.map((mesh) => {
+      mesh.renderOrder = 2
+      const ghost = new THREE.Mesh(mesh.geometry, fill)
+      ghost.renderOrder = 1
+      ghost.visible = this.xray
+      ghost.raycast = () => {}
+      ghost.userData.pxSkip = true
+      ghost.userData.avatarId = this.id
+      mesh.add(ghost)
+      return ghost
+    })
+  }
+
+  /** Shows the avatar through the walls in front of it (3D view); the game sets it every frame. */
+  setXray(on: boolean): void {
+    if (on === this.xray) return
+    this.xray = on
+    for (const g of this.ghosts) g.visible = on
   }
 
   private buildHair(L: Look): void {

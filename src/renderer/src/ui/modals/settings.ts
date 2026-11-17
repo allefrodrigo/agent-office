@@ -12,11 +12,12 @@ import { in2d, wardrobe } from '../wardrobe'
 import { DEFAULT_CONTEXT_WARN_TOKENS } from '@shared/economy'
 import { AUTOSTOP_MIN_RANGE, DEFAULT_MEETING_SETTINGS, LOW_MEMORY_GB, RETENTION_DAYS_RANGE } from '@shared/meetings'
 import type { MeetingSettings } from '@shared/types'
+import { BOT_LIMITS, CHAT_DEFAULTS, type ChatSettings } from '@shared/types'
 import { cleanError, field, modal } from './common'
 import { brainFields, meterField, MODES } from './brain'
 import { brandFields } from './brand'
 
-// Configurações: player, defaults, floors, accounts, data, video, meetings and the terminal bridge.
+// Configurações: player, defaults, floors, accounts, data, video, meetings, the Chat and the terminal bridge.
 
 /** `section: 'bridge'` opens scrolled to the terminal sessions box (the dock's gear does it when the bridge fails). */
 export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge'; tour?: () => void } = {}): void {
@@ -80,6 +81,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const updates = updateSettingsBox(root, s.updateChannel)
   const video = videoFields(state)
   const meetings = meetingFields(state, toast)
+  const chat = chatFields(state)
 
   const b = state.bridge
   const bridgeStatus = h(
@@ -136,8 +138,9 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
 
   const close = () => el.remove()
   const save = h('button', { class: 'btn btn-primary' }, icon('check', 16), 'Salvar')
-  save.addEventListener('click', async () => {
-    await window.office.saveSettings({
+  // A refused save (the main process says why) keeps the window open with what was typed.
+  const saveAll = () =>
+    window.office.saveSettings({
       playerName: name.value.trim() || 'Você',
       playerLook: closet ? closet.value() : look,
       pixelSize: Number(pixel.value),
@@ -156,9 +159,16 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       updateChannel: updates.value(),
       video: video.value(),
       meetings: meetings.value(),
+      chat: chat.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
-    close()
+  save.addEventListener('click', async () => {
+    try {
+      await saveAll()
+      close()
+    } catch (err) {
+      toast(cleanError(err), 'err')
+    }
   })
 
   const el = modal(
@@ -186,6 +196,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       h('label', { class: 'check' }, notify, 'Notificar quando um agente precisar de mim ou terminar'),
       video.el,
       meetings.el,
+      chat.el,
       h(
         'div',
         { class: 'bridge-box' },
@@ -467,6 +478,63 @@ function meetingFields(
     floorBox,
   )
   return { el, value, renderFloors }
+}
+
+/** Configurações → Chat: up to a day idle before a bot's agent leaves the office. */
+const IDLE_LEAVE_RANGE = { min: 0, max: 24 * 60 }
+const PER_HOUR_RANGE = { min: 1, max: BOT_LIMITS.perHourMax }
+
+/**
+ * Configurações → Chat (CB-11), in the mold of Reuniões: how a bot's result arrives, its
+ * notifications, the event cap, the channel router and when an idle bot's agent leaves.
+ * Missing settings start from CHAT_DEFAULTS; an emptied number keeps the saved value.
+ */
+function chatFields(state: State): { el: HTMLElement; value: () => ChatSettings } {
+  const c: ChatSettings = { ...CHAT_DEFAULTS, ...state.settings.chat }
+  const select = (options: [string, string][], current: string) => {
+    // a saved value the list does not know stays listed, so saving does not drop it
+    const all = options.some(([v]) => v === current) ? options : [...options, [current, current] as [string, string]]
+    const el = h('select', { class: 'input' }, ...all.map(([value, label]) => h('option', { value }, label))) as HTMLSelectElement
+    el.value = current
+    return el
+  }
+  const number = (value: number, range: { min: number; max: number }, step: number) =>
+    h('input', { class: 'input', type: 'number', min: range.min, max: range.max, step, value }) as HTMLInputElement
+
+  const deliver = h('input', { type: 'checkbox' }) as HTMLInputElement
+  deliver.checked = c.deliverInOffice
+  const notify = select([['all', 'Tudo: respostas, pedidos e falhas'], ['approvals', 'Pedidos e falhas (padrão)'], ['off', 'Nada']], c.notify)
+  const router = select([['haiku', 'Haiku (padrão, rápido)'], ['sonnet', 'Sonnet (escolhe melhor, custa mais)']], c.routerModel)
+  const perHour = number(c.maxEventRunsPerHour, PER_HOUR_RANGE, 1)
+  const idle = number(c.idleLeaveMin, IDLE_LEAVE_RANGE, 5)
+
+  const int = (input: HTMLInputElement, range: { min: number; max: number }, fallback: number) => {
+    const n = numberField(input.value)
+    return n === undefined ? fallback : Math.min(range.max, Math.max(range.min, Math.round(n)))
+  }
+  const value = (): ChatSettings => ({
+    deliverInOffice: deliver.checked,
+    notify: notify.value as ChatSettings['notify'],
+    maxEventRunsPerHour: int(perHour, PER_HOUR_RANGE, c.maxEventRunsPerHour),
+    routerModel: router.value,
+    idleLeaveMin: int(idle, IDLE_LEAVE_RANGE, c.idleLeaveMin),
+  })
+
+  const el = h(
+    'div',
+    { class: 'bridge-box' },
+    h('div', { class: 'bridge-title' }, icon('message', 16), 'Chat'),
+    h('div', { class: 'field-hint' }, 'Bots são agentes com emprego fixo: rodam no horário ou num evento e respondem no fio deles. C abre o Chat.'),
+    h('div', { class: 'field-row' }, field('Notificar no sistema', notify), field('Modelo do roteador dos canais', router, 'Escolhe quem responde num canal quando você não usa @menção.')),
+    h(
+      'div',
+      { class: 'field-row' },
+      field('Rodadas por hora em automações de evento', perHour, `Por automação. Segura um gatilho que dispara em laço. De ${PER_HOUR_RANGE.min} a ${PER_HOUR_RANGE.max}.`),
+      field('Agente do bot sai depois de parado por (minutos)', idle, 'A conversa fica salva e ele volta na próxima mensagem. 0 = nunca.'),
+    ),
+    h('label', { class: 'check' }, deliver, 'Entregar o resultado também no escritório: o agente do bot traz o relatório até você'),
+  )
+  return { el, value }
 }
 
 /** A number typed in a settings field, or undefined when the field is empty or not a number. */
