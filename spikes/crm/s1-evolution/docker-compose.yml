@@ -36,6 +36,13 @@ services:
       CACHE_LOCAL_ENABLED: "true"
       WEBSOCKET_ENABLED: ${WEBSOCKET_ENABLED:-false}
       WEBSOCKET_GLOBAL_EVENTS: "false"
+      # S-1 (ADR 0015): o WebSocket deixa entrar sem chave quem vem de um endereço desta lista
+      # (padrão: 127.0.0.1 e ::1, vistos de dentro do contêiner). Nenhum endereço real se chama
+      # "nenhum": todo cliente precisa do token.
+      WEBSOCKET_ALLOWED_HOSTS: nenhum
+      # S-1 (ADR 0015): por padrão cada evento leva o token da instância no campo apikey, e o
+      # token de uma instância entra no canal de qualquer outra. Desligado, o evento não leva token.
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
       WEBHOOK_GLOBAL_ENABLED: "false"
       DEL_INSTANCE: "false"
       CONFIG_SESSION_PHONE_CLIENT: Agent Office (teste)

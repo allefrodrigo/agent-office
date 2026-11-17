@@ -332,7 +332,8 @@ export function sanitizeImportedCrm(data: unknown): unknown {
   if (!isObj(data)) return data
   const settings = isObj(data.settings) ? { ...data.settings, rehearsal: true } : { rehearsal: true }
   const real = (v: unknown) => (Array.isArray(v) ? v.filter((x) => !isObj(x) || x.demo !== true) : v)
-  return { ...data, customers: real(data.customers), deals: real(data.deals), payments: real(data.payments), recurrences: real(data.recurrences), settings }
+  // The queue of another machine never sends from this one (phase 2): it arrives empty.
+  return { ...data, customers: real(data.customers), deals: real(data.deals), payments: real(data.payments), recurrences: real(data.recurrences), outbox: [], settings }
 }
 
 /** The files an export (already checked by parseExport) puts in place. */

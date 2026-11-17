@@ -49,7 +49,7 @@ describe('CrmStore: criar e ler de volta', () => {
     const file = join(dir, 'crm.json')
     if (unix) expect(mode(file)).toBe(0o600)
     const raw = JSON.parse(readFileSync(file, 'utf8'))
-    expect(Object.keys(raw).sort()).toEqual(['customers', 'deals', 'payments', 'pipelines', 'recurrences', 'settings', 'suggestions'])
+    expect(Object.keys(raw).sort()).toEqual(['customers', 'deals', 'outbox', 'payments', 'pipelines', 'recurrences', 'settings', 'suggestions'])
     const again = open()
     expect(again.customers).toEqual([c])
     expect(again.deals).toEqual([d])
@@ -499,8 +499,9 @@ describe('settings.crm em office.json', () => {
 describe('importar dados de outra máquina', () => {
   it('crm.json chega com o modo ensaio ligado e sem itens de demonstração', () => {
     const data = { customers: [{ id: 'a' }, { id: 'b', demo: true }], deals: [], pipelines: [], payments: [], recurrences: [], suggestions: [], settings: { rehearsal: false, stopAll: false } }
-    const out = sanitizeImportedCrm(data) as typeof data
+    const out = sanitizeImportedCrm({ ...data, outbox: [{ key: 'k' }] }) as typeof data & { outbox: unknown[] }
     expect(out.settings).toEqual({ rehearsal: true, stopAll: false })
+    expect(out.outbox).toEqual([])
     expect(out.customers).toEqual([{ id: 'a' }])
     expect(sanitizeImportedCrm(null)).toBeNull()
     expect((sanitizeImportedCrm({ customers: [] }) as { settings: unknown }).settings).toEqual({ rehearsal: true })

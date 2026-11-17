@@ -1,5 +1,8 @@
 import { CRM_APP_DEFAULTS, CRM_LIMITS, type CrmAppSettings, type Pipeline, type PipelineStage, type StageKind } from '@shared/types'
 import type { State } from '../../state'
+import { connectBox } from '../crm/connect'
+import { serverBox } from '../crm/server'
+import type { Toast } from '../crm/util'
 import { h, icon } from '../dom'
 import { cleanError, field } from './common'
 
@@ -13,7 +16,7 @@ const KIND_LABEL: Record<StageKind, string> = { open: 'Em andamento', won: 'Ganh
  * office.json (settings.crm); the recurrence lead days and the pipeline live in crm.json, so
  * they load with crmList and save through their own calls after the main settings.
  */
-export function crmFields(state: State): { el: HTMLElement; value: () => CrmAppSettings; save: () => Promise<void> } {
+export function crmFields(state: State, toast: Toast): { el: HTMLElement; value: () => CrmAppSettings; save: () => Promise<void> } {
   const app: CrmAppSettings = { ...CRM_APP_DEFAULTS, ...state.settings.crm }
   const enabled = h('input', { type: 'checkbox' }) as HTMLInputElement
   enabled.checked = app.enabled
@@ -22,6 +25,21 @@ export function crmFields(state: State): { el: HTMLElement; value: () => CrmAppS
   const stagesBox = h('div', { class: 'floor-list' })
   const addStage = h('button', { class: 'btn', type: 'button' }, icon('plus', 15), 'Adicionar etapa')
   const status = h('div', { class: 'field-hint' })
+  // Fase 2: o WhatsApp. A caixa de conexão (CR-10) e a do servidor local (Docker ou Colima), que
+  // só lê o docker quando a parte do CRM está aberta.
+  let whatsapp: HTMLElement | null = null
+  const whatsappSlot = h('div', { class: 'crm-settings-whatsapp' })
+  const showWhatsapp = () => {
+    if (whatsapp) return
+    whatsapp = h(
+      'div',
+      { class: 'crm-settings-whatsapp' },
+      h('div', { class: 'field-label' }, 'WhatsApp'),
+      connectBox({ toast }).el,
+      serverBox({ toast }).el,
+    )
+    whatsappSlot.replaceWith(whatsapp)
+  }
   const details = h(
     'div',
     { class: 'crm-settings-details' },
@@ -30,6 +48,7 @@ export function crmFields(state: State): { el: HTMLElement; value: () => CrmAppS
     stagesBox,
     h('div', { class: 'bridge-row bridge-row-start' }, addStage),
     status,
+    whatsappSlot,
   )
 
   // What crm.json had when the window opened; null until crmList answers (or when it failed).
@@ -109,7 +128,10 @@ export function crmFields(state: State): { el: HTMLElement; value: () => CrmAppS
 
   const showDetails = () => {
     details.classList.toggle('hidden', !enabled.checked)
-    if (enabled.checked) void load()
+    if (enabled.checked) {
+      void load()
+      showWhatsapp()
+    }
   }
   enabled.addEventListener('change', showDetails)
   showDetails()
@@ -139,7 +161,7 @@ export function crmFields(state: State): { el: HTMLElement; value: () => CrmAppS
     h(
       'div',
       { class: 'field-hint' },
-      'Clientes, negócios e pagamentos do escritório. Os dados ficam em crm.json, nesta máquina, e entram nos backups. O WhatsApp e os bots de CRM chegam nas próximas versões.',
+      'Clientes, negócios, pagamentos e as conversas de WhatsApp do escritório. Os dados ficam em crm.json, nesta máquina, e entram nos backups. Os bots de CRM chegam nas próximas versões.',
     ),
     h('label', { class: 'check' }, enabled, 'CRM (prévia): mostrar o botão CRM e abrir a tela com V'),
     details,

@@ -228,7 +228,7 @@ async function boot(): Promise<void> {
     chatLaunch.setAttribute('aria-label', n ? `Chat dos bots, ${n} ${n === 1 ? 'mensagem não lida' : 'mensagens não lidas'}` : 'Chat dos bots')
   })
   // The CRM screen opens on openCrm (V, this button); the linked ticket opens on the board, under it.
-  mountCrm(ui, state, { toast, openTicket: (id) => board.open(id) })
+  mountCrm(ui, state, { toast, toastHost: (el) => hud.setToastHost(el), openTicket: (id) => board.open(id) })
   crmStore.on(() => {
     const n = crmOn() ? crmStore.waiting() : 0
     crmBadge.hidden = n === 0

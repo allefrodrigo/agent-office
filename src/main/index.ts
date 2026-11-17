@@ -61,6 +61,7 @@ import { channelTools } from './bots/mcp-channels'
 import { registerBotChannelsIpc } from './ipc/bots-channels'
 import { CrmStore } from './crm/store'
 import { registerCrmIpc } from './ipc/crm'
+import { registerCrmServerIpc } from './ipc/crm-server'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -643,6 +644,8 @@ app.whenReady().then(async () => {
   registerBotsIpc(ipc)
   // Sala de CRM, phase 1: customers, deals, payments; the api also runs the recurrences once a day.
   const crm = registerCrmIpc(ipc)
+  // Sala de CRM, phase 2: the local Evolution (Docker or Colima), turned on and off from the app.
+  registerCrmServerIpc(ipc, app.getPath('userData'))
   registerBotAutomationsIpc({
     triggers,
     routines,

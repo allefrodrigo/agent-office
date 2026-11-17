@@ -17,6 +17,7 @@ import {
   type CustomerSource,
   type Deal,
   type ImportChoice,
+  type OutboxItem,
   type Payment,
   type Pipeline,
   type PipelineStage,
@@ -57,6 +58,16 @@ export function privateError(message: string, kind: string): Error {
 }
 
 /** What a change saved, and what the 'crm' event carries. */
+/** What patchCustomer may set (phase 2). Missing keys keep the saved value. */
+export interface CustomerSystemPatch {
+  phoneChecked?: boolean
+  handedToPlayer?: boolean
+  phoneReplyAt?: number
+  lastContactAt?: number
+  /** Opt-out words or crm_optout: offers off, with the date. Never turns back on here. */
+  optOut?: true
+}
+
 export interface Saved<T> {
   item: T
   delta: CrmDelta
@@ -125,6 +136,9 @@ const storedCustomer = z.object({
   lastContactAt: optMs,
   nextStep: optText(CRM_LIMITS.nextStep),
   nextStepOn: optDay,
+  phoneChecked: z.boolean().optional().catch(undefined),
+  handedToPlayer: z.boolean().optional().catch(undefined),
+  phoneReplyAt: optMs,
   createdAt: ms.catch(0),
   updatedAt: ms.catch(0),
 })
@@ -200,6 +214,30 @@ const storedSuggestion = z.object({
   decidedAt: optMs,
 })
 
+const OUTBOX_KEY_RE = /^[\w-]{8,80}$/
+const storedOutbox = z.object({
+  key: z.string().regex(OUTBOX_KEY_RE),
+  draftId: id,
+  customerId: id,
+  category: z.enum(['service', 'billing', 'offer']),
+  text: z.string().min(1).max(CRM_LIMITS.messageText),
+  by: author,
+  replyTo: optText(120),
+  at: ms,
+  attempts: z.number().int().min(0).max(100).catch(0),
+  // A send cut in the middle (app closed while "sending") comes back as failed: never sent twice.
+  state: z
+    .enum(['queued', 'sending', 'sent', 'failed', 'canceled'])
+    .catch('failed')
+    .transform((st) => (st === 'sending' ? 'failed' : st)),
+  sentAt: optMs,
+  waId: optText(120),
+  approved: z.boolean().optional().catch(undefined),
+  override: z.boolean().optional().catch(undefined),
+  createdAt: ms.catch(0),
+  error: optText(300),
+})
+
 const storedPipeline = z
   .object({
     id,
@@ -247,8 +285,22 @@ export function loadCrmData(raw: Partial<Record<keyof CrmData, unknown>>): CrmDa
     payments: items<Payment>(raw.payments, storedPayment, CRM_LIMITS.payments).filter((p) => known.has(p.customerId)),
     recurrences: items<Recurrence>(raw.recurrences, storedRecurrence, CRM_LIMITS.recurrences).filter((r) => known.has(r.customerId)),
     suggestions: items<Suggestion>(raw.suggestions, storedSuggestion, CRM_LIMITS.suggestions),
+    outbox: loadOutbox(raw.outbox, known),
     settings: cleanCrmSettings(raw.settings, structuredClone(CRM_DEFAULTS)),
   }
+}
+
+/** The queue as it loads: checked items of known customers, one per key, the newest kept. */
+function loadOutbox(raw: unknown, known: Set<string>): OutboxItem[] {
+  const seen = new Set<string>()
+  const out: OutboxItem[] = []
+  for (const x of Array.isArray(raw) ? raw : []) {
+    const r = storedOutbox.safeParse(x)
+    if (!r.success || seen.has(r.data.key) || !known.has(r.data.customerId)) continue
+    seen.add(r.data.key)
+    out.push(r.data as OutboxItem)
+  }
+  return out.slice(-CRM_LIMITS.outbox)
 }
 
 /** The object without its undefined keys (and without demo: false). */
@@ -452,12 +504,90 @@ export class CrmStore {
       lastContactAt: field(d, 'lastContactAt', before?.lastContactAt),
       nextStep: field(d, 'nextStep', before?.nextStep),
       nextStepOn: field(d, 'nextStepOn', before?.nextStepOn),
+      // The WhatsApp check belongs to the first phone: a new first phone needs a new check.
+      phoneChecked: before?.phoneChecked && before.phones[0] === phones[0] ? true : undefined,
+      handedToPlayer: before?.handedToPlayer,
+      phoneReplyAt: before?.phoneReplyAt,
       createdAt: before?.createdAt ?? at,
       updatedAt: at,
       demo: before?.demo,
     })
     this.put('customers', c)
     return { item: c, delta: { customers: [c] } }
+  }
+
+  /**
+   * Phase 2: what the WhatsApp side sets on a customer, never from a form: the number was checked,
+   * "Passar para mim", the player answered from the phone, the last contact, and the opt-out
+   * (only on: clearing it is the player's, through saveCustomer with clearOptOut).
+   */
+  patchCustomer(customerId: string, patch: CustomerSystemPatch): Saved<Customer> {
+    const before = this.must('customers', customerId)
+    const at = this.now()
+    const consent = patch.optOut && !before.consent.optOutAt ? { ...before.consent, offers: false, optOutAt: at } : before.consent
+    const c = compact<Customer>({
+      ...before,
+      consent,
+      phoneChecked: field(patch, 'phoneChecked', before.phoneChecked) || undefined,
+      handedToPlayer: field(patch, 'handedToPlayer', before.handedToPlayer) || undefined,
+      phoneReplyAt: field(patch, 'phoneReplyAt', before.phoneReplyAt),
+      lastContactAt: Math.max(before.lastContactAt ?? 0, patch.lastContactAt ?? 0) || undefined,
+      updatedAt: at,
+    })
+    this.put('customers', c)
+    return { item: c, delta: { customers: [c] } }
+  }
+
+  /**
+   * Phase 2: a number nobody knows wrote on WhatsApp. It becomes "Novo contato" (or the profile
+   * name, cut to size), source whatsapp, number checked, no bot, and no consent for billing or
+   * offers: nothing was agreed yet. Returns the owner when the phone already has one.
+   */
+  contactFromWhatsapp(phone: string, profileName?: string): Saved<Customer> {
+    const owner = this.ownerOfPhone(phone)
+    if (owner) return { item: owner, delta: {} }
+    this.room('customers')
+    const at = this.now()
+    const name = (profileName ?? '').replace(/[\p{C}]/gu, '').trim().slice(0, CRM_LIMITS.name) || 'Novo contato'
+    const c: Customer = {
+      id: randomUUID(),
+      kind: 'person',
+      name,
+      phones: [phone],
+      tags: [],
+      consent: { service: true, billing: false, offers: false },
+      source: 'whatsapp',
+      notes: [],
+      tickets: [],
+      lastContactAt: at,
+      phoneChecked: true,
+      createdAt: at,
+      updatedAt: at,
+    }
+    this.put('customers', c)
+    return { item: c, delta: { customers: [c] } }
+  }
+
+  // ---------- fila de envio (fase 2) ----------
+
+  /** The send queue, oldest first. The Outbox owns it; everything else only reads. */
+  get outbox(): OutboxItem[] {
+    return this.data.outbox
+  }
+
+  /** Puts a queue item in place (same key = replace); past the limit, the oldest finished ones leave. */
+  putOutbox(item: OutboxItem): Saved<OutboxItem> {
+    const arr = this.data.outbox
+    const i = arr.findIndex((x) => x.key === item.key)
+    if (i >= 0) arr[i] = item
+    else arr.push(item)
+    if (arr.length > CRM_LIMITS.outbox) {
+      const done = (x: OutboxItem) => x.state === 'sent' || x.state === 'canceled' || x.state === 'failed'
+      let extra = arr.length - CRM_LIMITS.outbox
+      this.data.outbox = arr.filter((x) => !(extra > 0 && done(x) && extra--))
+    }
+    this.save()
+    return { item, delta: { outbox: [item] } }
   }
 
   /** Removes the customer with its deals, payments (attachments too) and recurrences. */
@@ -934,10 +1064,19 @@ export class CrmStore {
     this.timer = null
     if (this.locked || !this.dirty) return
     const real = <T extends { demo?: boolean }>(xs: T[]) => xs.filter((x) => !x.demo)
-    const { customers, deals, pipelines, payments, recurrences, suggestions, settings } = this.data
+    const { customers, deals, pipelines, payments, recurrences, suggestions, outbox, settings } = this.data
     writeJsonAtomic(
       this.file,
-      { customers: real(customers), deals: real(deals), pipelines, payments: real(payments), recurrences: real(recurrences), suggestions, settings } satisfies CrmData,
+      {
+        customers: real(customers),
+        deals: real(deals),
+        pipelines,
+        payments: real(payments),
+        recurrences: real(recurrences),
+        suggestions,
+        outbox,
+        settings,
+      } satisfies CrmData,
       { mode: FILE_MODE },
     )
     chmod(this.file, FILE_MODE)

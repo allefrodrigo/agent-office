@@ -9,6 +9,7 @@ import { CustomersView } from './customers'
 import { DealsView } from './deals'
 import { OPEN_CRM_EVENT, type OpenCrmDetail } from './open'
 import { PaymentsView } from './payments'
+import { serverChip } from './server'
 import { crmStore } from './store'
 import { todayIso, type CrmCtx, type Toast } from './util'
 
@@ -54,6 +55,11 @@ export function closeCrm(): void {
 
 export interface CrmOptions {
   toast: Toast
+  /**
+   * The office's toasts go into the CRM's top bar while it is open (they used to cover the
+   * screen's lower left corner, over the tables); null gives them back.
+   */
+  toastHost?(el: HTMLElement | null): void
   /** Opens the board on a ticket (the CRM closes first: the board sits under it). */
   openTicket(id: string): void
 }
@@ -101,10 +107,13 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
     icon('x', 18),
   )
   const panel = h('main', { class: 'crm-panel', role: 'tabpanel', id: 'crm-panel', tabindex: -1 })
+  // The office's toasts land here, in the free space of the bar, instead of over the tables.
+  const toastSlot = h('div', { class: 'crm-toasts', role: 'status', 'aria-live': 'polite' })
+  const server = serverChip({ toast: opts.toast })
   const box = h(
     'div',
     { class: 'crm-screen' },
-    h('header', { class: 'crm-top' }, title, tabs, h('span', { class: 'grow' }), search, newBtn, closeBtn),
+    h('header', { class: 'crm-top' }, title, tabs, toastSlot, server.el, search, newBtn, closeBtn),
     panel,
   )
   const el = h('div', { class: 'backdrop crm-backdrop' }, box)
@@ -128,6 +137,7 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
 
   modalA11y(el, box, title)
   root.append(el)
+  opts.toastHost?.(toastSlot)
 
   // ---------- tabs ----------
   function renderTabs(): void {
@@ -304,6 +314,8 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
     if (closed) return
     closed = true
     screen = null
+    opts.toastHost?.(null)
+    server.dispose()
     offStore()
     closeCustomerCard()
     for (const v of Object.values(views)) v.dispose?.()

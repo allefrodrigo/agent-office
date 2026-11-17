@@ -38,7 +38,17 @@ import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } f
 import type { AutomationDraft, Bot, BotDraft, BotEventTrigger, BotSpend, BotTriggerDraft, Channel, ChannelDraft, ThreadHit, ThreadItem, ThreadPage } from './bots'
 import type {
   ConversationItem,
+  ConversationPage,
+  ConversationSummary,
   CrmConnection,
+  CrmQr,
+  CrmSendInput,
+  CrmServerAction,
+  CrmServerStatus,
+  CrmWhatsappDraft,
+  CrmWhatsappInfo,
+  Draft,
+  DraftAction,
   CrmCsvKind,
   CrmData,
   CrmDelta,
@@ -221,6 +231,10 @@ export type OfficeEvent =
   | { type: 'crm:item'; customerId: string; item: ConversationItem }
   /** Sala de CRM, phase 2: the WhatsApp link changed. */
   | { type: 'crm:connection'; connection: CrmConnection }
+  /** Sala de CRM, phase 2: a row of the Conversas list changed (new message, read, waiting). */
+  | { type: 'crm:summary'; summary: ConversationSummary }
+  /** Sala de CRM, phase 2: the local Evolution server (Docker, Colima) changed after an action. */
+  | { type: 'crm:server'; status: CrmServerStatus }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -605,6 +619,36 @@ export interface OfficeAPI {
   exportCustomerData(id: string): Promise<string | null>
   /** Configurações → CRM: the rules in crm.json. Unknown keys are dropped; a bad value keeps the current one. */
   saveCrmSettings(patch: Partial<CrmSettings>): Promise<CrmSettings>
+  // ---------- Sala de CRM, phase 2 (WhatsApp; docs/prd/sala-de-crm-plano.md, CR-08 a CR-14) ----------
+  /** Configurações → CRM → WhatsApp: address, instance, whether a token is stored, and the link. Never the token. */
+  crmWhatsapp(): Promise<CrmWhatsappInfo>
+  /**
+   * Saves address, instance and, when given, the instance token (sealed by the OS vault). Refuses
+   * http:// off this machine and the server's global key, with what to do.
+   */
+  saveCrmWhatsapp(draft: CrmWhatsappDraft): Promise<CrmWhatsappInfo>
+  /** "Conectar": the QR code to read on the phone, or the state when already connected. */
+  connectCrmWhatsapp(): Promise<CrmQr>
+  /** "Testar": a fixed message to the connected number itself, through the Outbox. Answers what happened, pt-BR. */
+  testCrmWhatsapp(): Promise<string>
+  /** "Desconectar": logs the number out of the instance; the token stays stored. */
+  disconnectCrmWhatsapp(): Promise<void>
+  /** "Servidor local": reads, or turns on and off, the Evolution's containers (and Colima). One action at a time. */
+  crmServer(action: CrmServerAction): Promise<CrmServerStatus>
+  /** The Conversas list: one row per customer with a conversation, newest first. */
+  crmConversations(): Promise<ConversationSummary[]>
+  /** A page of one conversation, newest last; `before` = the id to page back from. Opening marks it read. */
+  crmConversation(customerId: string, before?: string): Promise<ConversationPage>
+  /** The player writes and sends; the gate decides. The draft comes back with the decision (held, blocked, scheduled, sent). */
+  crmSend(input: CrmSendInput): Promise<Draft>
+  /** A draft card: Enviar, Enviar mesmo assim or Descartar; `text` = the player edited it first. */
+  crmDraft(customerId: string, draftId: string, action: DraftAction, text?: string): Promise<Draft>
+  /** "Passar para mim" (true) or "Devolver ao bot" (false). */
+  crmHandOff(customerId: string, toPlayer: boolean): Promise<Customer>
+  /** "Conferir no WhatsApp": asks the server whether the first phone has WhatsApp; sets phoneChecked. */
+  crmCheckPhone(customerId: string): Promise<Customer>
+  /** "Parar tudo" (true) cancels the queue and blocks every send until it is turned off (false). */
+  crmStopAll(on: boolean): Promise<CrmSettings>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

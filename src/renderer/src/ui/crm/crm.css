@@ -252,6 +252,111 @@
   background: var(--crm-accent);
 }
 
+/* the office's toasts, in the free space of the bar (they used to cover the tables) */
+.crm-toasts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.crm-toasts .toast {
+  max-width: 100%;
+  padding: 6px 12px;
+  overflow: hidden;
+  border-radius: 8px;
+  border-color: var(--crm-line-strong);
+  background: var(--crm-raise);
+  box-shadow: none;
+  color: var(--crm-text);
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* ---------- servidor local da Evolution (chip no topo e a caixa) ---------- */
+
+.crm-server-anchor {
+  position: relative;
+  flex: none;
+}
+
+.crm-server-chip {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--crm-line-strong);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--crm-muted);
+  font: 600 13px var(--font);
+  cursor: pointer;
+}
+
+.crm-server-chip:hover,
+.crm-server-chip[aria-expanded='true'] {
+  background: var(--crm-raise);
+  color: var(--crm-text);
+}
+
+.crm-server-pop {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  z-index: 8;
+  width: 360px;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.crm-server-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.crm-server-label {
+  font-weight: 700;
+}
+
+.crm-server-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12.5px;
+}
+
+.crm-server-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.crm-server-meta {
+  margin-left: auto;
+  color: var(--dim);
+}
+
+.crm-screen .crm-server {
+  border-color: var(--crm-line-strong);
+  background: var(--crm-raise);
+  color: var(--crm-text);
+}
+
+.crm-screen .crm-server .field-hint {
+  color: var(--crm-muted);
+}
+
+.crm-screen .crm-server-meta {
+  color: var(--crm-muted);
+}
+
 .crm-search {
   position: relative;
   display: flex;

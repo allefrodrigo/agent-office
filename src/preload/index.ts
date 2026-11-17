@@ -201,6 +201,19 @@ const api: OfficeAPI = {
   importCustomersCsv: (rows) => ipcRenderer.invoke('office:importCustomersCsv', rows),
   exportCustomerData: (id) => ipcRenderer.invoke('office:exportCustomerData', id),
   saveCrmSettings: (patch) => ipcRenderer.invoke('office:saveCrmSettings', patch),
+  crmWhatsapp: () => ipcRenderer.invoke('office:crmWhatsapp'),
+  saveCrmWhatsapp: (draft) => ipcRenderer.invoke('office:saveCrmWhatsapp', draft),
+  connectCrmWhatsapp: () => ipcRenderer.invoke('office:connectCrmWhatsapp'),
+  testCrmWhatsapp: () => ipcRenderer.invoke('office:testCrmWhatsapp'),
+  disconnectCrmWhatsapp: () => ipcRenderer.invoke('office:disconnectCrmWhatsapp'),
+  crmServer: (action) => ipcRenderer.invoke('office:crmServer', action),
+  crmConversations: () => ipcRenderer.invoke('office:crmConversations'),
+  crmConversation: (customerId, before) => ipcRenderer.invoke('office:crmConversation', customerId, before),
+  crmSend: (input) => ipcRenderer.invoke('office:crmSend', input),
+  crmDraft: (customerId, draftId, action, text) => ipcRenderer.invoke('office:crmDraft', customerId, draftId, action, text),
+  crmHandOff: (customerId, toPlayer) => ipcRenderer.invoke('office:crmHandOff', customerId, toPlayer),
+  crmCheckPhone: (customerId) => ipcRenderer.invoke('office:crmCheckPhone', customerId),
+  crmStopAll: (on) => ipcRenderer.invoke('office:crmStopAll', on),
   onEvent: (cb) => {
     const listener = (_e: unknown, ev: OfficeEvent) => cb(ev)
     ipcRenderer.on('office:event', listener)

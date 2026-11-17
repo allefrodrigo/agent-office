@@ -150,6 +150,7 @@ function data(over: Partial<CrmData> = {}): CrmData {
     payments: [],
     recurrences: [],
     suggestions: [],
+    outbox: [],
     settings: CRM_DEFAULTS,
     ...over,
   }

@@ -6,7 +6,19 @@ import { HAIR_STYLES } from '@shared/describe'
 import { canAddFloor, floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
-import { BOT_COLORS, BOT_GROUND_FLOOR, BOT_LIMITS, CHAT_DEFAULTS, CRM_APP_DEFAULTS, CRM_LIMITS, EFFORT_LEVELS, ROUTINE_LIMITS, SENSITIVE_KINDS } from '@shared/types'
+import {
+  BOT_COLORS,
+  BOT_GROUND_FLOOR,
+  BOT_LIMITS,
+  CHAT_DEFAULTS,
+  CRM_APP_DEFAULTS,
+  CRM_LIMITS,
+  CRM_SERVER_ACTIONS,
+  EFFORT_LEVELS,
+  MESSAGE_CATEGORIES,
+  ROUTINE_LIMITS,
+  SENSITIVE_KINDS,
+} from '@shared/types'
 import { EMAIL_RE, isDay, isMonth, normalizePhone } from '@shared/crm'
 import type { VideoSettings } from '@shared/video'
 import { AUDIO_CHUNK_MAX_BYTES, AUTOSTOP_MIN_RANGE, RETENTION_DAYS_RANGE, WHISPER_MODEL_FILE } from '@shared/meetings'
@@ -24,9 +36,13 @@ import type {
   ChatSettings,
   CrmAppSettings,
   CrmCsvKind,
+  CrmSendInput,
+  CrmServerAction,
   CrmSettings,
+  CrmWhatsappDraft,
   CustomerKind,
   DelegateTarget,
+  DraftAction,
   EffortLevel,
   HireRequest,
   MeetingSettings,
@@ -1187,4 +1203,91 @@ export function cleanCrmSettingsPatch(raw: unknown, current: CrmSettings): CrmSe
 export function cleanCrmAppSettings(raw: unknown, current: CrmAppSettings): CrmAppSettings {
   const patch = isPlain(raw) ? raw : {}
   return { ...current, ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}) }
+}
+
+// ---------- Sala de CRM, fase 2 (WhatsApp) ----------
+
+/** The "Servidor local" box asks only these. */
+export function cleanCrmServerAction(raw: unknown): CrmServerAction {
+  return parse(z.enum(CRM_SERVER_ACTIONS as [CrmServerAction, ...CrmServerAction[]]), raw, 'Ação inválida para o servidor local.')
+}
+
+/** Evolution instance name: what the server accepts in a URL path, never a path of its own. */
+export const CRM_INSTANCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/
+
+/**
+ * Configurações → CRM → WhatsApp, the shape only: the URL rules (https off this machine, no
+ * 127.evil.com, no user:pass@) and the global-key check belong to EvolutionClient (CR-08).
+ * The token: missing keeps the stored one, '' clears it.
+ */
+export function cleanCrmWhatsappDraft(raw: unknown): CrmWhatsappDraft {
+  return parseCrm(
+    z.object({
+      url: z.string().trim().min(1, 'Informe o endereço da Evolution, como http://localhost:8080.').max(CRM_LIMITS.url, 'Endereço grande demais.'),
+      instance: z
+        .string()
+        .trim()
+        .regex(CRM_INSTANCE_RE, 'Nome de instância inválido. Use letras, números, ponto, hífen ou sublinhado, como no painel da Evolution.'),
+      token: z
+        .string()
+        .trim()
+        .max(CRM_LIMITS.token, 'Esse token é grande demais. Cole o token da instância, não outro texto.')
+        .regex(/^[^\s]*$/, 'O token não tem espaços. Copie de novo do painel da Evolution.')
+        .optional(),
+    }),
+    raw,
+    'Configuração do WhatsApp inválida. Feche e abra a tela de novo.',
+  )
+}
+
+/** Message text the player wrote: control and direction characters out, line breaks kept, 1 to 4 000 letters. */
+const crmMessageText = z
+  .string()
+  .max(CRM_LIMITS.messageText * 4 + 64, crmTooLong('A mensagem', CRM_LIMITS.messageText))
+  .transform(crmBlockText)
+  .pipe(z.string().min(1, 'Escreva a mensagem antes de enviar.').max(CRM_LIMITS.messageText, crmTooLong('A mensagem', CRM_LIMITS.messageText)))
+
+const crmCategory = z.enum(MESSAGE_CATEGORIES as unknown as ['service', 'billing', 'offer'])
+/** A conversation item id (ours or WhatsApp's): letters, digits, dash, underscore. */
+const crmItemId = z.string().regex(/^[A-Za-z0-9_-]{1,120}$/, 'Essa mensagem não existe mais.')
+
+export function cleanCrmSendInput(raw: unknown): CrmSendInput {
+  const r = parseCrm(
+    z.object({
+      customerId: crmCustomerId,
+      category: crmCategory,
+      text: crmMessageText,
+      replyTo: crmItemId.optional(),
+      override: z.boolean().optional(),
+    }),
+    raw,
+    'Mensagem inválida. Feche a conversa e abra de novo.',
+  )
+  return { customerId: r.customerId, category: r.category, text: r.text, ...(r.replyTo ? { replyTo: r.replyTo } : {}), ...(r.override ? { override: true } : {}) }
+}
+
+/** What the player does on a draft card. */
+export function cleanDraftAction(raw: unknown): DraftAction {
+  return parse(z.enum(['send', 'override', 'discard']), raw, 'Ação inválida no rascunho.')
+}
+
+/** The edited text of a draft (optional). */
+export function cleanDraftText(raw: unknown): string | undefined {
+  if (raw === undefined || raw === null) return undefined
+  return parseCrm(crmMessageText, raw, 'Texto inválido no rascunho.')
+}
+
+/** A conversation item id from the renderer (page back from it, the draft to act on). */
+export function cleanCrmItemId(raw: unknown): string {
+  return parseCrm(crmItemId, raw, 'Essa mensagem não existe mais.')
+}
+
+/** An optional item id (crmConversation's `before`). */
+export function cleanCrmOptItemId(raw: unknown): string | undefined {
+  return raw === undefined || raw === null ? undefined : cleanCrmItemId(raw)
+}
+
+/** A plain on/off from the renderer. */
+export function cleanCrmFlag(raw: unknown): boolean {
+  return parse(z.boolean(), raw, 'Valor inválido. Feche e abra a tela de novo.')
 }

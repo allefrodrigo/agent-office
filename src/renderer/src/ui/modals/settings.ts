@@ -83,7 +83,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const video = videoFields(state)
   const meetings = meetingFields(state, toast)
   const chat = chatFields(state)
-  const crm = crmFields(state)
+  const crm = crmFields(state, toast)
 
   const b = state.bridge
   const bridgeStatus = h(

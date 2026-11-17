@@ -70,6 +70,15 @@ export interface Customer {
   nextStep?: string
   /** 'AAAA-MM-DD'. */
   nextStepOn?: string
+  /**
+   * Phase 2. The first phone was checked on WhatsApp (whatsappNumbers said it exists, or a message
+   * came from it). Gate rule 2 blocks a send to a number nobody checked. Changing the first phone clears it.
+   */
+  phoneChecked?: boolean
+  /** Phase 2. "Passar para mim": the bot stays out of this conversation until "Devolver ao bot". */
+  handedToPlayer?: boolean
+  /** Phase 2. The player last answered from the phone (ms): the bot keeps quiet for 12 h (gate rule 9). */
+  phoneReplyAt?: number
   createdAt: number
   updatedAt: number
   /** Demo mode: shown, never saved. */
@@ -296,6 +305,10 @@ export interface Draft {
   createdAt: number
   /** The inbound message it answers (rules 10 to 12 count only what we start). */
   replyTo?: string
+  /** When the answered message arrived (ms): gate rule 9 holds an answer to a message older than 2 h. */
+  replyAt?: number
+  /** A bot's draft the player edited: still model text for gate rules 5 and 6 (ADR 0017, section 4). */
+  edited?: boolean
   /** Billing: the payment it is about. */
   paymentId?: string
   /** Offer with a discount: percent and last day ('AAAA-MM-DD'). */
@@ -344,6 +357,155 @@ export interface CrmConnection {
   lanExposed?: boolean
   /** Evolution server version, when known. */
   version?: string
+  /** How events arrive (ADR 0015): the outbound WebSocket, or a fetch every 20 s while it is down. */
+  via?: 'websocket' | 'polling'
+}
+
+// ---------- WhatsApp: conexão (fase 2, CR-08 e CR-10) ----------
+
+/**
+ * Configurações → CRM → WhatsApp, as the screen sees it. The token never crosses to the renderer:
+ * only whether one is stored. Lives in userData/crm-evolution.json, the token sealed by safeStorage.
+ */
+export interface CrmWhatsappInfo {
+  /** Evolution base URL; default http://localhost:8080. https:// is required off localhost. */
+  url: string
+  instance: string
+  hasToken: boolean
+  /** The OS vault (safeStorage) works here; without it the CRM keeps no token and says what to do. */
+  vault: boolean
+  connection: CrmConnection
+}
+
+/** What the form sends. A missing token keeps the stored one; an empty string clears it. */
+export interface CrmWhatsappDraft {
+  url: string
+  instance: string
+  token?: string
+}
+
+/** "Conectar": the QR code to read on the phone (a PNG data URL, drawn as an image, never logged), or the state when there is none. */
+export interface CrmQr {
+  state: CrmConnection['state']
+  /** data:image/png;base64,… */
+  qr?: string
+  /** "Conectar com número de telefone" on the phone, when the server sends one. */
+  pairingCode?: string
+}
+
+// ---------- WhatsApp: servidor local (Docker ou Colima) ----------
+
+/** What the "Servidor local" box can ask. status only reads; the others act, one at a time. */
+export type CrmServerAction = 'status' | 'start' | 'stop' | 'stopEngine'
+export const CRM_SERVER_ACTIONS: readonly CrmServerAction[] = ['status', 'start', 'stop', 'stopEngine']
+
+/** One container of the Evolution's compose project (the API and its Postgres). */
+export interface CrmServerContainer {
+  /** Compose service: "evolution-api", "postgres". */
+  service: string
+  image: string
+  state: 'running' | 'stopped' | 'starting' | 'other'
+  /** Bytes, when running and measured. */
+  mem?: number
+  /** Percent of one CPU, when running and measured. */
+  cpu?: number
+}
+
+/**
+ * The Evolution that runs on this machine, in Docker (Docker Desktop or Colima). The app finds the
+ * containers by the compose labels; it never reads the compose's .env (the global key stays there).
+ */
+export interface CrmServerStatus {
+  /** The docker command exists. */
+  docker: boolean
+  /** The engine answers (docker info). */
+  engine: 'running' | 'stopped' | 'missing'
+  engineKind?: 'colima' | 'docker-desktop' | 'other'
+  /** Colima's VM memory (bytes), when known: what "Desligar o Colima" frees. */
+  engineMem?: number
+  evolution: 'running' | 'stopped' | 'partial' | 'missing'
+  containers: CrmServerContainer[]
+  /** The compose project name and folder, when found. */
+  project?: string
+  folder?: string
+  /** Containers of other projects running on the same engine: stopping Colima would stop them too. */
+  others: number
+  /** "Desligar o Colima" is offered: Colima, the Evolution stopped and nothing else running. */
+  canStopEngine: boolean
+  /** An action is running. */
+  busy?: 'starting' | 'stopping' | 'engine-starting' | 'engine-stopping'
+  /** What went wrong, pt-BR, with what to do. */
+  error?: string
+  /** When it was read (ms). */
+  at: number
+}
+
+// ---------- conversas (fase 2, CR-09 e CR-14) ----------
+
+/** Why a conversation sits in "Esperando você". */
+export type ConversationWaiting = 'draft' | 'handoff' | 'blocked' | 'new-contact'
+
+/** One row of the Conversas list. Text is customer text: the screen draws it as text, never as HTML. */
+export interface ConversationSummary {
+  customerId: string
+  /** Last item (ms). */
+  t: number
+  /** The last message or draft, plain text, at most 140 characters. */
+  preview: string
+  previewKind: ConversationItem['kind']
+  /** Inbound messages since the player last opened the conversation. */
+  unread: number
+  waiting?: ConversationWaiting
+}
+
+/** A page of a conversation, newest last; `more` = older items exist (ask again with before = items[0].id). */
+export interface ConversationPage {
+  items: ConversationItem[]
+  more: boolean
+}
+
+/** What the player does on a draft card. "override" is "Enviar mesmo assim" (only when the decision says overridable). */
+export type DraftAction = 'send' | 'override' | 'discard'
+
+/** The player writes in the composer. */
+export interface CrmSendInput {
+  customerId: string
+  category: MessageCategory
+  text: string
+  /** The inbound message it answers, if any. */
+  replyTo?: string
+  /** "Enviar mesmo assim", after the screen showed the reason. */
+  override?: boolean
+}
+
+// ---------- fila de envio (fase 2, CR-12) ----------
+
+/** One send in the queue (crm.json, `outbox`). The gate ran when it entered and runs again right before it goes. */
+export interface OutboxItem {
+  /** Unique per send: a retry never sends twice. */
+  key: string
+  draftId: string
+  customerId: string
+  category: MessageCategory
+  /** Final text, markers already filled. */
+  text: string
+  by: CrmAuthor
+  replyTo?: string
+  /** Not before (ms): now, the next send window, or the next free slot under the global cap. */
+  at: number
+  attempts: number
+  state: 'queued' | 'sending' | 'sent' | 'failed' | 'canceled'
+  /** When it went out (ms): the global cap (gate rule 12) counts these. */
+  sentAt?: number
+  /** WhatsApp's id of the sent message, for the delivery updates. */
+  waId?: string
+  /** The player clicked "Enviar" on the draft card (resolves gate rules 7, 9, 13 and 14). */
+  approved?: boolean
+  /** The player confirmed "Enviar mesmo assim" for this send. */
+  override?: boolean
+  createdAt: number
+  /** pt-BR, when it failed. */
+  error?: string
 }
 
 // ---------- sugestões (fase 4) ----------
@@ -430,6 +592,8 @@ export interface CrmData {
   payments: Payment[]
   recurrences: Recurrence[]
   suggestions: Suggestion[]
+  /** Phase 2: the send queue (what waits for its window or slot, and the last sends). */
+  outbox: OutboxItem[]
   settings: CrmSettings
 }
 
@@ -446,6 +610,8 @@ export interface CrmDelta {
   payments?: Payment[]
   recurrences?: Recurrence[]
   suggestions?: Suggestion[]
+  /** Phase 2: queue items to put in place (same key = replace). */
+  outbox?: OutboxItem[]
   removed?: Partial<Record<CrmCollection, string[]>>
   settings?: CrmSettings
   reload?: boolean
@@ -554,6 +720,15 @@ export const CRM_LIMITS = {
   query: 200,
   /** Inbound and outbound message text (phase 2). */
   messageText: 4_000,
+  /** Queue items kept in crm.json (phase 2); sent and canceled ones leave first. */
+  outbox: 2_000,
+  /** Conversation page the screen asks for. */
+  conversationPage: 100,
+  /** Evolution base URL and instance name (phase 2). */
+  url: 200,
+  instance: 64,
+  /** Instance token as pasted (a UUID in Evolution 2.3.7; custom tokens may be longer). */
+  token: 200,
   holidays: 60,
   words: 40,
   word: 40,
