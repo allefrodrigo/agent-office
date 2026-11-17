@@ -62,6 +62,7 @@ import { registerBotChannelsIpc } from './ipc/bots-channels'
 import { CrmStore } from './crm/store'
 import { registerCrmIpc } from './ipc/crm'
 import { registerCrmServerIpc } from './ipc/crm-server'
+import { registerCrmWhatsappIpc, type CrmWhatsapp } from './ipc/crm-whatsapp'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -310,6 +311,8 @@ app.whenReady().then(async () => {
   const botTools = new BotTools(botStore)
   // Sala de CRM: crm.json (customers, deals, payments, recurrences and the rules).
   const crmStore = new CrmStore(app.getPath('userData'))
+  // Sala de CRM, phase 2: the WhatsApp link and the conversations (registered with the IPC below).
+  let crmWhatsapp: CrmWhatsapp | null = null
   // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
   meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
@@ -320,6 +323,7 @@ app.whenReady().then(async () => {
     meetingStore.flush()
     botStore.flush()
     crmStore.flush()
+    crmWhatsapp?.flush()
   })
   manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore, botTools)
   const desk = new TicketDesk(board, manager, () => store.settings)
@@ -532,6 +536,7 @@ app.whenReady().then(async () => {
       meetingStore.flush()
       botStore.flush()
       crmStore.flush()
+      crmWhatsapp?.flush()
     },
     broadcast,
   })
@@ -568,6 +573,7 @@ app.whenReady().then(async () => {
     meetingStore.flush()
     botStore.flush()
     crmStore.flush()
+    crmWhatsapp?.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
@@ -646,6 +652,8 @@ app.whenReady().then(async () => {
   const crm = registerCrmIpc(ipc)
   // Sala de CRM, phase 2: the local Evolution (Docker or Colima), turned on and off from the app.
   registerCrmServerIpc(ipc, app.getPath('userData'))
+  // Sala de CRM, phase 2: the WhatsApp (Evolution), its events and the conversations (CR-08 a CR-10).
+  crmWhatsapp = registerCrmWhatsappIpc(ipc, app.getPath('userData'))
   registerBotAutomationsIpc({
     triggers,
     routines,
@@ -742,6 +750,8 @@ app.whenReady().then(async () => {
   crm.tick()
   setInterval(() => crm.tick(), 3_600_000).unref()
   powerMonitor.on('resume', () => crm.tick())
+  // The WhatsApp link starts with the CRM on (and a token in the vault); never in the demo.
+  if (store.settings.crm?.enabled && !process.env.AGENT_OFFICE_DEMO) crmWhatsapp.start()
   // Bot agents restored from office.json go back to their bots; idle ones leave after a while.
   bots.start()
   macJobs.start()
@@ -771,6 +781,7 @@ app.whenReady().then(async () => {
     book.stop()
     routines.stop()
     bots.dispose()
+    crmWhatsapp?.stop()
     macJobs.stop()
     void stopAllWhisper()
     store.flush()
@@ -779,6 +790,7 @@ app.whenReady().then(async () => {
     meetingStore.flush()
     botStore.flush()
     crmStore.flush()
+    crmWhatsapp?.flush()
   }
   app.on('before-quit', (e) => {
     // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.

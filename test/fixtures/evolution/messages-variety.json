@@ -1,0 +1,403 @@
+{
+  "text": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000001"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "extended": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000002"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "extendedTextMessage": {
+        "text": "texto de teste",
+        "contextInfo": {}
+      }
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "image": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000003"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "imageMessage": {
+        "mimetype": "image/jpeg",
+        "caption": "texto de teste"
+      }
+    },
+    "contextInfo": null,
+    "messageType": "imageMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "audio": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000004"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "audioMessage": {
+        "mimetype": "audio/ogg; codecs=opus",
+        "ptt": true
+      }
+    },
+    "contextInfo": null,
+    "messageType": "audioMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "document": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000005"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "documentMessage": {
+        "mimetype": "application/pdf",
+        "fileName": "contrato.pdf"
+      }
+    },
+    "contextInfo": null,
+    "messageType": "documentMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "documentWithCaption": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000006"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "documentWithCaptionMessage": {
+        "message": {
+          "documentMessage": {
+            "fileName": "nota.pdf",
+            "caption": "texto de teste"
+          }
+        }
+      }
+    },
+    "contextInfo": null,
+    "messageType": "documentWithCaptionMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "ephemeral": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000007"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "ephemeralMessage": {
+        "message": {
+          "extendedTextMessage": {
+            "text": "texto de teste"
+          }
+        }
+      }
+    },
+    "contextInfo": null,
+    "messageType": "ephemeralMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "sticker": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000008"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "stickerMessage": {
+        "mimetype": "image/webp"
+      }
+    },
+    "contextInfo": null,
+    "messageType": "stickerMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "button": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000009"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "buttonsResponseMessage": {
+        "selectedDisplayText": "Sim",
+        "selectedButtonId": "1"
+      }
+    },
+    "contextInfo": null,
+    "messageType": "buttonsResponseMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "reaction": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A0000000000000000000A"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "reactionMessage": {
+        "key": {
+          "id": "3A00000000000000000001"
+        },
+        "text": "+1"
+      }
+    },
+    "contextInfo": null,
+    "messageType": "reactionMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "protocol": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A0000000000000000000B"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "protocolMessage": {
+        "type": 0,
+        "key": {
+          "id": "3A00000000000000000001"
+        }
+      }
+    },
+    "contextInfo": null,
+    "messageType": "protocolMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "group": {
+    "key": {
+      "remoteJid": "120363000000000001@g.us",
+      "fromMe": false,
+      "id": "3A0000000000000000000C",
+      "participant": "5511900000001@s.whatsapp.net"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "status": {
+    "key": {
+      "remoteJid": "status@broadcast",
+      "fromMe": false,
+      "id": "3A0000000000000000000D",
+      "participant": "5511900000001@s.whatsapp.net"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "broadcast": {
+    "key": {
+      "remoteJid": "1794916800@broadcast",
+      "fromMe": false,
+      "id": "3A0000000000000000000E"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "newsletter": {
+    "key": {
+      "remoteJid": "120363000000000002@newsletter",
+      "fromMe": false,
+      "id": "3A0000000000000000000F"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "lidWithPhone": {
+    "key": {
+      "remoteJid": "100000000000001@lid",
+      "fromMe": false,
+      "id": "3A00000000000000000010",
+      "remoteJidAlt": "5511900000001@s.whatsapp.net"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "lidOnly": {
+    "key": {
+      "remoteJid": "100000000000001@lid",
+      "fromMe": false,
+      "id": "3A00000000000000000011"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "oldMobile": {
+    "key": {
+      "remoteJid": "553188880001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000012"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "badId": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "id com espaco"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "future": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000013"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste"
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1795003200,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  },
+  "contextOnly": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A00000000000000000014"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "messageContextInfo": {},
+      "senderKeyDistributionMessage": {}
+    },
+    "contextInfo": null,
+    "messageType": "senderKeyDistributionMessage",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "android"
+  }
+}

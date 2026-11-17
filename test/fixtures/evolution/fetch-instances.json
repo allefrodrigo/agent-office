@@ -1,0 +1,32 @@
+[
+  {
+    "id": "00000000-0000-4000-8000-000000000001",
+    "name": "teste",
+    "connectionStatus": "open",
+    "ownerJid": "5511900000002@s.whatsapp.net",
+    "profileName": "Empresa Teste",
+    "profilePicUrl": null,
+    "integration": "WHATSAPP-BAILEYS",
+    "number": null,
+    "businessId": null,
+    "token": "00000000-0000-4000-8000-0000000000aa",
+    "clientName": "evolution_spike",
+    "disconnectionReasonCode": null,
+    "disconnectionObject": null,
+    "disconnectionAt": null,
+    "createdAt": "2026-11-17T08:00:00.000Z",
+    "updatedAt": "2026-11-17T08:10:00.000Z",
+    "Chatwoot": null,
+    "Proxy": null,
+    "Rabbitmq": null,
+    "Nats": null,
+    "Sqs": null,
+    "Websocket": null,
+    "Setting": null,
+    "_count": {
+      "Message": 3,
+      "Contact": 1,
+      "Chat": 1
+    }
+  }
+]

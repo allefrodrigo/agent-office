@@ -1,0 +1,7 @@
+{
+  "status": 401,
+  "error": "Unauthorized",
+  "response": {
+    "message": "Unauthorized"
+  }
+}

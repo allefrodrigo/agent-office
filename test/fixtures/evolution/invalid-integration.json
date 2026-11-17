@@ -1,0 +1,9 @@
+{
+  "status": 400,
+  "error": "Bad Request",
+  "response": {
+    "message": [
+      "Invalid integration"
+    ]
+  }
+}
