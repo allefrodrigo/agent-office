@@ -693,6 +693,8 @@ async function boot(): Promise<void> {
       __setMeetingLive: setMeetingLive,
       // AO-28: floors, agents and the skull in a loop, reading GPU memory (dev and headless runs only)
       __leakTest: async () => (await import('./dev/leak-test')).leakTest(game, state),
+      // CR-07: npm run bench -- --crm opens the CRM with 2 000 customers and scrolls its table
+      __crmBench: async (ms: number) => (await import('./ui/crm/bench')).crmBench(ms),
     })
 }
 
