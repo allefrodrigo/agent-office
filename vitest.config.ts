@@ -65,6 +65,8 @@ export default defineConfig({
         'src/shared/crm.ts',
         'src/shared/crm-view.ts',
         'src/main/crm/*.ts',
+        // Sala de CRM, fase 2 (CR-11 a CR-13)
+        'src/shared/crm-keywords.ts',
       ],
       thresholds: { lines: 70 },
     },
