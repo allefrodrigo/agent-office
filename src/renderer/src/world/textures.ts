@@ -62,6 +62,11 @@ const planks =
         ctx.fillStyle = shade(c, Math.floor(r() * 10 - 5))
         const a = Math.max(pos, 0)
         const b = Math.min(pos + l, len)
+        // a first plank that ends before the zone starts would paint backwards, out of the zone
+        if (b <= a) {
+          pos += l
+          continue
+        }
         if (alongX) ctx.fillRect(px0 + a, pz0 + row * plank, b - a, plank)
         else ctx.fillRect(px0 + row * plank, pz0 + a, plank, b - a)
         ctx.fillStyle = seam
@@ -95,54 +100,48 @@ const carpet =
     }
   }
 
-const diamonds =
-  (a: string, b: string): Painter =>
-  (ctx, x0, z0, w, h) => {
-    for (let x = x0; x < x0 + w; x++) {
-      for (let z = z0; z < z0 + h; z++) {
-        const px = x * TILE_PX
-        const pz = z * TILE_PX
-        ctx.fillStyle = a
-        ctx.fillRect(px, pz, TILE_PX, TILE_PX)
-        ctx.fillStyle = b
-        for (let i = 0; i < 8; i++) {
-          ctx.fillRect(px + 8 - i, pz + i, i * 2, 1)
-          ctx.fillRect(px + 8 - i, pz + 15 - i, i * 2, 1)
-        }
-        ctx.fillStyle = shade(b, -14)
-        ctx.fillRect(px + 7, pz + 7, 2, 2)
-      }
+/** Polished concrete: a warm gray with fine specks, a saw cut every two tiles. */
+const concrete =
+  (base: string, joint: string): Painter =>
+  (ctx, x0, z0, w, h, r) => {
+    ctx.fillStyle = base
+    ctx.fillRect(x0 * TILE_PX, z0 * TILE_PX, w * TILE_PX, h * TILE_PX)
+    for (let i = 0; i < w * h * 14; i++) {
+      ctx.fillStyle = shade(base, r() < 0.5 ? -9 : 7)
+      ctx.fillRect(x0 * TILE_PX + Math.floor(r() * w * TILE_PX), z0 * TILE_PX + Math.floor(r() * h * TILE_PX), r() < 0.2 ? 2 : 1, 1)
     }
+    ctx.fillStyle = joint
+    for (let x = x0; x < x0 + w; x++) if (x % 2 === 0) ctx.fillRect(x * TILE_PX, z0 * TILE_PX, 1, h * TILE_PX)
+    for (let z = z0; z < z0 + h; z++) if (z % 2 === 0) ctx.fillRect(x0 * TILE_PX, z * TILE_PX, w * TILE_PX, 1)
   }
 
-/** Big square tiles with a thin grout line, for the café. */
-const tiles =
-  (a: string, b: string, grout: string): Painter =>
+/** Terrazzo: a warm white with chips of color, square slabs, for the café. */
+const terrazzo =
+  (base: string, chips: string[], grout: string): Painter =>
   (ctx, x0, z0, w, h, r) => {
-    for (let x = x0; x < x0 + w; x++) {
-      for (let z = z0; z < z0 + h; z++) {
-        const c = (x + z) % 2 ? a : b
-        ctx.fillStyle = c
-        ctx.fillRect(x * TILE_PX, z * TILE_PX, TILE_PX, TILE_PX)
-        for (let i = 0; i < 6; i++) {
-          ctx.fillStyle = shade(c, r() < 0.5 ? -6 : 6)
-          ctx.fillRect(x * TILE_PX + Math.floor(r() * TILE_PX), z * TILE_PX + Math.floor(r() * TILE_PX), 2, 1)
-        }
-        ctx.fillStyle = grout
-        ctx.fillRect(x * TILE_PX, z * TILE_PX, TILE_PX, 1)
-        ctx.fillRect(x * TILE_PX, z * TILE_PX, 1, TILE_PX)
-      }
+    ctx.fillStyle = base
+    ctx.fillRect(x0 * TILE_PX, z0 * TILE_PX, w * TILE_PX, h * TILE_PX)
+    for (let i = 0; i < w * h * 9; i++) {
+      ctx.fillStyle = chips[Math.floor(r() * chips.length)]
+      const big = r() < 0.3
+      ctx.fillRect(x0 * TILE_PX + Math.floor(r() * w * TILE_PX), z0 * TILE_PX + Math.floor(r() * h * TILE_PX), big ? 2 : 1, big ? 2 : 1)
     }
+    ctx.fillStyle = grout
+    for (let x = x0; x < x0 + w; x++) ctx.fillRect(x * TILE_PX, z0 * TILE_PX, 1, h * TILE_PX)
+    for (let z = z0; z < z0 + h; z++) ctx.fillRect(x0 * TILE_PX, z * TILE_PX, w * TILE_PX, 1)
   }
 
 const PAINTERS: Record<FloorStyle, Painter> = {
-  hall: planks('#dcb98f', '#d3ad80', '#b48c62', true),
+  // corridors and every tile no zone claims
+  hall: concrete('#c9c5bd', 'rgba(84,78,70,0.28)'),
   boss: planks('#a8734d', '#9c6844', '#7a4f33', false),
-  team: carpet('#8d96bd', '#868fb6', 'rgba(60,64,100,0.18)'),
-  lounge: diamonds('#b7a5d8', '#ad9ad1'),
-  cafe: tiles('#eef0f3', '#dfe3ea', 'rgba(90,96,120,0.25)'),
+  // the open plan and the rooms with desks: light oak
+  team: planks('#ddb98f', '#d5af83', '#b38d64', true),
+  // the lounge's living area and games: a warmer oak, the other way
+  lounge: planks('#c99c6c', '#c19364', '#9d7349', false),
+  cafe: terrazzo('#ece6dc', ['#d97757', '#2f8f83', '#e0b34a', '#9aa0a8', '#fbf8f2', '#b9b1a4'], 'rgba(120,110,96,0.22)'),
   // the Sala de reunião: slate-teal carpet, the color of its sign
-  meeting: carpet('#7fa3a3', '#789b9c', 'rgba(30,62,66,0.2)'),
+  meeting: carpet('#6f9093', '#698a8d', 'rgba(30,62,66,0.2)'),
 }
 
 /** The floor of a whole storey: hall planks, then each zone's own surface. */
@@ -163,21 +162,111 @@ export function floorTexture(zones: Zone[] = ZONES): THREE.CanvasTexture {
   return pixelTexture(c)
 }
 
-export function rugTexture(w: number, h: number, base: string, border: string, accent: string): THREE.CanvasTexture {
+/**
+ * A rug's look: 'border' a plain field inside a band; 'stripes' bands across both ends;
+ * 'bauhaus' big circles and half circles; 'kilim' a row of diamonds down the middle.
+ */
+export type RugStyle = 'border' | 'stripes' | 'bauhaus' | 'kilim'
+
+export function rugTexture(w: number, h: number, base: string, border: string, accent: string, style: RugStyle = 'border'): THREE.CanvasTexture {
   const [c, ctx] = canvas(w * TILE_PX, h * TILE_PX)
-  ctx.fillStyle = border
-  ctx.fillRect(0, 0, c.width, c.height)
+  const W2 = c.width
+  const H2 = c.height
   ctx.fillStyle = base
-  ctx.fillRect(3, 3, c.width - 6, c.height - 6)
-  ctx.fillStyle = accent
-  ctx.fillRect(6, 6, c.width - 12, 1)
-  ctx.fillRect(6, c.height - 7, c.width - 12, 1)
-  ctx.fillRect(6, 6, 1, c.height - 12)
-  ctx.fillRect(c.width - 7, 6, 1, c.height - 12)
-  for (let x = 12; x < c.width - 12; x += 10) {
-    for (let y = 12; y < c.height - 12; y += 10) {
-      ctx.fillRect(x, y + 2, 5, 1)
-      ctx.fillRect(x + 2, y, 1, 5)
+  ctx.fillRect(0, 0, W2, H2)
+  // a faint weave, so a big rug doesn't read as a flat sticker
+  const r = rng(w * 31 + h * 7)
+  for (let i = 0; i < w * h * 10; i++) {
+    ctx.fillStyle = shade(base, r() < 0.5 ? -7 : 6)
+    ctx.fillRect(Math.floor(r() * W2), Math.floor(r() * H2), 1, 1)
+  }
+  const disc = (cx: number, cy: number, rad: number, color: string) => {
+    ctx.fillStyle = color
+    for (let y = Math.max(0, Math.floor(cy - rad)); y < Math.min(H2, Math.ceil(cy + rad)); y++) {
+      const half = Math.sqrt(Math.max(0, rad * rad - (y + 0.5 - cy) ** 2))
+      ctx.fillRect(Math.round(cx - half), y, Math.round(half * 2), 1)
+    }
+  }
+  switch (style) {
+    case 'border':
+      ctx.fillStyle = border
+      ctx.fillRect(0, 0, W2, 3)
+      ctx.fillRect(0, H2 - 3, W2, 3)
+      ctx.fillRect(0, 0, 3, H2)
+      ctx.fillRect(W2 - 3, 0, 3, H2)
+      ctx.fillStyle = accent
+      ctx.fillRect(6, 6, W2 - 12, 1)
+      ctx.fillRect(6, H2 - 7, W2 - 12, 1)
+      ctx.fillRect(6, 6, 1, H2 - 12)
+      ctx.fillRect(W2 - 7, 6, 1, H2 - 12)
+      break
+    case 'stripes': {
+      // bands across the short side, near both ends
+      const alongX = W2 >= H2
+      const len = alongX ? W2 : H2
+      const bands: [number, number, string][] = [
+        [4, 3, border],
+        [9, 1, accent],
+        [12, 1, accent],
+      ]
+      for (const [at, size, color] of bands) {
+        ctx.fillStyle = color
+        for (const pos of [at, len - at - size]) {
+          if (alongX) ctx.fillRect(pos, 0, size, H2)
+          else ctx.fillRect(0, pos, W2, size)
+        }
+      }
+      // a darker edge
+      ctx.fillStyle = shade(base, -22)
+      ctx.fillRect(0, 0, W2, 1)
+      ctx.fillRect(0, H2 - 1, W2, 1)
+      ctx.fillRect(0, 0, 1, H2)
+      ctx.fillRect(W2 - 1, 0, 1, H2)
+      break
+    }
+    case 'bauhaus': {
+      // a big half circle on one edge, a full one off center, a small dot: the rug's own seed places them
+      const u = Math.min(W2, H2)
+      disc(W2 * 0.28, H2, u * 0.42, border)
+      disc(W2 * 0.68, H2 * 0.36, u * 0.26, accent)
+      disc(W2 * 0.86, H2 * 0.78, u * 0.1, border)
+      ctx.fillStyle = accent
+      ctx.fillRect(Math.round(W2 * 0.1), Math.round(H2 * 0.2), Math.round(W2 * 0.3), 2)
+      ctx.fillStyle = shade(base, -22)
+      ctx.fillRect(0, 0, W2, 1)
+      ctx.fillRect(0, H2 - 1, W2, 1)
+      ctx.fillRect(0, 0, 1, H2)
+      ctx.fillRect(W2 - 1, 0, 1, H2)
+      break
+    }
+    case 'kilim': {
+      ctx.fillStyle = border
+      ctx.fillRect(0, 0, W2, 4)
+      ctx.fillRect(0, H2 - 4, W2, 4)
+      ctx.fillRect(0, 0, 4, H2)
+      ctx.fillRect(W2 - 4, 0, 4, H2)
+      // stepped diamonds down the long axis, rings of accent, border and base
+      const alongX = W2 >= H2
+      const len = alongX ? W2 : H2
+      const across = alongX ? H2 : W2
+      const size = Math.max(4, Math.min(9, Math.floor(across / 2) - 7))
+      const step = size * 2 + 4
+      const n = Math.max(1, Math.floor((len - 10) / step))
+      const start = (len - n * step) / 2 + step / 2
+      const rings = [accent, accent, base, border]
+      for (let k = 0; k < n; k++) {
+        const m = Math.round(start + k * step)
+        const mid = Math.floor(across / 2)
+        for (let da = -size; da <= size; da++)
+          for (let db = -size; db <= size; db++) {
+            const d = Math.abs(da) + Math.abs(db)
+            if (d > size) continue
+            ctx.fillStyle = rings[(size - d) % rings.length]
+            if (alongX) ctx.fillRect(m + da, mid + db, 1, 1)
+            else ctx.fillRect(mid + db, m + da, 1, 1)
+          }
+      }
+      break
     }
   }
   return pixelTexture(c)

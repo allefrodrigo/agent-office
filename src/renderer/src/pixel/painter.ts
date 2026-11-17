@@ -1,12 +1,12 @@
 import * as THREE from 'three'
 import type { Avatar } from '../world/avatar'
-import { H, W, WALL_H } from '../world/layout'
+import { H, ROOM_WALL_T, W, WALL_H } from '../world/layout'
 import type { Office } from '../world/office'
 import { pxTag } from '../world/pixel-tag'
 import { sprite } from './assets'
 import type { PixelEngine, Rect } from './engine'
 import { drawScreen, furniFor, onFurniArt, type FurniUse } from './iso-art'
-import { auraKey, drawAura, drawPerson, onPeopleArt, personKey } from './people'
+import { auraKey, drawAura, drawPerson, drawThroughWall, onPeopleArt, personKey } from './people'
 import { bake, boxRect, depthOf, ellipse, gather, HALF_H, HALF_W, isoX, isoY, paint, type Piece } from './voxel'
 
 /** What the painter reads from the game each frame. */
@@ -23,7 +23,7 @@ export interface PixelWorld {
   time(): number
 }
 
-/** One piece of furniture (or wall part, or glass pane) as the 2D view draws it. */
+/** One piece of furniture (or wall part, or room wall tile) as the 2D view draws it. */
 interface Unit {
   obj: THREE.Object3D
   /** Draw order: bigger = later = in front. */
@@ -33,6 +33,14 @@ interface Unit {
   baked: { canvas: HTMLCanvasElement; ox: number; oy: number } | null
   /** Has parts that change (screens, LEDs, doors): they are drawn again every frame. */
   live: boolean
+  /** One tile of a room wall: whoever was drawn before it and stands behind it shows through. */
+  wall?: { axis: 'x' | 'z'; at: number; tile: number }
+  /**
+   * What hangs on this wall tile (signs, TVs, whiteboards), each cut to the screen columns
+   * [x0, x1) the tile covers: a board spans several tiles, and each tile draws its own slice
+   * right after itself, so the next tile never paints over the board.
+   */
+  hung?: { unit: Unit; x0: number; x1: number }[]
 }
 
 interface FloorArt {
@@ -88,6 +96,8 @@ export class PixelPainter {
     if (hover) diamond(ctx, hover.x, hover.z, hover.ok ? 'rgba(255,255,255,0.9)' : 'rgba(255,138,128,0.9)')
 
     const dynamic: Drawable[] = []
+    // everyone drawn so far this frame: a wall tile drawn after them stands in front of them
+    const drawn: { av: Avatar; rect: Rect }[] = []
     for (const av of this.world.people()) {
       const behind = auraKey(av)
       if (behind !== null) dynamic.push({ key: behind, draw: () => drawAura(ctx, av, t) })
@@ -96,6 +106,7 @@ export class PixelPainter {
         draw: (order) => {
           const r = drawPerson(ctx, av, t)
           this.engine.hits.set(av.root, { ...r, order })
+          drawn.push({ av, rect: r })
         },
       })
     }
@@ -114,6 +125,7 @@ export class PixelPainter {
       if (u.rect.x1 < view.x0 - slack || u.rect.x0 > view.x1 + slack || u.rect.y1 < view.y0 - slack || u.rect.y0 > view.y1 + slack * 2)
         continue
       this.drawUnit(ctx, u, ++this.order)
+      if (u.wall) this.drawWallExtras(ctx, u, drawn, t)
     }
     while (d < dynamic.length) dynamic[d++].draw(++this.order)
     if (this.engine.night) this.nightLight(ctx, view, art)
@@ -172,13 +184,18 @@ export class PixelPainter {
         bgObjs.push(obj)
         continue
       }
+      const tag = pxTag(obj)
+      const wall = tag?.key === 'wall' ? { axis: tag.axis as 'x' | 'z', at: Number(tag.at), tile: Number(tag.tile) } : undefined
       units.push({
         obj,
         box,
         rect: boxRect(box),
-        key: onWall(box) ? depthOf(box) - 1 : depthOf(box),
-        baked: bake(pieces),
+        // depthBias: an L-shaped piece (the sectional) sorts by its main body, not its box
+        key: (onWall(box) ? depthOf(box) - 1 : depthOf(box)) + (Number(tag?.depthBias) || 0),
+        // wall tiles meet edge to edge: an outline would draw a seam between them
+        baked: bake(pieces, !wall),
         live: pieces.some((p) => p.live),
+        wall,
       })
     }
     // what stands on a desk or a table comes after it: the desk's sprite would hide the
@@ -196,6 +213,10 @@ export class PixelPainter {
         )
           u.key = Math.max(u.key, s.key + 0.001)
     }
+    const kept = hangOnWalls(units)
+    orderAgainstWalls(kept)
+    units.length = 0
+    units.push(...kept)
     units.sort((a, b) => a.key - b.key)
     // load every sprite of the floor now, not as each comes into view
     for (const u of units) artOf(u)
@@ -271,6 +292,26 @@ export class PixelPainter {
       this.engine.hits.set(u.obj, { ...u.rect, order })
     }
     if (u.live) this.beacon(ctx, u)
+  }
+
+  /**
+   * After a wall tile: the slices of what hangs on it, then the silhouette of everyone drawn
+   * before it whom it covers (they stand behind it).
+   */
+  private drawWallExtras(ctx: CanvasRenderingContext2D, u: Unit, drawn: { av: Avatar; rect: Rect }[], t: number): void {
+    for (const h of u.hung ?? []) {
+      ctx.save()
+      ctx.beginPath()
+      ctx.rect(h.x0, -1e6, h.x1 - h.x0, 2e6)
+      ctx.clip()
+      this.drawUnit(ctx, h.unit, this.order)
+      ctx.restore()
+    }
+    const b = u.baked
+    if (!b) return
+    const r = { x0: b.ox, y0: b.oy, x1: b.ox + b.canvas.width, y1: b.oy + b.canvas.height }
+    for (const p of drawn)
+      if (p.rect.x0 < r.x1 && p.rect.x1 > r.x0 && p.rect.y0 < r.y1 && p.rect.y1 > r.y0) drawThroughWall(ctx, p.av, t, b.canvas, b.ox, b.oy)
   }
 
   /**
@@ -377,6 +418,77 @@ export class PixelPainter {
     ctx.fillStyle = m.color.getStyle()
     ctx.fillRect(x - (size >> 1), y - (size >> 1), size, size)
     ctx.globalAlpha = 1
+  }
+}
+
+/** How far a wall tile's thickness (with its trims) reaches past its own columns, in art pixels. */
+const SPILL = Math.ceil((ROOM_WALL_T + 0.08) * HALF_H)
+
+/** Across a room wall's line: the axis a unit's thickness is measured on. */
+const across = (w: NonNullable<Unit['wall']>) => (w.axis === 'x' ? 'x' : 'z')
+/** Along a room wall's line. */
+const alongOf = (w: NonNullable<Unit['wall']>) => (w.axis === 'x' ? 'z' : 'x')
+
+/** Screen columns [x0, x1) a wall tile covers: its stretch of the wall's line, seen from the camera. */
+function columns(w: NonNullable<Unit['wall']>): [number, number] {
+  return w.axis === 'z' ? [isoX(w.tile, w.at), isoX(w.tile + 1, w.at)] : [isoX(w.at, w.tile + 1), isoX(w.at, w.tile)]
+}
+
+/**
+ * Things hung on a room wall's face (off the floor and thin across the wall) leave the draw list:
+ * each wall tile they span draws its slice of them. Returns the units left to sort.
+ */
+function hangOnWalls(units: Unit[]): Unit[] {
+  const walls = units.filter((u) => u.wall)
+  const hung = new Set<Unit>()
+  for (const u of units) {
+    if (u.wall || u.box.min.y < 0.3) continue
+    const tiles = walls.filter((w) => {
+      const wl = w.wall!
+      const a = across(wl)
+      const l = alongOf(wl)
+      // on the camera's side of the wall, against its face, and over this tile
+      return (
+        u.box.min[a] >= wl.at - 0.02 &&
+        u.box.max[a] <= wl.at + ROOM_WALL_T / 2 + 0.3 &&
+        u.box.max[a] - u.box.min[a] < 0.3 &&
+        u.box.min[l] < wl.tile + 1 &&
+        u.box.max[l] > wl.tile &&
+        u.box.min.y < w.box.max.y
+      )
+    })
+    if (!tiles.length) continue
+    // left to right on screen; the end tiles take whatever sticks out past them. A tile's
+    // thickness reaches a few pixels into its neighbors' columns: each slice reaches as far, so
+    // the tile drawn next never leaves a stripe of itself across the board
+    const sorted = tiles.map((w) => ({ w, cols: columns(w.wall!) })).sort((a, b) => a.cols[0] - b.cols[0])
+    sorted.forEach(({ w, cols }, i) => {
+      const x0 = i === 0 ? -1e6 : cols[0] - SPILL
+      const x1 = i === sorted.length - 1 ? 1e6 : cols[1] + SPILL
+      ;(w.hung ??= []).push({ unit: u, x0, x1 })
+    })
+    hung.add(u)
+  }
+  return units.filter((u) => !hung.has(u))
+}
+
+/**
+ * Furniture against a room wall is drawn after every tile of it that it overlaps when it stands
+ * on the camera's side, before them when it stands behind: a two-tile bookshelf would otherwise
+ * lose its half that reaches past the middle of its tile.
+ */
+function orderAgainstWalls(units: Unit[]): void {
+  const walls = units.filter((u) => u.wall)
+  for (const u of units) {
+    if (u.wall) continue
+    for (const w of walls) {
+      const r = w.rect
+      if (u.rect.x1 <= r.x0 || u.rect.x0 >= r.x1 || u.rect.y1 <= r.y0 || u.rect.y0 >= r.y1) continue
+      const wl = w.wall!
+      const a = across(wl)
+      if (u.box.min[a] >= wl.at - 0.02) u.key = Math.max(u.key, w.key + 0.001)
+      else if (u.box.max[a] <= wl.at + 0.02) u.key = Math.min(u.key, w.key - 0.001)
+    }
   }
 }
 
