@@ -13,7 +13,7 @@ const key = (t: TourTarget) => ('hud' in t ? `hud:${t.hud}` : `world:${t.world}`
 describe('tour guiado: passos', () => {
   it('segue a ordem combinada', () => {
     expect(tourSteps('darwin').map((s) => s.id)).toEqual([
-      'welcome', 'desk', 'roster', 'panel', 'cards', 'board', 'resume', 'floors', 'limits', 'skull', 'lounge', 'routines', 'camera', 'end',
+      'welcome', 'desk', 'roster', 'panel', 'cards', 'board', 'crm', 'resume', 'floors', 'limits', 'skull', 'lounge', 'routines', 'camera', 'end',
     ])
   })
 
