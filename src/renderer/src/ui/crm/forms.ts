@@ -1,4 +1,4 @@
-import { formatPhone, normalizePhone } from '@shared/crm'
+import { formatPhone, localDate, normalizePhone } from '@shared/crm'
 import {
   brDateOf,
   customerTitle,
@@ -80,7 +80,7 @@ export function customerForm(ctx: CrmCtx, existing?: Customer, onSaved?: (c: Cus
   const floor = floorSelect(ctx.state, c?.floor)
   const nextStep = textInput(c?.nextStep ?? '', { maxlength: CRM_LIMITS.nextStep, placeholder: 'Ex.: Mandar a proposta' })
   const nextStepOn = textInput(c?.nextStepOn ?? '', { type: 'date' })
-  const lastContact = textInput(c?.lastContactAt ? new Date(c.lastContactAt).toLocaleDateString('sv-SE') : '', { type: 'date' })
+  const lastContact = textInput(c?.lastContactAt ? localDate(c.lastContactAt) : '', { type: 'date' })
   const service = h('input', { type: 'checkbox', checked: c ? c.consent.service : true }) as HTMLInputElement
   const billing = h('input', { type: 'checkbox', checked: c ? c.consent.billing : true }) as HTMLInputElement
   const offers = h('input', { type: 'checkbox', checked: c ? c.consent.offers && !c.consent.optOutAt : false }) as HTMLInputElement

@@ -137,6 +137,8 @@ export function openCustomerCard(host: HTMLElement, ctx: CrmCtx, id: string): vo
   backdrop.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && !e.defaultPrevented) {
       e.preventDefault()
+      // a note being written is not thrown away by one Esc: the first leaves the box
+      if (e.target === note && note.value.trim()) return box.focus()
       done()
     }
     e.stopPropagation()

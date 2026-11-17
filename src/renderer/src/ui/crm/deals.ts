@@ -172,7 +172,7 @@ export class DealsView {
     const list = h(
       'div',
       { class: 'crm-col-list', role: 'group', 'aria-label': `Etapa ${stage.name}, ${countOf(deals.length, ['negócio', 'negócios'])}` },
-      ...deals.map((d) => this.card(d, customers.get(d.customerId), stage.name, now)),
+      ...deals.map((d) => this.card(d, customers.get(d.customerId), stage.name, stage.kind === 'open', now)),
       deals.length
         ? null
         : h(
@@ -236,12 +236,13 @@ export class DealsView {
     )
   }
 
-  private card(d: Deal, customer: Customer | undefined, stageName: string, now: number): HTMLElement {
+  private card(d: Deal, customer: Customer | undefined, stageName: string, open: boolean, now: number): HTMLElement {
     const days = dealAge(d, now)
     const el = h(
       'div',
       {
-        class: `crm-deal${days >= 14 ? ' still' : ''}`,
+        // only an open deal can be stuck: a won or lost one waits on nothing
+        class: `crm-deal${open && days >= 14 ? ' still' : ''}`,
         role: 'button',
         tabindex: -1,
         draggable: 'true',

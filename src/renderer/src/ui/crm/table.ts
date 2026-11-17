@@ -26,6 +26,8 @@ import { h, icon } from '../dom'
 
 /** Row height (px): the same as .crm-row in crm.css; the virtual list counts on it. */
 const ROW_H = 40
+/** Rows drawn beyond each edge of the view: a scroll of up to this many rows redraws nothing. */
+const OVERSCAN = 12
 /** Filter typing is announced once it stops. */
 const ANNOUNCE_MS = 600
 
@@ -365,8 +367,12 @@ export class CrmTable<T> {
       this.win = { start: 0, end: 0 }
       return
     }
-    const w = virtualWindow(count, ROW_H, this.rowsTop(), this.rowsView())
-    if (!force && w.start === this.win.start && w.end === this.win.end) return
+    if (!force) {
+      // while the rows drawn still cover the view, scrolling costs nothing: redraw only near the edge
+      const view = virtualWindow(count, ROW_H, this.rowsTop(), this.rowsView(), 0)
+      if (view.start >= this.win.start && view.end <= this.win.end) return
+    }
+    const w = virtualWindow(count, ROW_H, this.rowsTop(), this.rowsView(), OVERSCAN)
     const hadFocus = this.list.contains(document.activeElement)
     this.win = { start: w.start, end: w.end }
     const cols = this.columns

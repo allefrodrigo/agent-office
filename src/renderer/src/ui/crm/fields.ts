@@ -98,6 +98,17 @@ export function crmModal(
   wide = false,
 ): HTMLDivElement {
   const el = modal(title, body, footer, onClose)
+  // Enter in a one-line field confirms, like a form: the keyboard reaches "Salvar" without Tab
+  el.addEventListener('keydown', (e) => {
+    const t = e.target
+    if (e.key !== 'Enter' || e.shiftKey || e.altKey || e.metaKey || e.ctrlKey || e.isComposing) return
+    if (!(t instanceof HTMLInputElement) || ['checkbox', 'radio', 'button', 'submit'].includes(t.type)) return
+    const primary = el.querySelector<HTMLButtonElement>('.modal-foot .btn-primary:not([disabled])')
+    if (!primary) return
+    e.preventDefault()
+    t.dispatchEvent(new Event('blur'))
+    primary.click()
+  })
   el.classList.add('backdrop-crm-form')
   if (wide) el.classList.add('wide')
   root.append(el)
