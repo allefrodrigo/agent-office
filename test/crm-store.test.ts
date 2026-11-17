@@ -317,6 +317,49 @@ describe('CrmStore: recorrências', () => {
   })
 })
 
+describe('CrmStore: recorrências em massa e no limite', () => {
+  it('limite de pagamentos: lastMonth fica no último mês criado, e o mês cortado sai quando houver espaço', () => {
+    const s = open()
+    const c = maria(s)
+    s.setSettings({ ...s.settings, recurrenceLeadDays: 0 })
+    const r = s.saveRecurrence({ customerId: c.id, amountCents: 100, day: 5, reference: 'Mensal', start: '2026-08' }).item
+    expect(r.lastMonth).toBe('2026-11')
+    // dezembro chega com só uma vaga: janeiro fica para depois
+    const filler = { ...s.payments[0], recurrenceId: undefined, demo: undefined }
+    while (s.payments.length < CRM_LIMITS.payments - 1) s.payments.push({ ...filler, id: `f${s.payments.length}` })
+    clock = new Date(2027, 0, 5, 12).getTime()
+    const run = s.runRecurrences()!
+    expect(run.payments?.map((p) => p.due)).toEqual(['2026-12-05'])
+    expect(s.recurrence(r.id)?.lastMonth).toBe('2026-12')
+    expect(s.runRecurrences()).toBeNull()
+    s.payments.splice(s.payments.findIndex((p) => p.id.startsWith('f')), 1)
+    expect(s.runRecurrences()?.payments?.map((p) => p.due)).toEqual(['2027-01-05'])
+    expect(s.recurrence(r.id)?.lastMonth).toBe('2027-01')
+  })
+
+  it('500 recorrências de um ano: um pagamento por mês cada, faturas em sequência sem repetir', () => {
+    const s = open()
+    s.setSettings({ ...s.settings, recurrenceLeadDays: 0 })
+    const ids: string[] = []
+    for (let i = 0; i < 500; i++) {
+      const c = s.saveCustomer({ name: `Cliente ${i}`, phones: [`55119${String(i).padStart(8, '0')}`] }).item
+      ids.push(s.saveRecurrence({ customerId: c.id, amountCents: 100, day: 1, reference: 'Mensal', start: '2027-01', active: false }).item.id)
+    }
+    s.recurrences.forEach((r) => (r.active = true))
+    clock = new Date(2027, 11, 1, 12).getTime()
+    const t0 = performance.now()
+    const run = s.runRecurrences()!
+    expect(performance.now() - t0).toBeLessThan(2000)
+    expect(run.payments).toHaveLength(500 * 12)
+    const invoices = run.payments!.map((p) => p.invoice)
+    expect(new Set(invoices).size).toBe(invoices.length)
+    expect(invoices[0]).toBe('2027-12-001')
+    expect(invoices.at(-1)).toBe('2027-12-6000')
+    expect(new Set(s.recurrences.map((r) => r.lastMonth))).toEqual(new Set(['2027-12']))
+    expect(s.runRecurrences()).toBeNull()
+  })
+})
+
 describe('CrmStore: consentimento de ofertas', () => {
   it('ligar carimba a data; desligar apaga; quem saiu só volta com clearOptOut', () => {
     const at = 1_700_000_000_000
@@ -346,6 +389,35 @@ describe('CrmStore: importação', () => {
     const fresh = s.customers.find((x) => x.name === 'Novo')!
     expect(fresh).toMatchObject({ source: 'import', consent: { offers: false } })
     expect(s.customer(c.id)).toMatchObject({ name: 'Maria Souza', company: 'Padaria', phones: ['5511987654321', '552134567890'], tags: ['site', 'vip'], consent: { offers: true } })
+  })
+
+  it('o índice de telefones acompanha cada linha e cada edição', () => {
+    const s = open()
+    const { result } = s.importCustomers([
+      { draft: { name: 'Primeira', phones: ['551134567890'] }, onConflict: 'skip' },
+      { draft: { name: 'Repetida', phones: ['551134567890'] }, onConflict: 'skip' },
+      { draft: { name: 'Primeira Souza', phones: ['551134567890', '552134567890'] }, onConflict: 'update' },
+      { draft: { name: 'Outra', phones: ['552134567890'] }, onConflict: 'skip' },
+    ])
+    expect(result).toEqual({ created: 1, updated: 1, skipped: 2 })
+    const first = s.customers[0]
+    expect(s.ownerOfPhone('552134567890')).toBe(first)
+    // tirar um telefone da ficha o libera para outro cliente
+    s.saveCustomer({ id: first.id, name: first.name, phones: ['551134567890'] })
+    expect(s.ownerOfPhone('552134567890')).toBeUndefined()
+    expect(() => s.saveCustomer({ name: 'Outra', phones: ['552134567890'] })).not.toThrow()
+    expect(s.ownerOfPhone('551134567890')?.name).toBe('Primeira Souza')
+  })
+
+  it('importação para no limite de clientes e conta o resto como pulado', () => {
+    const s = open()
+    const filler = maria(s)
+    while (s.customers.length < CRM_LIMITS.customers - 1) s.customers.push({ ...filler, id: `f${s.customers.length}`, phones: [] })
+    const { result } = s.importCustomers([
+      { draft: { name: 'Cabe' }, onConflict: 'skip' },
+      { draft: { name: 'Não cabe' }, onConflict: 'skip' },
+    ])
+    expect(result).toEqual({ created: 1, updated: 0, skipped: 1 })
   })
 
   it('linha com telefones de dois clientes é pulada', () => {

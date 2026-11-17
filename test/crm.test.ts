@@ -276,6 +276,19 @@ describe('toCsv', () => {
     expect(lines(csv).slice(1, -1)).toEqual(['"\'=HYPERLINK(""http://mal.example"",""clique"")"', "'+1", "'-2", "'@SUM(A1:A2)", "'\tTAB", '"\'\rCR"', 'normal', "'-5"])
   })
 
+  it('fórmula depois de vírgula, ponto e vírgula, tab ou quebra de linha também ganha apóstrofo', () => {
+    const csv = toCsv(['A'], [['a,=1+1,b'], ['x; -2+3'], ['y\t@SUM(A1)'], ['linha\n+1'], ['z,"=HYPERLINK(B7)'], ['Rua 7, 120'], ['2026-11-20']])
+    expect(lines(csv).slice(1, -1)).toEqual([
+      `"a,'=1+1,b"`,
+      `"x; '-2+3"`,
+      "y\t'@SUM(A1)",
+      `"linha\n'+1"`,
+      `"z,""'=HYPERLINK(B7)"`,
+      '"Rua 7, 120"',
+      '2026-11-20',
+    ])
+  })
+
   it('número com vírgula decimal', () => {
     expect(lines(toCsv(['n'], [[1.5], [Number.NaN]]))[1]).toBe('"1,5"')
   })

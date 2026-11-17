@@ -756,12 +756,34 @@ function parseCrm<T>(schema: z.ZodType<T, unknown>, raw: unknown, fallback: stri
 }
 
 const crmTooLong = (what: string, max: number) => `${what} passa de ${max.toLocaleString('pt-BR')} letras. Encurte o texto.`
-/** One line: trimmed, spaces collapsed, at most `max` letters. */
+/**
+ * Marks that flip the text direction (U+202A–202E, U+2066–2069): "Maria \u202Eodagap" would show
+ * as "Maria pagado" in the table, the card and the CSV.
+ */
+const BIDI_MARKS = /[\u202A-\u202E\u2066-\u2069]/g
+/** One line of text: control characters and direction marks out, spaces collapsed, trimmed. */
+export function crmLineText(s: string): string {
+  return s
+    .replace(/\s+/g, ' ')
+    .replace(/\p{Cc}/gu, '')
+    .replace(BIDI_MARKS, '')
+    .replace(/ {2,}/g, ' ')
+    .trim()
+}
+/** Text with line breaks: the same, but line breaks (and tabs) stay. */
+function crmBlockText(s: string): string {
+  return s
+    .replace(/\r\n?/g, '\n')
+    .replace(/[^\P{Cc}\t\n]/gu, '')
+    .replace(BIDI_MARKS, '')
+    .trim()
+}
+/** One line: trimmed, spaces collapsed, no control or direction characters, at most `max` letters. */
 const crmLine = (what: string, max: number) =>
   z
     .string()
     .max(max * 4 + 64, crmTooLong(what, max))
-    .transform((s) => s.trim().replace(/\s+/g, ' '))
+    .transform(crmLineText)
     .pipe(z.string().max(max, crmTooLong(what, max)))
 /** Optional: missing, null or empty (after trimming) is undefined. */
 const crmOpt = <T>(schema: z.ZodType<T, unknown>) => z.preprocess((v) => (v === null || v === '' ? undefined : v), schema.optional()).transform((v) => (v === '' ? undefined : v))
@@ -1052,7 +1074,7 @@ export function cleanCrmNote(raw: unknown): string {
     z
       .string()
       .max(CRM_LIMITS.note * 2, crmTooLong('A nota', CRM_LIMITS.note))
-      .transform((s) => s.replace(/\r\n?/g, '\n').replace(/[^\P{Cc}\t\n]/gu, '').trim())
+      .transform(crmBlockText)
       .pipe(z.string().min(1, 'Escreva a nota antes de salvar.').max(CRM_LIMITS.note, crmTooLong('A nota', CRM_LIMITS.note))),
     raw,
     'Nota inválida.',
@@ -1085,10 +1107,7 @@ export function cleanImportRows(raw: unknown): { draft: unknown; onConflict: 'sk
 
 const autonomySchema = z.enum(['draft', 'approval', 'auto'])
 const hhmmCrm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
-const paymentField = z
-  .string()
-  .max(CRM_LIMITS.paymentField)
-  .transform((s) => s.trim())
+const paymentField = z.string().max(CRM_LIMITS.paymentField).transform(crmLineText)
 /** Words of a list (opt-out, alert): trimmed, lower case, no empties or repeats. */
 const crmWords = z
   .array(z.string().max(CRM_LIMITS.word * 2))
@@ -1131,14 +1150,8 @@ const crmFields = {
     .array(crmDomain)
     .max(CRM_LIMITS.allowedLinks)
     .transform((l) => [...new Set(l)]),
-  company: z
-    .string()
-    .max(CRM_LIMITS.company)
-    .transform((s) => s.trim()),
-  signature: z
-    .string()
-    .max(CRM_LIMITS.signature)
-    .transform((s) => s.trim()),
+  company: z.string().max(CRM_LIMITS.company).transform(crmLineText),
+  signature: z.string().max(CRM_LIMITS.signature).transform(crmBlockText),
   optOutWords: crmWords,
   alertWords: crmWords,
   stopAll: z.boolean(),

@@ -159,7 +159,7 @@ export function setupData(d: DataDeps): void {
     const set = importSet(exp)
     const yes = await ask(
       'Substituir os dados deste computador?',
-      `A exportação de ${when} toma o lugar dos agentes, configurações, gastos e tickets daqui.${keptNote(set, 'Essa exportação')} O estado atual fica salvo antes como um backup "antes de restaurar". ` +
+      `A exportação de ${when} toma o lugar dos agentes, configurações, gastos, tickets e CRM daqui.${keptNote(set, 'Essa exportação')} O estado atual fica salvo antes como um backup "antes de restaurar". ` +
         'Importe só arquivos seus: pastas de contas fora de ~/.claude-<nome> são descartadas e a permissão padrão "sem pedir nada" volta para "pedir permissão". ' +
         'O CRM chega com o modo ensaio ligado: nada é enviado sozinho até você desligar. O app reinicia.',
       'Importar e reiniciar',

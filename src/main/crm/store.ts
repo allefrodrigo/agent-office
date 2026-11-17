@@ -371,10 +371,17 @@ export class CrmStore {
     return item as CrmData[C][number]
   }
 
+  /** Items that count toward CRM_LIMITS (demo items do not). */
+  private real(coll: 'customers' | 'deals' | 'payments' | 'recurrences'): number {
+    let n = 0
+    for (const x of this.data[coll] as { demo?: boolean }[]) if (!x.demo) n++
+    return n
+  }
+
   /** Refuses one more item past CRM_LIMITS (demo items do not count). */
-  private room(coll: 'customers' | 'deals' | 'payments' | 'recurrences'): void {
+  private room(coll: 'customers' | 'deals' | 'payments' | 'recurrences', count = this.real(coll)): void {
     const max = CRM_LIMITS[coll]
-    if ((this.data[coll] as { demo?: boolean }[]).filter((x) => !x.demo).length >= max) {
+    if (count >= max) {
       throw new Error(`Limite de ${max.toLocaleString('pt-BR')} ${NAMES[coll]} atingido. Apague alguns antes de criar outros.`)
     }
   }
@@ -383,10 +390,28 @@ export class CrmStore {
   private put<C extends Exclude<CrmCollection, 'pipelines' | 'suggestions'>>(coll: C, item: CrmData[C][number]): void {
     const arr = this.data[coll] as { id: string }[]
     const i = arr.findIndex((x) => x.id === item.id)
+    const before = i >= 0 ? arr[i] : undefined
     if (i >= 0) arr[i] = item
     else arr.push(item)
-    if (coll === 'customers') this.phoneIndex = null
+    if (coll === 'customers') this.indexPhones(before as Customer | undefined, item as Customer)
     this.save()
+  }
+
+  /**
+   * Keeps the phone index in step with one customer write, without rebuilding it (an import of
+   * 5 000 rows would rebuild it 5 000 times). Dropping a phone is rare: that rebuilds it later.
+   */
+  private indexPhones(before: Customer | undefined, after: Customer): void {
+    const index = this.phoneIndex
+    if (!index) return
+    if (before?.phones.some((p) => !after.phones.includes(p))) {
+      this.phoneIndex = null
+      return
+    }
+    for (const p of after.phones) {
+      const owner = index.get(p)
+      if (!owner || owner.id === after.id) index.set(p, after)
+    }
   }
 
   /** One phone, one customer: throws (naming the other customer, for the screen only) when a phone is taken. */
@@ -403,11 +428,11 @@ export class CrmStore {
   // ---------- clientes ----------
 
   /** Creates (no id) or edits a customer. A key the draft lacks keeps the saved value. */
-  saveCustomer(d: CleanCustomerDraft, opts: { source?: CustomerSource } = {}): Saved<Customer> {
+  saveCustomer(d: CleanCustomerDraft, opts: { source?: CustomerSource; count?: number } = {}): Saved<Customer> {
     const at = this.now()
     const before = d.id ? this.customer(d.id) : undefined
     if (d.id && !before) throw new Error(GONE.customers)
-    if (!before) this.room('customers')
+    if (!before) this.room('customers', opts.count)
     const phones = d.phones ?? before?.phones ?? []
     this.checkPhones(phones, before?.id)
     const c = compact<Customer>({
@@ -610,16 +635,26 @@ export class CrmStore {
     return deal.id
   }
 
-  /** "AAAA-MM-NNN": the month it was made and the next number of that month. */
-  private nextInvoice(at: number): string {
-    const prefix = `${localDate(at).slice(0, 7)}-`
+  /** "AAAA-MM-": the invoice prefix of the month `at` falls in. */
+  private invoicePrefix(at: number): string {
+    return `${localDate(at).slice(0, 7)}-`
+  }
+
+  /** The highest invoice number already given under the prefix (0 when none). */
+  private lastInvoice(prefix: string): number {
     let max = 0
     for (const p of this.data.payments) {
       if (!p.invoice.startsWith(prefix)) continue
       const n = Number(p.invoice.slice(prefix.length))
       if (Number.isSafeInteger(n) && n > max) max = n
     }
-    return `${prefix}${String(max + 1).padStart(3, '0')}`
+    return max
+  }
+
+  /** "AAAA-MM-NNN": the month it was made and the next number of that month. */
+  private nextInvoice(at: number): string {
+    const prefix = this.invoicePrefix(at)
+    return `${prefix}${String(this.lastInvoice(prefix) + 1).padStart(3, '0')}`
   }
 
   /** Creates (no id) or edits a payment; the invoice number is made here. */
@@ -728,27 +763,48 @@ export class CrmStore {
     return { payments: made, recurrences }
   }
 
+  /**
+   * Makes the payments `recs` owe by `today`. One pass over the payments up front (what exists,
+   * how many count toward the limit, the last invoice number), then constant work per payment:
+   * thousands of recurrences after weeks closed would otherwise freeze startup for minutes.
+   * lastMonth moves only to the last month that has its payment, so a month the limit cut is
+   * made on a later pass, once there is room.
+   */
   private makeRecurring(recs: readonly Recurrence[], today: string): Payment[] {
     const at = this.now()
     const lead = this.data.settings.recurrenceLeadDays
     const made: Payment[] = []
-    for (const r0 of recs) {
-      const months = recurrenceMonths(r0, today, lead)
-      const customer = months.length ? this.customer(r0.customerId) : undefined
+    const owing = recs.map((r) => ({ r, months: recurrenceMonths(r, today, lead) })).filter((x) => x.months.length)
+    if (!owing.length) return made
+    const key = (recurrenceId: string, day: string) => `${recurrenceId}|${day}`
+    const have = new Set<string>()
+    for (const p of this.data.payments) if (p.recurrenceId) have.add(key(p.recurrenceId, p.due))
+    const customers = new Map(this.data.customers.map((c) => [c.id, c]))
+    const deals = new Set(this.data.deals.map((d) => d.id))
+    let real = this.real('payments')
+    const prefix = this.invoicePrefix(at)
+    let invoice = this.lastInvoice(prefix)
+    for (const { r: r0, months } of owing) {
+      const customer = customers.get(r0.customerId)
       if (!customer) continue
-      const dealId = r0.dealId && this.deal(r0.dealId) ? r0.dealId : undefined
+      const dealId = r0.dealId && deals.has(r0.dealId) ? r0.dealId : undefined
+      let last: string | undefined
       for (const m of months) {
         // Never twice for the same month, whatever lastMonth says.
-        if (this.data.payments.some((p) => p.recurrenceId === r0.id && p.due === m.due)) continue
-        if (!r0.demo && this.data.payments.filter((p) => !p.demo).length >= CRM_LIMITS.payments) {
+        if (have.has(key(r0.id, m.due))) {
+          last = m.month
+          continue
+        }
+        if (!r0.demo && real >= CRM_LIMITS.payments) {
           log.warn(`CRM: limite de pagamentos atingido; a recorrência ${r0.id} não criou o mês ${m.month}`)
           break
         }
+        invoice++
         const p = compact<Payment>({
           id: randomUUID(),
           customerId: customer.id,
           dealId,
-          invoice: this.nextInvoice(at),
+          invoice: `${prefix}${String(invoice).padStart(3, '0')}`,
           amountCents: r0.amountCents,
           due: m.due,
           reference: recurrenceReference(r0, m.month),
@@ -762,10 +818,13 @@ export class CrmStore {
         })
         this.data.payments.push(p)
         made.push(p)
+        have.add(key(r0.id, m.due))
+        if (!p.demo) real++
+        last = m.month
       }
-      const r = { ...r0, lastMonth: months[months.length - 1].month }
-      const i = this.data.recurrences.findIndex((x) => x.id === r.id)
-      if (i >= 0) this.data.recurrences[i] = r
+      if (!last || last === r0.lastMonth) continue
+      const i = this.data.recurrences.findIndex((x) => x.id === r0.id)
+      if (i >= 0) this.data.recurrences[i] = { ...r0, lastMonth: last }
     }
     if (made.length) {
       log.info(`CRM: recorrências criaram ${made.length} pagamento(s)`)
@@ -792,13 +851,16 @@ export class CrmStore {
   importCustomers(rows: readonly { draft: CleanCustomerDraft; onConflict: ImportChoice }[]): { result: CustomerImportResult; delta: CrmDelta } {
     const result: CustomerImportResult = { created: 0, updated: 0, skipped: 0 }
     const at = this.now()
+    // Counted once: room() would walk every customer again for each new row.
+    let count = this.real('customers')
     for (const { draft, onConflict } of rows) {
       const phones = draft.phones ?? []
       const owners = [...new Set(phones.map((p) => this.ownerOfPhone(p)).filter((c): c is Customer => !!c))]
       if (!owners.length) {
         try {
           const { id: _id, consent: _consent, ...fresh } = draft
-          this.saveCustomer(fresh, { source: 'import' })
+          this.saveCustomer(fresh, { source: 'import', count })
+          count++
           result.created++
         } catch {
           result.skipped++

@@ -333,18 +333,25 @@ export function dealAge(d: Pick<Deal, 'stageAt'>, now: number): number {
 
 /** A cell a spreadsheet would run as a formula (CSV injection): = + - @, tab or CR first. */
 const FORMULA = /^[=+\-@\t\r]/
+/**
+ * The same after a separator inside the cell. Excel set to ',' (en-US) ignores quotes that do not
+ * open the field, so "a,=1+1" splits into a cell "=1+1" and runs it.
+ */
+const INNER_FORMULA = /([,;\t\r\n][\s"]*)([=+\-@])/g
 
 function csvCell(v: string | number | null | undefined): string {
   if (v === null || v === undefined) return ''
   let s = typeof v === 'number' ? (Number.isFinite(v) ? String(v).replace('.', ',') : '') : String(v)
   if (FORMULA.test(s)) s = `'${s}`
+  s = s.replace(INNER_FORMULA, "$1'$2")
   return /[;,"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
 /**
  * A CSV for Excel in pt-BR: UTF-8 with BOM, ';' between cells, CRLF between lines. Cells with
  * ; , quotes or line breaks go in quotes; a cell starting with = + - @, tab or CR gets a ' in
- * front, so the spreadsheet shows it as text instead of running it.
+ * front, so the spreadsheet shows it as text instead of running it, and so does = + - @ right
+ * after a , ; tab or line break inside the cell.
  */
 export function toCsv(header: readonly string[], rows: readonly (readonly (string | number | null | undefined)[])[]): string {
   return `\ufeff${[header, ...rows].map((r) => r.map(csvCell).join(';')).join('\r\n')}\r\n`

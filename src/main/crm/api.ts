@@ -233,7 +233,15 @@ export function crmApi(d: CrmApiDeps) {
       if (!customer) throw new Error('Esse cliente não existe mais. Ele pode ter sido apagado em outra janela.')
       const path = await d.dialogs.save({ title: 'Exportar os dados deste cliente', defaultName: `cliente-${slug(customer.name)}-${today()}.json`, filters: [{ name: 'JSON', extensions: ['json'] }] })
       if (!path) return null
-      writeJsonAtomic(path, customerExport(customerId, store.list(), now()), { mode: FILE_MODE, space: 2, newline: true })
+      try {
+        writeJsonAtomic(path, customerExport(customerId, store.list(), now()), { mode: FILE_MODE, space: 2, newline: true })
+      } catch (err) {
+        // The default file name carries the customer's name: the log gets only the error code.
+        log.warn(`CRM: exportação dos dados do cliente ${customerId} falhou (${(err as NodeJS.ErrnoException).code ?? 'erro'})`)
+        // No `cause` on purpose: Electron logs a handler's error with its cause, and the cause has the path.
+        // eslint-disable-next-line preserve-caught-error
+        throw new Error('Não deu para gravar o arquivo. Escolha outra pasta ou libere espaço no disco e tente de novo.')
+      }
       log.info(`CRM: dados do cliente ${customerId} exportados (LGPD)`)
       return path
     },

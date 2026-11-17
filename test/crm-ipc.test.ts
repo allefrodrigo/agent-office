@@ -293,6 +293,19 @@ describe('regras: valores ruins não passam', () => {
     expect(out).not.toHaveProperty('evil')
     expect(lastDelta()).toEqual({ settings: out })
   })
+
+  it('caracteres de controle e de direção do texto saem dos nomes, das notas e das regras', async () => {
+    const c = await newCustomer({ name: 'Maria\u0000\u0007 \u202Eodagap', company: '\u2066Padaria\u2069  Trigo', tags: ['\u202Dvip'] })
+    expect(c).toMatchObject({ name: 'Maria odagap', company: 'Padaria Trigo', tags: ['vip'] })
+    await call('addCrmNote', c.id, 'linha 1\u202E\nlinha\u0000 2')
+    expect(store.customer(c.id)?.notes[0].text).toBe('linha 1\nlinha 2')
+    const out = (await call('saveCrmSettings', { company: 'Ag\u202Eência', signature: 'Equipe\u0000\nAgência', payment: { ...store.settings.payment, payee: 'Fulano\u2067' } })) as {
+      company: string
+      signature: string
+      payment: { payee: string }
+    }
+    expect(out).toMatchObject({ company: 'Agência', signature: 'Equipe\nAgência', payment: { payee: 'Fulano' } })
+  })
 })
 
 describe('exportar e importar', () => {
@@ -406,6 +419,20 @@ describe('logs sem dados do cliente', () => {
     expect(lines).not.toContain('Maria')
     expect(lines).not.toContain('98765-4321')
     expect(lines).not.toContain('5511987654321')
+  })
+
+  it('exportação LGPD que falha: mensagem genérica, sem nome nem caminho no erro ou no log', async () => {
+    const warn = vi.spyOn(log, 'warn')
+    const c = await newCustomer()
+    h.save = join(dir, 'nao-existe', 'cliente-maria-souza-2026-11-10.json')
+    const err = (await call('exportCustomerData', c.id).catch((e: Error) => e)) as Error
+    expect(err.message).toContain('Escolha outra pasta')
+    expect(err.message).not.toMatch(/maria|nao-existe/i)
+    expect(err.stack ?? '').not.toMatch(/maria/i)
+    const lines = warn.mock.calls.map((a) => a.join(' ')).join('\n')
+    expect(lines).toContain(c.id)
+    expect(lines).toContain('ENOENT')
+    expect(lines).not.toMatch(/maria/i)
   })
 
   it('apagar e importar logam contagens, não nomes', async () => {

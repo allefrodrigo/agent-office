@@ -88,7 +88,7 @@ export function dataSection(toast: Toast): HTMLElement {
     h(
       'div',
       { class: 'field-hint' },
-      'Uma cópia por dia de agentes, configurações, gastos e tickets, guardada por 14 dias. Restaurar salva antes o estado atual e reinicia o app.',
+      'Uma cópia por dia de agentes, configurações, gastos, tickets e CRM, guardada por 14 dias. As cópias do CRM têm dados pessoais de clientes, inclusive de quem você apagou. Restaurar salva antes o estado atual e reinicia o app.',
     ),
     list,
     h(
