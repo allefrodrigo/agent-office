@@ -104,14 +104,14 @@ export function serverBox(opts: { toast: Toast; title?: boolean }): ServerBox {
         ),
       ),
     )
-    list.hidden = !s.containers.length
+    list.classList.toggle('hidden', !s.containers.length)
     const busy = acting || !!s.busy
-    primary.hidden = !v.primary
+    primary.classList.toggle('hidden', !v.primary)
     primary.disabled = busy
     primary.replaceChildren(icon('power', 15), v.primary === 'stop' ? 'Desligar' : 'Ligar')
     primary.classList.toggle('btn-primary', v.primary === 'start')
     primary.dataset.action = v.primary ?? ''
-    engineStop.hidden = !v.engineStop
+    engineStop.classList.toggle('hidden', !v.engineStop)
     engineStop.disabled = busy
     refreshBtn.disabled = busy
     el.setAttribute('aria-busy', String(busy))
@@ -206,7 +206,7 @@ export function serverChip(opts: { toast: Toast }): { el: HTMLElement; dispose()
     pop.replaceChildren(box.el)
     pop.hidden = false
     btn.setAttribute('aria-expanded', 'true')
-    pop.querySelector<HTMLElement>('button:not([hidden])')?.focus()
+    pop.querySelector<HTMLElement>('button:not(.hidden)')?.focus()
   })
   pop.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return

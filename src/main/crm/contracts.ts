@@ -8,10 +8,12 @@ import type { ConversationItem, ConversationPage, ConversationSummary, CrmAuthor
 // ---------- Evolution (crm-whatsapp implementa em evolution.ts) ----------
 
 /**
- * How a call to the Evolution failed. The Outbox retries network, timeout and http5xx (up to 3
- * times), never http4xx: a 4xx sent twice could reach the customer twice.
+ * How a call to the Evolution failed. The Outbox retries refused, network, timeout and http5xx
+ * (up to 3 times), never http4xx. refused = the request never reached the server (connection
+ * refused, DNS): nothing went out. network, timeout and http5xx may come after the server already
+ * sent the message: the Outbox asks findSent before trying again.
  */
-export type EvolutionErrorKind = 'config' | 'network' | 'timeout' | 'http4xx' | 'http5xx' | 'schema' | 'not-whatsapp'
+export type EvolutionErrorKind = 'config' | 'refused' | 'network' | 'timeout' | 'http4xx' | 'http5xx' | 'schema' | 'not-whatsapp'
 
 /** pt-BR message that says what to do, never the token, the URL's secrets or message text. */
 export class EvolutionError extends Error {
@@ -25,6 +27,11 @@ export class EvolutionError extends Error {
   }
 
   get retryable(): boolean {
+    return this.kind === 'refused' || this.kind === 'network' || this.kind === 'timeout' || this.kind === 'http5xx'
+  }
+
+  /** The server may have sent the message before this error: check with findSent before trying again. */
+  get maybeDelivered(): boolean {
     return this.kind === 'network' || this.kind === 'timeout' || this.kind === 'http5xx'
   }
 }
@@ -40,6 +47,12 @@ export interface EvolutionSender {
   sendDocument(number: string, doc: { fileName: string; base64: string; caption?: string }): Promise<{ waId: string }>
   /** "digitando…" for `ms` (the Outbox: proportional to the text, at most 6 s). */
   presence(number: string, ms: number): Promise<void>
+  /**
+   * A message we sent (fromMe) to `number` with exactly `text`, at or after `since` (ms), as
+   * findMessages has it; null when there is none. Throws EvolutionError when it cannot tell: the
+   * Outbox then stops and hands the draft back ("confira no celular"), never sends blind.
+   */
+  findSent(number: string, text: string, since: number): Promise<{ waId: string } | null>
 }
 
 /** The link as the Outbox and the gate see it (crm-whatsapp implements it in events.ts). */
