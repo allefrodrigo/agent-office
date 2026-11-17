@@ -10,7 +10,7 @@ import { badgePixels, encodePng } from './badge'
 import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
-import { prepareStress, startBotDemo, startCrmDemo, startDemo, startRoutineDemo, startStress } from './demo'
+import { prepareStress, startBotDemo, startCrmDemo, startCrmLoad, startDemo, startRoutineDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
 import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
@@ -731,6 +731,8 @@ app.whenReady().then(async () => {
     startBotDemo(manager, botStore, bots)
     startCrmDemo(crmStore)
   }
+  // `npm run bench -- --crm`: the CRM with 2 000 customers, in memory only.
+  if (process.env.AGENT_OFFICE_DEMO === 'crm') startCrmLoad(crmStore)
   // After the demo is in place: what was due while the app was closed runs (or is skipped) now.
   routines.start()
   // Recurrences make the payments already due: now, then on each new local day (checked hourly and on wake).

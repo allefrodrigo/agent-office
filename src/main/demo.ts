@@ -4,6 +4,7 @@ import { nextRun } from '@shared/schedule'
 import {
   BOT_COLORS,
   BOT_GROUND_FLOOR,
+  DEFAULT_PIPELINE,
   SENSITIVE_KINDS,
   type Bot,
   type BotRun,
@@ -457,6 +458,85 @@ export function startCrmDemo(store: CrmStore, now = Date.now()): void {
       }
     })
   store.addDemo({ customers, deals, payments, recurrences })
+}
+
+/**
+ * CRM load (AGENT_OFFICE_DEMO=crm, `npm run bench -- --crm`): the demo above plus generated
+ * customers up to `count`, a deal for every third and a payment for every second, so the
+ * bench opens the screen and scrolls the table with the volume of the spec's metric.
+ * In memory only, like the demo.
+ */
+export function startCrmLoad(store: CrmStore, count = 2000, now = Date.now()): void {
+  startCrmDemo(store, now)
+  const DAY = 86_400_000
+  const today = localDate(now)
+  const first = ['Ana', 'Bruno', 'Carla', 'Diego', 'Elisa', 'Fábio', 'Gabriela', 'Henrique', 'Isabela', 'Jorge', 'Karina', 'Lucas']
+  const last = ['Almeida', 'Barbosa', 'Cardoso', 'Duarte', 'Esteves', 'Farias', 'Gomes', 'Henriques', 'Ibrahim', 'Jardim']
+  const kinds = ['Padaria', 'Oficina', 'Studio', 'Clínica', 'Loja', 'Escola', 'Café', 'Ateliê']
+  const stages = DEFAULT_PIPELINE.stages
+  const customers: Customer[] = []
+  const deals: Deal[] = []
+  const payments: Payment[] = []
+  for (let i = 13; i <= count; i++) {
+    const name = `${first[i % first.length]} ${last[Math.floor(i / first.length) % last.length]} ${i}`
+    const contact = now - (i % 90) * DAY
+    customers.push({
+      id: `demo-load-c${i}`,
+      kind: 'person',
+      name,
+      company: `${kinds[i % kinds.length]} ${last[i % last.length]}`,
+      // Fictional range (11) 9NNNN-NNNN, never a real customer's number.
+      phones: [`55119${String(i).padStart(8, '0')}`],
+      tags: i % 4 ? ['site'] : ['site', 'manutenção'],
+      consent: { service: true, billing: true, offers: false },
+      source: 'demo',
+      notes: [],
+      tickets: [],
+      lastContactAt: contact,
+      createdAt: contact - 30 * DAY,
+      updatedAt: contact,
+      demo: true,
+    })
+    if (i % 3 === 0) {
+      const stage = stages[i % stages.length]
+      const stageAt = now - (i % 20) * DAY
+      deals.push({
+        id: `demo-load-d${i}`,
+        customerId: `demo-load-c${i}`,
+        title: 'Site institucional',
+        valueCents: 100_000 + (i % 50) * 10_000,
+        pipelineId: DEFAULT_PIPELINE.id,
+        stageId: stage.id,
+        stageAt,
+        tickets: [],
+        order: i,
+        history: [{ t: stageAt, to: stage.id, by: { kind: 'player' } }],
+        createdAt: stageAt,
+        updatedAt: stageAt,
+        ...(stage.kind === 'open' ? {} : { closedAt: stageAt }),
+        demo: true,
+      })
+    }
+    if (i % 2 === 0) {
+      const due = addDays(today, (i % 60) - 30)
+      const paid = i % 8 === 0
+      payments.push({
+        id: `demo-load-p${i}`,
+        customerId: `demo-load-c${i}`,
+        invoice: `${due.slice(0, 7)}-${String(i).padStart(4, '0')}`,
+        amountCents: 20_000 + (i % 40) * 5_000,
+        due,
+        reference: 'Manutenção',
+        method: 'pix',
+        state: paid ? 'paid' : 'open',
+        ...(paid ? { paidOn: due < today ? due : today } : {}),
+        createdAt: now - 40 * DAY,
+        updatedAt: now - 40 * DAY,
+        demo: true,
+      })
+    }
+  }
+  store.addDemo({ customers, deals, payments })
 }
 
 /** Stress mode: 50 agents spread over the ground floor and three project floors. */

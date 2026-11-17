@@ -59,6 +59,7 @@ export function registerAppIpc(ctx: IpcContext): void {
     macJobs: macJobs.list(),
     caffeineAwake: caffeine.awake,
     forceTour: process.env.AGENT_OFFICE_TOUR === '1',
+    forceCrm: process.env.AGENT_OFFICE_DEMO === '1' || process.env.AGENT_OFFICE_DEMO === 'crm',
     forceView: process.env.AGENT_OFFICE_VIEW === '2d' || process.env.AGENT_OFFICE_VIEW === 'iso' ? process.env.AGENT_OFFICE_VIEW : undefined,
   }))
   ipcMain.handle('office:setCaffeine', (_e, raw: unknown) => {

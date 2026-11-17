@@ -115,6 +115,8 @@ export interface OfficeState {
   forceTour?: boolean
   /** AGENT_OFFICE_VIEW=2d|iso: this run draws the office that way, whatever the settings say (screenshots, bench). */
   forceView?: ViewMode
+  /** AGENT_OFFICE_DEMO=1|crm: the CRM shows with its demo data even with "CRM (prévia)" off (nothing is saved). */
+  forceCrm?: boolean
 }
 
 /** A data file that did not parse: what happened, for the warning in the renderer. */

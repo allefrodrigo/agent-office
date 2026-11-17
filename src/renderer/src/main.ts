@@ -211,7 +211,8 @@ async function boot(): Promise<void> {
   chatLaunch.addEventListener('click', () => openChat())
   // Sala de CRM (CR-04): "CRM" (or V) opens clients, deals and payments; only with "CRM (prévia)" on.
   // The badge counts what waits for you (phase 1: pending suggestions); zero hides it.
-  const crmOn = () => (state.settings.crm ?? CRM_APP_DEFAULTS).enabled
+  // The demo (npm run demo, the CRM bench) shows the CRM with its in-memory data even when it is off.
+  const crmOn = () => !!initial.forceCrm || (state.settings.crm ?? CRM_APP_DEFAULTS).enabled
   const crmBadge = h('span', { class: 'crm-launch-badge', hidden: true, 'aria-hidden': 'true' })
   const crmLaunch = h('button', { class: 'studio-launch crm-launch', 'data-tour': 'crm', 'aria-label': 'Sala de CRM', hidden: !crmOn() }, icon('users', 16), 'CRM', crmBadge, h('small', {}, 'V'))
   crmLaunch.addEventListener('click', () => openCrm())
