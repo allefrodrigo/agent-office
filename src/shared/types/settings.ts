@@ -5,6 +5,7 @@ import type { Account } from './accounts'
 import type { AgentTemplate, EffortLevel, Look, OfficePermissionMode } from './agents'
 import type { MeetingSettings } from './meetings'
 import type { ChatSettings } from './bots'
+import type { CrmAppSettings } from './crm'
 
 export interface BridgeStatus {
   installed: boolean
@@ -59,6 +60,8 @@ export interface Settings {
   caffeine?: CaffeineMode
   /** Configurações → Chat (bots). Missing = CHAT_DEFAULTS. */
   chat?: ChatSettings
+  /** Configurações → CRM: the "CRM (prévia)" switch. Missing = CRM_APP_DEFAULTS. The CRM's rules live in crm.json. */
+  crm?: CrmAppSettings
 }
 
 /** Café corner: never keep the screen on, only while agents work, or always. */
