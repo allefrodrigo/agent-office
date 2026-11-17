@@ -36,6 +36,27 @@ import type {
 } from './meetings'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 import type { AutomationDraft, Bot, BotDraft, BotEventTrigger, BotSpend, BotTriggerDraft, Channel, ChannelDraft, ThreadHit, ThreadItem, ThreadPage } from './bots'
+import type {
+  ConversationItem,
+  CrmConnection,
+  CrmCsvKind,
+  CrmData,
+  CrmDelta,
+  CrmHit,
+  CrmSettings,
+  Customer,
+  CustomerDraft,
+  CustomerImportPreview,
+  CustomerImportResult,
+  Deal,
+  DealDraft,
+  ImportChoice,
+  Payment,
+  PaymentDraft,
+  Pipeline,
+  Recurrence,
+  RecurrenceDraft,
+} from './crm'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
 export interface SystemStats {
@@ -192,6 +213,12 @@ export type OfficeEvent =
   | { type: 'botTriggers'; triggers: BotEventTrigger[] }
   /** A system notification of a bot was clicked: open the Chat on that thread. */
   | { type: 'bot:open'; threadId: string }
+  /** Sala de CRM: what changed in crm.json (items in place, ids removed, the rules, or reload everything). */
+  | { type: 'crm'; delta: CrmDelta }
+  /** Sala de CRM, phase 2: a conversation item was added or updated (same id = update). */
+  | { type: 'crm:item'; customerId: string; item: ConversationItem }
+  /** Sala de CRM, phase 2: the WhatsApp link changed. */
+  | { type: 'crm:connection'; connection: CrmConnection }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -540,6 +567,42 @@ export interface OfficeAPI {
   postToChannel(channelId: string, text: string, attachments?: AttachmentInput[]): Promise<void>
   /** "→ Bot · trocar": sends that message to another member instead. */
   rerouteChannelMessage(channelId: string, itemId: string, botId: string): Promise<void>
+  // ---------- Sala de CRM (docs/prd/sala-de-crm.md), phase 1 ----------
+  /** Everything in crm.json: customers, deals, pipelines, payments, recurrences, suggestions and the rules. */
+  crmList(): Promise<CrmData>
+  /** Creates (no id) or replaces a customer; throws a message for the form (phone of another customer, no name). */
+  saveCustomer(draft: CustomerDraft): Promise<Customer>
+  /** Removes the customer with its deals, payments, recurrences and notes. The screen confirms first. */
+  deleteCustomer(id: string): Promise<void>
+  /** Adds a note to the customer (by the player). */
+  addCrmNote(customerId: string, text: string): Promise<Customer>
+  /** Creates (no id) or replaces a deal; a stage change goes into its history. */
+  saveDeal(draft: DealDraft): Promise<Deal>
+  /** Moves the deal to a stage, before `beforeId` (or to the end of the column). */
+  moveDeal(id: string, stageId: string, beforeId?: string): Promise<Deal>
+  deleteDeal(id: string): Promise<void>
+  /** Creates or replaces a pipeline (its stages); refuses one without a won and a lost stage, or that drops a stage in use. */
+  savePipeline(pipeline: Pipeline): Promise<Pipeline>
+  /** Creates (no id) or replaces a payment; the invoice number comes from the main process. */
+  savePayment(draft: PaymentDraft): Promise<Payment>
+  /** Marks the payment paid on that date ('AAAA-MM-DD'); its dunning stops. */
+  markPaid(id: string, paidOn: string): Promise<Payment>
+  deletePayment(id: string): Promise<void>
+  /** Creates or replaces a recurrence, then makes the payments already due (leadDays before the date). */
+  saveRecurrence(draft: RecurrenceDraft): Promise<Recurrence>
+  deleteRecurrence(id: string): Promise<void>
+  /** Customers, deals and payments matching the text (name, company, phone, tag, invoice); best first. */
+  crmSearch(query: string): Promise<CrmHit[]>
+  /** Asks where to save and writes a CSV of those ids (cells starting with = + - @ get a '). Null = cancelled. */
+  exportCrmCsv(kind: CrmCsvKind, ids: string[]): Promise<string | null>
+  /** Picks a customers CSV (native dialog) and reads it into rows with their conflicts. Null = cancelled. */
+  pickCustomersCsv(): Promise<CustomerImportPreview | null>
+  /** Imports the rows; a phone that already exists follows its choice (default skip). Offers arrive off. */
+  importCustomersCsv(rows: { draft: CustomerDraft; onConflict?: ImportChoice }[]): Promise<CustomerImportResult>
+  /** LGPD: asks where to save and writes everything about the customer as JSON. Null = cancelled. */
+  exportCustomerData(id: string): Promise<string | null>
+  /** Configurações → CRM: the rules in crm.json. Unknown keys are dropped; a bad value keeps the current one. */
+  saveCrmSettings(patch: Partial<CrmSettings>): Promise<CrmSettings>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 
