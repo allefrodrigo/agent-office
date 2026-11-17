@@ -1,4 +1,4 @@
-import { formatCents, parseMoney } from '@shared/crm'
+import { formatAmount, parseMoney } from '@shared/crm'
 import { customerTitle } from '@shared/crm-view'
 import type { Customer } from '@shared/types'
 import { idOf } from '../a11y'
@@ -46,11 +46,10 @@ export function selectInput(options: { value: string; label: string }[], value: 
 
 /** Money as typed in Brazil ("1.250,00", "480"); on leaving the field it shows the formatted value. */
 export function moneyInput(cents?: number): { el: HTMLInputElement; cents(): number | null } {
-  const plain = (c: number) => formatCents(c).replace(/^R\$\s*/u, '')
-  const el = textInput(cents ? plain(cents) : '', { inputmode: 'decimal', placeholder: '0,00', autocomplete: 'off' })
+  const el = textInput(cents ? formatAmount(cents) : '', { inputmode: 'decimal', placeholder: '0,00', autocomplete: 'off' })
   el.addEventListener('blur', () => {
     const c = parseMoney(el.value)
-    if (c !== null && c > 0) el.value = plain(c)
+    if (c !== null && c > 0) el.value = formatAmount(c)
   })
   return { el, cents: () => (el.value.trim() ? parseMoney(el.value) : null) }
 }

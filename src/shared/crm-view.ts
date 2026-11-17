@@ -2,7 +2,21 @@
 // dado entrando e dado saindo, testado em test/crm-view.test.ts. Spec: docs/prd/sala-de-crm.md
 // ("Experiência"). As contas de dinheiro, telefone e vencimento vêm de ./crm (CR-02).
 
-import { dealAge, dueGroup, foldText, formatCents, formatPhone, paymentStatus, type DueGroup } from './crm'
+import {
+  customerTitle,
+  dealAge,
+  dueGroup,
+  foldText,
+  formatCents,
+  formatDay,
+  formatPhone,
+  isDay,
+  isMonth,
+  localDate,
+  monthLabel,
+  paymentStatus,
+  type DueGroup,
+} from './crm'
 import type {
   ContactConsent,
   CrmAuthor,
@@ -24,10 +38,6 @@ import type {
 } from './types/crm'
 import { CRM_LIMITS, DEFAULT_PIPELINE, PAYMENT_METHOD_LABEL, PAYMENT_STATUS_LABEL } from './types/crm'
 import type { TicketDraft } from './types/tickets'
-
-const DAY = 86_400_000
-const pad = (n: number) => String(n).padStart(2, '0')
-const MONTH_SHORT = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
 // ---------- o espelho do crm.json ----------
 
@@ -73,24 +83,16 @@ export function crmWaiting(data: Pick<CrmData, 'suggestions'> | null): number {
 
 // ---------- datas ----------
 
-/** '2026-11-20' → '20/11/2026'; anything else comes back as is. */
-export function brDate(iso: string | undefined): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso ?? '')
-  return m ? `${m[3]}/${m[2]}/${m[1]}` : (iso ?? '')
+export { customerTitle }
+
+/** formatDay that takes a missing date: '2026-11-20' → '20/11/2026', undefined → ''. */
+export function brDate(day: string | undefined): string {
+  return day ? formatDay(day) : ''
 }
 
 /** A moment (ms) as '20/11/2026', local. */
 export function brDateOf(t: number | undefined): string {
-  if (!t) return ''
-  const d = new Date(t)
-  return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
-}
-
-/** '2026-11' → 'nov/2026'. */
-export function monthLabel(month: string | undefined): string {
-  const m = /^(\d{4})-(\d{2})$/.exec(month ?? '')
-  if (!m) return month ?? ''
-  return `${MONTH_SHORT[Number(m[2]) - 1] ?? m[2]}/${m[1]}`
+  return t ? formatDay(localDate(t)) : ''
 }
 
 /** 'AAAA-MM-DD' at noon local, so a calendar day sorts among moments without a time zone slip. */
@@ -316,12 +318,6 @@ export function tableAnnouncement(shown: number, total: number, noun: Noun, sort
 }
 
 // ---------- clientes ----------
-
-/** "Maria · Padaria Trigo", or just one of them. */
-export function customerTitle(c: Pick<Customer, 'name' | 'company'>): string {
-  const company = c.company?.trim()
-  return company && company !== c.name ? `${c.name} · ${company}` : c.name
-}
 
 /** Deals of each customer. */
 export function dealsByCustomer(deals: readonly Deal[]): Map<string, Deal[]> {
@@ -767,16 +763,13 @@ export function recurrenceLabel(r: Pick<Recurrence, 'day' | 'amountCents' | 'ref
   return [`Todo dia ${r.day}`, formatCents(r.amountCents), r.reference, period].join(' · ')
 }
 
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/
-const ISO_MONTH = /^\d{4}-\d{2}$/
-
 /** What is wrong with a new payment before it goes to the main process (which checks again). */
 export function paymentDraftError(d: Partial<PaymentDraft>): { field: 'customer' | 'amount' | 'due' | 'reference'; text: string } | null {
   if (!d.customerId) return { field: 'customer', text: 'Escolha o cliente do pagamento.' }
   if (!d.amountCents || d.amountCents <= 0) return { field: 'amount', text: 'Escreva o valor, por exemplo 480 ou 1.250,00.' }
   if (d.amountCents > CRM_LIMITS.amountCents)
     return { field: 'amount', text: 'O valor passa do limite de R$ 100 milhões. Confira os zeros.' }
-  if (!d.due || !ISO_DAY.test(d.due)) return { field: 'due', text: 'Escolha a data de vencimento.' }
+  if (!d.due || !isDay(d.due)) return { field: 'due', text: 'Escolha a data de vencimento.' }
   if (!d.reference?.trim()) return { field: 'reference', text: 'Diga a que o pagamento se refere, por exemplo "Manutenção · novembro".' }
   return null
 }
@@ -791,16 +784,8 @@ export function recurrenceDraftError(
     return { field: 'amount', text: 'O valor passa do limite de R$ 100 milhões. Confira os zeros.' }
   if (!Number.isInteger(d.day) || (d.day ?? 0) < 1 || (d.day ?? 0) > 31) return { field: 'day', text: 'O dia do vencimento vai de 1 a 31.' }
   if (!d.reference?.trim()) return { field: 'reference', text: 'Diga a que se refere, por exemplo "Manutenção".' }
-  if (!d.start || !ISO_MONTH.test(d.start)) return { field: 'start', text: 'Escolha o mês do primeiro pagamento.' }
-  if (d.end && (!ISO_MONTH.test(d.end) || d.end < d.start))
+  if (!d.start || !isMonth(d.start)) return { field: 'start', text: 'Escolha o mês do primeiro pagamento.' }
+  if (d.end && (!isMonth(d.end) || d.end < d.start))
     return { field: 'end', text: 'O último mês vem depois do primeiro. Deixe vazio para não ter fim.' }
   return null
-}
-
-/** 'AAAA-MM' of a 'AAAA-MM-DD'. */
-export const monthOf = (day: string): string => day.slice(0, 7)
-
-/** Whole days between two calendar days (b - a). */
-export function daysBetween(a: string, b: string): number {
-  return Math.round((dayToMs(b) - dayToMs(a)) / DAY)
 }
