@@ -309,7 +309,14 @@ export type DeliveryStatus = 'queued' | 'sent' | 'delivered' | 'read' | 'failed'
 
 /** One line of userData/crm/conversas/<customerId>.jsonl (same id = update, like the bots' thread). */
 export type ConversationItem =
-  | { id: string; t: number; kind: 'in'; text: string; waId: string; media?: { type: 'image' | 'audio' | 'video' | 'document' | 'other'; name?: string } }
+  | {
+      id: string
+      t: number
+      kind: 'in'
+      text: string
+      waId: string
+      media?: { type: 'image' | 'audio' | 'video' | 'document' | 'other'; name?: string }
+    }
   | {
       id: string
       t: number
@@ -571,7 +578,15 @@ export const CRM_DEFAULTS: CrmSettings = {
   rehearsal: true,
   autonomy: { service: 'approval', billing: 'approval', offer: 'draft' },
   // Domingo nunca; seg a sex 09:00–18:00; sábado 09:00–13:00.
-  hours: [null, { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' }, { from: '09:00', to: '18:00' }, { from: '09:00', to: '13:00' }],
+  hours: [
+    null,
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '18:00' },
+    { from: '09:00', to: '13:00' },
+  ],
   holidays: [],
   perCustomer: { day: 1, week: 3 },
   offerEveryDays: 30,

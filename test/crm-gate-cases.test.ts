@@ -68,14 +68,27 @@ describe('corpus do portão de envio (S-3)', () => {
 
   it('cada regra devolve só a ação da tabela', () => {
     const allowed: Record<number, string[]> = {
-      1: ['block'], 2: ['block'], 3: ['block'], 4: ['block'], 5: ['block'], 6: ['block'], 7: ['hold'],
-      8: ['block'], 9: ['hold'], 10: ['schedule'], 11: ['hold'], 12: ['schedule'], 13: ['hold'], 14: ['hold'],
+      1: ['block'],
+      2: ['block'],
+      3: ['block'],
+      4: ['block'],
+      5: ['block'],
+      6: ['block'],
+      7: ['hold'],
+      8: ['block'],
+      9: ['hold'],
+      10: ['schedule'],
+      11: ['hold'],
+      12: ['schedule'],
+      13: ['hold'],
+      14: ['hold'],
     }
     for (const c of doc.cases) if (c.expect.rule > 0) expect(allowed[c.expect.rule], c.id).toContain(c.expect.action)
   })
 
   it('"enviar mesmo assim" nunca aparece nas regras 1, 2, 3, 7, 9, 12, 13 e 14', () => {
-    for (const c of doc.cases) if ([1, 2, 3, 7, 9, 12, 13, 14].includes(c.expect.rule)) expect(c.expect.overridable ?? false, c.id).toBe(false)
+    for (const c of doc.cases)
+      if ([1, 2, 3, 7, 9, 12, 13, 14].includes(c.expect.rule)) expect(c.expect.overridable ?? false, c.id).toBe(false)
   })
 
   it('"teria sido enviada" só aparece na regra 13', () => {
