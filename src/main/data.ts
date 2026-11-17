@@ -15,6 +15,7 @@ const WHAT: Record<DataFile, string> = {
   'routines.json': 'rotinas',
   'meetings.json': 'reuniões',
   'bots.json': 'bots do Chat',
+  'crm.json': 'clientes, negócios e pagamentos do CRM',
 }
 
 /** What a restore or import leaves as it is, for the confirmation (AO-25). */
@@ -159,7 +160,8 @@ export function setupData(d: DataDeps): void {
     const yes = await ask(
       'Substituir os dados deste computador?',
       `A exportação de ${when} toma o lugar dos agentes, configurações, gastos e tickets daqui.${keptNote(set, 'Essa exportação')} O estado atual fica salvo antes como um backup "antes de restaurar". ` +
-        'Importe só arquivos seus: pastas de contas fora de ~/.claude-<nome> são descartadas e a permissão padrão "sem pedir nada" volta para "pedir permissão". O app reinicia.',
+        'Importe só arquivos seus: pastas de contas fora de ~/.claude-<nome> são descartadas e a permissão padrão "sem pedir nada" volta para "pedir permissão". ' +
+        'O CRM chega com o modo ensaio ligado: nada é enviado sozinho até você desligar. O app reinicia.',
       'Importar e reiniciar',
     )
     if (!yes) return false

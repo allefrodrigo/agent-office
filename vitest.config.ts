@@ -61,8 +61,10 @@ export default defineConfig({
         'src/shared/bots.ts',
         'src/shared/bots-guard.ts',
         'src/main/bots/*.ts',
-        // Sala de CRM, a tela (CR-04 a CR-06)
+        // Sala de CRM (CR-02 a CR-06)
+        'src/shared/crm.ts',
         'src/shared/crm-view.ts',
+        'src/main/crm/*.ts',
       ],
       thresholds: { lines: 70 },
     },

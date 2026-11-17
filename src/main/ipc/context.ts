@@ -8,6 +8,7 @@ import type { BotRunner } from '../bots/runner'
 import type { BotStore } from '../bots/store'
 import type { Bridge } from '../bridge'
 import type { Caffeine } from '../caffeine'
+import type { CrmStore } from '../crm/store'
 import type { TicketDesk } from '../delegate'
 import type { CostBook } from '../ledger'
 import type { MacJobs } from '../mac-jobs'
@@ -53,6 +54,8 @@ export interface IpcContext {
   bots: BotRunner
   /** A bot was deleted: its routines and event automations go too. */
   botDeleted?(botId: string): void
+  /** Sala de CRM: crm.json (customers, deals, payments, recurrences and the rules). */
+  crmStore: CrmStore
   broadcast(e: OfficeEvent): void
   updateBadge(): void
   nameOf(agentId: string): string

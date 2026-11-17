@@ -1,11 +1,32 @@
 import { randomUUID } from 'node:crypto'
 import { lookFromSeed } from '@shared/describe'
 import { nextRun } from '@shared/schedule'
-import { BOT_COLORS, BOT_GROUND_FLOOR, SENSITIVE_KINDS, type Bot, type BotRun, type EffortLevel, type Routine, type RoutineRun, type RunStep, type Schedule, type SquadProgress, type ThreadItem } from '@shared/types'
+import {
+  BOT_COLORS,
+  BOT_GROUND_FLOOR,
+  SENSITIVE_KINDS,
+  type Bot,
+  type BotRun,
+  type Customer,
+  type Deal,
+  type EffortLevel,
+  type Payment,
+  type PaymentMethod,
+  type PaymentState,
+  type Recurrence,
+  type Routine,
+  type RoutineRun,
+  type RunStep,
+  type Schedule,
+  type SquadProgress,
+  type ThreadItem,
+} from '@shared/types'
+import { addDays, addMonths, localDate, recurrenceDue, recurrenceReference } from '@shared/crm'
 import type { AgentManager } from './agents'
 import { permissionFromTool } from './agents'
 import type { BotRunner } from './bots/runner'
 import type { BotStore } from './bots/store'
+import type { CrmStore } from './crm/store'
 import type { RoutineScheduler } from './routines'
 import type { SquadDefinition } from './squads'
 import type { Store } from './store'
@@ -283,6 +304,159 @@ export function startBotDemo(manager: AgentManager, store: BotStore, bots: BotRu
   bots.changed()
   // Guarda's run is played for real: it stops at the yes for `npm publish`.
   setTimeout(() => void bots.send(guarda.id, 'Publica a versão 0.5.0 no npm').catch(() => undefined), 3000)
+}
+
+/**
+ * Demo CRM: 12 customers, 8 deals spread over the pipeline, 20 payments (upcoming, overdue and
+ * paid) and 2 recurrences, around `now`. Invented names; phones in the fictional range
+ * (11) 90000-00NN. In memory only (demo: true): nothing reaches crm.json.
+ */
+export function startCrmDemo(store: CrmStore, now = Date.now()): void {
+  const DAY = 86_400_000
+  const today = localDate(now)
+  const month = today.slice(0, 7)
+  const player = { kind: 'player' as const }
+  const people: [string, string | undefined, string[], Partial<Customer>?][] = [
+    ['Maria Souza', 'Padaria Trigo Bom', ['manutenção', 'hospedagem'], { consent: { service: true, billing: true, offers: true, offersAt: now - 90 * DAY, offersSource: 'Pediu por WhatsApp' } }],
+    ['João Pereira', 'Oficina Ponto Certo', ['site'], { nextStep: 'Mandar a proposta revisada', nextStepOn: addDays(today, 2) }],
+    ['Ana Lima', 'Studio Ana Lima', ['site', 'redes sociais'], { consent: { service: true, billing: true, offers: true, offersAt: now - 30 * DAY, offersSource: 'Formulário do site' } }],
+    ['Pedro Alves', 'Loja do Pedro', ['loja virtual'], { nextStep: 'Ligar para entender o catálogo', nextStepOn: today }],
+    ['Lia Moreira', 'Clínica Bem Viver', ['manutenção']],
+    ['Carlos Nogueira', 'Nogueira Advocacia', ['site']],
+    ['Beatriz Rocha', undefined, ['indicação']],
+    ['Rafael Costa', 'Café Grão Fino', ['cardápio']],
+    ['Juliana Martins', 'Escola Pequeno Saber', ['portal'], { nextStep: 'Reunião com a diretoria', nextStepOn: addDays(today, 5) }],
+    ['Thiago Ramos', 'Ramos Contabilidade', ['identidade visual']],
+    ['Fernanda Dias', 'Ateliê Fernanda', ['loja virtual']],
+    ['Gustavo Freitas', 'Academia Movimento', [], { consent: { service: true, billing: true, offers: false, optOutAt: now - 20 * DAY } }],
+  ]
+  const customers: Customer[] = people.map(([name, company, tags, extra], i) => ({
+    id: `demo-c${i + 1}`,
+    kind: 'person',
+    name,
+    ...(company ? { company } : {}),
+    phones: [`5511900000${String(i + 1).padStart(3, '0')}`],
+    tags,
+    consent: { service: true, billing: true, offers: false },
+    source: 'demo',
+    notes: [],
+    tickets: [],
+    lastContactAt: now - ((i * 7) % 40) * DAY,
+    createdAt: now - (120 - i * 5) * DAY,
+    updatedAt: now - ((i * 7) % 40) * DAY,
+    demo: true,
+    ...extra,
+  }))
+
+  const columns = new Map<string, number>()
+  const deal = (n: number, customer: number, title: string, valueCents: number, stageId: string, daysIn: number): Deal => {
+    const stageAt = now - daysIn * DAY
+    const createdAt = stageAt - 10 * DAY
+    const order = columns.get(stageId) ?? 0
+    columns.set(stageId, order + 1)
+    return {
+      id: `demo-d${n}`,
+      customerId: `demo-c${customer}`,
+      title,
+      valueCents,
+      pipelineId: 'padrao',
+      stageId,
+      stageAt,
+      tickets: [],
+      order,
+      history: stageId === 'novo' ? [{ t: createdAt, to: 'novo', by: player }] : [{ t: createdAt, to: 'novo', by: player }, { t: stageAt, from: 'novo', to: stageId, by: player }],
+      createdAt,
+      updatedAt: stageAt,
+      ...(stageId === 'fechado' || stageId === 'perdido' ? { closedAt: stageAt } : {}),
+      demo: true,
+    }
+  }
+  const deals = [
+    deal(1, 3, 'Site institucional', 480_000, 'proposta', 4),
+    deal(2, 2, 'Site com agenda online', 320_000, 'conversando', 2),
+    deal(3, 4, 'Loja virtual', 950_000, 'novo', 1),
+    deal(4, 5, 'Manutenção mensal', 48_000, 'fechado', 40),
+    deal(5, 6, 'Site e blog', 600_000, 'proposta', 9),
+    deal(6, 8, 'Cardápio digital', 150_000, 'novo', 0),
+    deal(7, 9, 'Portal de matrículas', 1_200_000, 'conversando', 6),
+    deal(8, 10, 'Identidade visual', 280_000, 'perdido', 15),
+  ]
+
+  const recurrence = (n: number, customer: number, reference: string, day: number, amountCents: number, monthsBack: number, dealId?: string): Recurrence => ({
+    id: `demo-r${n}`,
+    customerId: `demo-c${customer}`,
+    ...(dealId ? { dealId } : {}),
+    amountCents,
+    day,
+    reference,
+    method: 'pix',
+    start: addMonths(month, -monthsBack),
+    active: true,
+    lastMonth: month,
+    createdAt: now - monthsBack * 31 * DAY,
+    updatedAt: now - monthsBack * 31 * DAY,
+    demo: true,
+  })
+  const recurrences = [recurrence(1, 5, 'Manutenção mensal', 20, 48_000, 3, 'demo-d4'), recurrence(2, 1, 'Hospedagem do site', 5, 8_990, 6)]
+
+  type Draft = { customer: number; amountCents: number; due: string; reference: string; state?: PaymentState; paidDaysAfter?: number; method?: PaymentMethod; recurrence?: Recurrence; dealId?: string }
+  const drafts: Draft[] = []
+  // Each recurrence: last month paid, this month open.
+  for (const r of recurrences) {
+    const customer = Number(r.customerId.slice('demo-c'.length))
+    const last = addMonths(month, -1)
+    drafts.push({ customer, amountCents: r.amountCents, due: recurrenceDue(r, last), reference: recurrenceReference(r, last), state: 'paid', paidDaysAfter: -2, recurrence: r, dealId: r.dealId })
+    drafts.push({ customer, amountCents: r.amountCents, due: recurrenceDue(r, month), reference: recurrenceReference(r, month), recurrence: r, dealId: r.dealId })
+  }
+  const rel = (customer: number, amountCents: number, days: number, reference: string, more: Partial<Draft> = {}) =>
+    drafts.push({ customer, amountCents, due: addDays(today, days), reference, ...more })
+  // Upcoming
+  rel(2, 160_000, 2, 'Entrada do site (50%)', { dealId: 'demo-d2' })
+  rel(3, 240_000, 5, 'Sinal do site institucional', { dealId: 'demo-d1' })
+  rel(6, 200_000, 9, 'Site e blog · 1ª parcela', { dealId: 'demo-d5', method: 'boleto' })
+  rel(4, 475_000, 14, 'Sinal da loja virtual', { dealId: 'demo-d3' })
+  rel(9, 400_000, 21, 'Portal · 1ª parcela', { dealId: 'demo-d7', method: 'transfer' })
+  rel(11, 90_000, 28, 'Fotos dos produtos')
+  // Overdue
+  rel(8, 75_000, -3, 'Cardápio digital · sinal')
+  rel(7, 120_000, -8, 'Ajustes no site')
+  rel(10, 140_000, -16, 'Identidade visual · 1ª parcela')
+  rel(11, 45_000, -25, 'Banner de lançamento')
+  // History
+  rel(3, 50_000, -10, 'Logo do studio', { state: 'paid', paidDaysAfter: 1 })
+  rel(5, 120_000, -20, 'Implantação da manutenção', { state: 'paid', paidDaysAfter: 2, dealId: 'demo-d4' })
+  rel(6, 100_000, -35, 'Diagnóstico do site', { state: 'paid', paidDaysAfter: 5 })
+  rel(1, 30_000, -45, 'Troca do domínio', { state: 'paid', paidDaysAfter: 1 })
+  rel(9, 80_000, -60, 'Levantamento do portal', { state: 'paid', paidDaysAfter: 2 })
+  rel(10, 140_000, -12, 'Identidade visual · 2ª parcela', { state: 'canceled' })
+
+  const seq = new Map<string, number>()
+  const payments: Payment[] = drafts
+    .map((p) => ({ p, createdAt: Math.min(now, new Date(`${p.due}T12:00:00`).getTime() - 10 * DAY) }))
+    .sort((a, b) => a.createdAt - b.createdAt)
+    .map(({ p, createdAt }, i) => {
+      const prefix = localDate(createdAt).slice(0, 7)
+      const n = (seq.get(prefix) ?? 0) + 1
+      seq.set(prefix, n)
+      const state = p.state ?? 'open'
+      return {
+        id: `demo-p${i + 1}`,
+        customerId: `demo-c${p.customer}`,
+        ...(p.dealId ? { dealId: p.dealId } : {}),
+        invoice: `${prefix}-${String(n).padStart(3, '0')}`,
+        amountCents: p.amountCents,
+        due: p.due,
+        reference: p.reference,
+        method: p.method ?? 'pix',
+        state,
+        ...(state === 'paid' ? { paidOn: addDays(p.due, p.paidDaysAfter ?? 0) } : {}),
+        ...(p.recurrence ? { recurrenceId: p.recurrence.id } : {}),
+        createdAt,
+        updatedAt: createdAt,
+        demo: true,
+      }
+    })
+  store.addDemo({ customers, deals, payments, recurrences })
 }
 
 /** Stress mode: 50 agents spread over the ground floor and three project floors. */

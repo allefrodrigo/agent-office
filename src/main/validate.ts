@@ -6,7 +6,8 @@ import { HAIR_STYLES } from '@shared/describe'
 import { canAddFloor, floorNameFor, mergeCreativeFloors } from '@shared/projects'
 import { scheduleError } from '@shared/schedule'
 import { STATUSES } from '@shared/tickets'
-import { BOT_COLORS, BOT_GROUND_FLOOR, BOT_LIMITS, CHAT_DEFAULTS, EFFORT_LEVELS, ROUTINE_LIMITS, SENSITIVE_KINDS } from '@shared/types'
+import { BOT_COLORS, BOT_GROUND_FLOOR, BOT_LIMITS, CHAT_DEFAULTS, CRM_APP_DEFAULTS, CRM_LIMITS, EFFORT_LEVELS, ROUTINE_LIMITS, SENSITIVE_KINDS } from '@shared/types'
+import { EMAIL_RE, isDay, isMonth, normalizePhone } from '@shared/crm'
 import type { VideoSettings } from '@shared/video'
 import { AUDIO_CHUNK_MAX_BYTES, AUTOSTOP_MIN_RANGE, RETENTION_DAYS_RANGE, WHISPER_MODEL_FILE } from '@shared/meetings'
 import { ATA_LIMITS, blockSchema } from '@shared/meetings-ata'
@@ -21,13 +22,19 @@ import type {
   BotDraft,
   BotPermissionMode,
   ChatSettings,
+  CrmAppSettings,
+  CrmCsvKind,
+  CrmSettings,
+  CustomerKind,
   DelegateTarget,
   EffortLevel,
   HireRequest,
   MeetingSettings,
   LedgerQuery,
   OfficePermissionMode,
+  PaymentMethod,
   PermissionDecision,
+  Pipeline,
   ProjectFloor,
   RoutineDraft,
   RoutineWho,
@@ -409,6 +416,7 @@ export function cleanSettings(raw: unknown, current: Settings): Settings {
   if (Object.hasOwn(patch, 'video')) next.video = cleanVideo(patch.video, current.video)
   if (Object.hasOwn(patch, 'meetings')) next.meetings = cleanMeetings(patch.meetings, current.meetings, next.projects)
   if (Object.hasOwn(patch, 'chat')) next.chat = cleanChatSettings(patch.chat, { ...CHAT_DEFAULTS, ...current.chat })
+  if (Object.hasOwn(patch, 'crm')) next.crm = cleanCrmAppSettings(patch.crm, { ...CRM_APP_DEFAULTS, ...current.crm })
   return next
 }
 
@@ -722,4 +730,448 @@ export function cleanChatSettings(raw: unknown, current: ChatSettings): ChatSett
     if (r.success) put[key] = r.data
   }
   return next
+}
+
+// ---------- Sala de CRM (docs/prd/sala-de-crm.md) ----------
+// Every CRM argument passes through here before it reaches CrmStore. Messages are pt-BR and say
+// what to fix; none of them repeats a phone or another customer's data.
+
+const isPlain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
+
+/** Ids the CRM makes (randomUUID) and pipeline and stage ids: safe as names, never paths. */
+export const CRM_ID_RE = /^[A-Za-z0-9_-]{1,64}$/
+/** A ticket key ('AO-12'). */
+const TICKET_KEY_RE = /^[\w-]{1,40}$/
+/** Latest time the CRM takes (year 2999), in ms. */
+const CRM_MAX_MS = 32_503_680_000_000
+/** Checks whose failure carries one of our pt-BR messages; a wrong type falls back to the handler's. */
+const CRM_OWN_CODES = new Set(['too_big', 'too_small', 'invalid_format', 'custom'])
+
+/** Parses a CRM argument: the message of the check that failed, or `fallback` when the type is wrong. */
+function parseCrm<T>(schema: z.ZodType<T, unknown>, raw: unknown, fallback: string): T {
+  const r = schema.safeParse(raw)
+  if (r.success) return r.data
+  const issue = r.error.issues[0]
+  throw new Error(issue && CRM_OWN_CODES.has(issue.code) ? issue.message : fallback)
+}
+
+const crmTooLong = (what: string, max: number) => `${what} passa de ${max.toLocaleString('pt-BR')} letras. Encurte o texto.`
+/** One line: trimmed, spaces collapsed, at most `max` letters. */
+const crmLine = (what: string, max: number) =>
+  z
+    .string()
+    .max(max * 4 + 64, crmTooLong(what, max))
+    .transform((s) => s.trim().replace(/\s+/g, ' '))
+    .pipe(z.string().max(max, crmTooLong(what, max)))
+/** Optional: missing, null or empty (after trimming) is undefined. */
+const crmOpt = <T>(schema: z.ZodType<T, unknown>) => z.preprocess((v) => (v === null || v === '' ? undefined : v), schema.optional()).transform((v) => (v === '' ? undefined : v))
+const crmIdSchema = z.string().regex(CRM_ID_RE, 'Esse item não existe mais.')
+const crmDay = (message: string) => z.string().max(20, message).refine(isDay, message)
+const crmMonth = (message: string) => z.string().max(20, message).refine(isMonth, message)
+/** Cents: whole, not negative, at most CRM_LIMITS.amountCents; `positive` refuses zero too. */
+const crmCents = (positive: boolean) =>
+  z
+    .number()
+    .refine(Number.isSafeInteger, 'Valor inválido. Digite o valor em reais, como 480,00.')
+    .min(0, 'O valor não pode ser negativo.')
+    .refine((n) => !positive || n > 0, 'Informe um valor maior que zero.')
+    .max(CRM_LIMITS.amountCents, 'O valor passa do limite de R$ 100 milhões.')
+const crmTickets = z.array(z.string().regex(TICKET_KEY_RE, 'Ticket inválido.')).max(CRM_LIMITS.tickets, `Até ${CRM_LIMITS.tickets} tickets por item.`)
+const crmFloor = crmOpt(z.string().max(40, 'Esse andar não existe mais. Escolha outro.'))
+const crmCustomerId = z.string().regex(CRM_ID_RE, 'Esse cliente não existe mais. Escolha outro.')
+const CUSTOMER_KINDS = ['person', 'company'] as const satisfies readonly CustomerKind[]
+const PAYMENT_METHODS = ['pix', 'boleto', 'transfer', 'card', 'cash'] as const satisfies readonly PaymentMethod[]
+
+/** An id from the renderer, or `message`. */
+export function cleanCrmId(raw: unknown, message = 'Esse item não existe mais.'): string {
+  return parse(z.string().regex(CRM_ID_RE), raw, message)
+}
+
+/** A calendar day 'AAAA-MM-DD' from the renderer, or `message`. */
+export function cleanCrmDay(raw: unknown, message = 'Data inválida. Use uma data do calendário.'): string {
+  return parse(z.string().max(20).refine(isDay), raw, message)
+}
+
+/** Phones as typed, normalized (DDI, DDD, 9º dígito) and without repeats. Throws for one that is not a phone. */
+export function cleanPhones(list: readonly string[]): string[] {
+  const out: string[] = []
+  for (const typed of list) {
+    const t = typed.trim()
+    if (!t) continue
+    const phone = normalizePhone(t)
+    if (!phone) {
+      const tail = t.replace(/\D/g, '').slice(-4)
+      throw new Error(`${tail.length === 4 ? `O telefone terminado em ${tail}` : 'Um dos telefones'} não parece válido. Use DDD e número, como (11) 98765-4321.`)
+    }
+    if (!out.includes(phone)) out.push(phone)
+  }
+  if (out.length > CRM_LIMITS.phones) throw new Error(`Até ${CRM_LIMITS.phones} telefones por cliente.`)
+  return out
+}
+
+/** Tags without empties or repeats (any case or accent). */
+function cleanTags(list: readonly string[]): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const t of list) {
+    const key = t.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+    if (!t || seen.has(key)) continue
+    seen.add(key)
+    out.push(t)
+  }
+  if (out.length > CRM_LIMITS.tags) throw new Error(`Até ${CRM_LIMITS.tags} etiquetas por cliente.`)
+  return out
+}
+
+/** Copies the keys `raw` has (even empty, which clears) from the parsed draft: a missing key keeps the saved value. */
+function present<T extends object>(out: T, parsed: object, raw: unknown, keys: readonly string[]): T {
+  const r = raw as Record<string, unknown>
+  for (const k of keys) if (Object.hasOwn(r, k)) (out as Record<string, unknown>)[k] = (parsed as Record<string, unknown>)[k]
+  return out
+}
+
+const consentSchema = z.object({
+  service: z.boolean().optional(),
+  billing: z.boolean().optional(),
+  offers: z.boolean().optional(),
+  offersSource: crmOpt(crmLine('A origem do consentimento', CRM_LIMITS.consentSource)),
+  clearOptOut: z.boolean().optional(),
+})
+
+const customerDraftSchema = z.object({
+  id: crmIdSchema.optional(),
+  kind: z.enum(CUSTOMER_KINDS).optional(),
+  name: crmLine('O nome', CRM_LIMITS.name).pipe(z.string().min(1, 'Dê um nome ao cliente.')),
+  company: crmOpt(crmLine('A empresa', CRM_LIMITS.company)),
+  phones: z
+    .array(z.string().max(60, 'Telefone inválido. Use DDD e número, como (11) 98765-4321.'))
+    .max(CRM_LIMITS.phones * 2, `Até ${CRM_LIMITS.phones} telefones por cliente.`)
+    .optional(),
+  email: crmOpt(
+    z
+      .string()
+      .max(CRM_LIMITS.email + 64, 'E-mail inválido. Confira e tente de novo.')
+      .transform((s) => s.trim())
+      .pipe(z.string().max(CRM_LIMITS.email, 'E-mail inválido. Confira e tente de novo.').refine((s) => !s || EMAIL_RE.test(s), 'E-mail inválido. Confira e tente de novo.')),
+  ),
+  tags: z.array(crmLine('Cada etiqueta', CRM_LIMITS.tag)).max(CRM_LIMITS.tags * 2, `Até ${CRM_LIMITS.tags} etiquetas por cliente.`).optional(),
+  owner: crmOpt(crmLine('O responsável', CRM_LIMITS.owner)),
+  floor: crmFloor,
+  consent: consentSchema.optional(),
+  tickets: crmTickets.optional(),
+  lastContactAt: crmOpt(z.number().min(0, 'Data do último contato inválida.').max(CRM_MAX_MS, 'Data do último contato inválida.')),
+  nextStep: crmOpt(crmLine('O próximo passo', CRM_LIMITS.nextStep)),
+  nextStepOn: crmOpt(crmDay('Data do próximo passo inválida. Use uma data do calendário.')),
+})
+
+/** Offers on or off and where the consent came from; the store stamps the dates. */
+export interface CleanConsent {
+  service?: boolean
+  billing?: boolean
+  offers?: boolean
+  offersSource?: string
+  clearOptOut?: boolean
+}
+
+/**
+ * A customer draft that passed every check: phones normalized, tags without repeats. A key the
+ * draft has is set (an empty one clears the field); a key it lacks keeps the saved value.
+ */
+export interface CleanCustomerDraft {
+  id?: string
+  kind?: CustomerKind
+  name: string
+  company?: string
+  phones?: string[]
+  email?: string
+  tags?: string[]
+  owner?: string
+  floor?: string
+  consent?: CleanConsent
+  tickets?: string[]
+  lastContactAt?: number
+  nextStep?: string
+  nextStepOn?: string
+}
+
+/** A customer from the form or a CSV row. `floors`: the ProjectFloor ids that exist. */
+export function cleanCustomer(raw: unknown, ctx: { floors: readonly string[] }): CleanCustomerDraft {
+  const d = parseCrm(customerDraftSchema, raw, 'Cliente inválido. Feche e abra o formulário de novo.')
+  if (d.floor && !ctx.floors.includes(d.floor)) throw new Error('Esse andar não existe mais. Escolha outro.')
+  const out: CleanCustomerDraft = { name: d.name, ...(d.id ? { id: d.id } : {}), ...(d.kind ? { kind: d.kind } : {}) }
+  present(out, d, raw, ['company', 'email', 'owner', 'floor', 'lastContactAt', 'nextStep', 'nextStepOn'])
+  if (d.phones) out.phones = cleanPhones(d.phones)
+  if (d.tags) out.tags = cleanTags(d.tags)
+  if (d.tickets) out.tickets = [...new Set(d.tickets)]
+  if (d.consent) out.consent = Object.fromEntries(Object.entries(d.consent).filter(([, v]) => v !== undefined))
+  return out
+}
+
+const dealDraftSchema = z.object({
+  id: crmIdSchema.optional(),
+  customerId: crmCustomerId,
+  title: crmLine('O nome do negócio', CRM_LIMITS.title).pipe(z.string().min(1, 'Diga o serviço do negócio, como "Site institucional".')),
+  valueCents: crmOpt(crmCents(false)),
+  pipelineId: crmOpt(z.string().regex(CRM_ID_RE, 'Esse funil não existe mais.')),
+  stageId: crmOpt(z.string().regex(CRM_ID_RE, 'Essa etapa não existe mais nesse funil.')),
+  nextStep: crmOpt(crmLine('O próximo passo', CRM_LIMITS.nextStep)),
+  nextStepOn: crmOpt(crmDay('Data do próximo passo inválida. Use uma data do calendário.')),
+  floor: crmFloor,
+  tickets: crmTickets.optional(),
+})
+
+/** A deal draft that passed every check; same key rule as CleanCustomerDraft. */
+export interface CleanDealDraft {
+  id?: string
+  customerId: string
+  title: string
+  valueCents?: number
+  pipelineId?: string
+  stageId?: string
+  nextStep?: string
+  nextStepOn?: string
+  floor?: string
+  tickets?: string[]
+}
+
+export function cleanDeal(raw: unknown, ctx: { floors: readonly string[] }): CleanDealDraft {
+  const d = parseCrm(dealDraftSchema, raw, 'Negócio inválido. Feche e abra o formulário de novo.')
+  if (d.floor && !ctx.floors.includes(d.floor)) throw new Error('Esse andar não existe mais. Escolha outro.')
+  const out: CleanDealDraft = { customerId: d.customerId, title: d.title, ...(d.id ? { id: d.id } : {}), ...(d.pipelineId ? { pipelineId: d.pipelineId } : {}), ...(d.stageId ? { stageId: d.stageId } : {}) }
+  present(out, d, raw, ['valueCents', 'nextStep', 'nextStepOn', 'floor'])
+  if (d.tickets) out.tickets = [...new Set(d.tickets)]
+  return out
+}
+
+const paymentDraftSchema = z.object({
+  id: crmIdSchema.optional(),
+  customerId: crmCustomerId,
+  dealId: crmOpt(z.string().regex(CRM_ID_RE, 'Esse negócio não existe mais.')),
+  amountCents: crmCents(true),
+  due: crmDay('Vencimento inválido. Use uma data do calendário.'),
+  reference: crmLine('O "referente a"', CRM_LIMITS.reference),
+  method: z.enum(PAYMENT_METHODS).optional(),
+  owner: crmOpt(crmLine('O responsável', CRM_LIMITS.owner)),
+  state: z.enum(['open', 'canceled', 'disputed']).optional(),
+})
+
+/** A payment draft that passed every check (paying goes through markPaid); same key rule as CleanCustomerDraft. */
+export interface CleanPaymentDraft {
+  id?: string
+  customerId: string
+  dealId?: string
+  amountCents: number
+  due: string
+  reference: string
+  method?: PaymentMethod
+  owner?: string
+  state?: 'open' | 'canceled' | 'disputed'
+}
+
+export function cleanPayment(raw: unknown): CleanPaymentDraft {
+  const d = parseCrm(paymentDraftSchema, raw, 'Pagamento inválido. Feche e abra o formulário de novo.')
+  const out: CleanPaymentDraft = {
+    customerId: d.customerId,
+    amountCents: d.amountCents,
+    due: d.due,
+    reference: d.reference,
+    ...(d.id ? { id: d.id } : {}),
+    ...(d.method ? { method: d.method } : {}),
+    ...(d.state ? { state: d.state } : {}),
+  }
+  return present(out, d, raw, ['dealId', 'owner'])
+}
+
+const recurrenceDraftSchema = z
+  .object({
+    id: crmIdSchema.optional(),
+    customerId: crmCustomerId,
+    dealId: crmOpt(z.string().regex(CRM_ID_RE, 'Esse negócio não existe mais.')),
+    amountCents: crmCents(true),
+    day: z.number().refine(Number.isInteger, 'O dia vai de 1 a 31.').min(1, 'O dia vai de 1 a 31.').max(31, 'O dia vai de 1 a 31.'),
+    reference: crmLine('O "referente a"', CRM_LIMITS.reference).pipe(z.string().min(1, 'Diga a que se refere, como "Manutenção" ou "Hospedagem".')),
+    method: z.enum(PAYMENT_METHODS).optional(),
+    start: crmMonth('Mês de início inválido. Use AAAA-MM.'),
+    end: crmOpt(crmMonth('Mês final inválido. Use AAAA-MM.')),
+    active: z.boolean().optional(),
+  })
+  .refine((r) => !r.end || r.end >= r.start, 'O mês final vem antes do início. Confira as datas.')
+
+/** A recurrence draft that passed every check; same key rule as CleanCustomerDraft. */
+export interface CleanRecurrenceDraft {
+  id?: string
+  customerId: string
+  dealId?: string
+  amountCents: number
+  day: number
+  reference: string
+  method?: PaymentMethod
+  start: string
+  end?: string
+  active?: boolean
+}
+
+export function cleanRecurrence(raw: unknown): CleanRecurrenceDraft {
+  const d = parseCrm(recurrenceDraftSchema, raw, 'Recorrência inválida. Feche e abra o formulário de novo.')
+  const out: CleanRecurrenceDraft = {
+    customerId: d.customerId,
+    amountCents: d.amountCents,
+    day: d.day,
+    reference: d.reference,
+    start: d.start,
+    ...(d.id ? { id: d.id } : {}),
+    ...(d.method ? { method: d.method } : {}),
+    ...(d.active !== undefined ? { active: d.active } : {}),
+  }
+  return present(out, d, raw, ['dealId', 'end'])
+}
+
+const stageSchema = z.object({
+  id: z.string().regex(CRM_ID_RE, 'Etapa inválida. Feche e abra o formulário de novo.'),
+  name: crmLine('O nome da etapa', CRM_LIMITS.stageName).pipe(z.string().min(1, 'Dê um nome a cada etapa.')),
+  kind: z.enum(['open', 'won', 'lost']),
+})
+const pipelineSchema = z
+  .object({
+    id: z.string().regex(CRM_ID_RE, 'Funil inválido. Feche e abra o formulário de novo.'),
+    name: crmLine('O nome do funil', CRM_LIMITS.title).pipe(z.string().min(1, 'Dê um nome ao funil.')),
+    stages: z.array(stageSchema).min(2, 'O funil precisa de pelo menos duas etapas.').max(CRM_LIMITS.stages, `Até ${CRM_LIMITS.stages} etapas por funil.`),
+  })
+  .refine((p) => new Set(p.stages.map((s) => s.id)).size === p.stages.length, 'Duas etapas com o mesmo id. Feche e abra o formulário de novo.')
+  .refine((p) => p.stages.some((s) => s.kind === 'won'), 'O funil precisa de uma etapa de ganho, como "Fechado".')
+  .refine((p) => p.stages.some((s) => s.kind === 'lost'), 'O funil precisa de uma etapa de perda, como "Perdido".')
+
+/** A pipeline from the screen: 2 to 12 stages with unique ids, at least one won and one lost. */
+export function cleanPipeline(raw: unknown): Pipeline {
+  return parseCrm(pipelineSchema, raw, 'Funil inválido. Feche e abra o formulário de novo.')
+}
+
+/** A note on the customer: trimmed, line breaks kept, control characters out. */
+export function cleanCrmNote(raw: unknown): string {
+  return parseCrm(
+    z
+      .string()
+      .max(CRM_LIMITS.note * 2, crmTooLong('A nota', CRM_LIMITS.note))
+      .transform((s) => s.replace(/\r\n?/g, '\n').replace(/[^\P{Cc}\t\n]/gu, '').trim())
+      .pipe(z.string().min(1, 'Escreva a nota antes de salvar.').max(CRM_LIMITS.note, crmTooLong('A nota', CRM_LIMITS.note))),
+    raw,
+    'Nota inválida.',
+  )
+}
+
+/** The search box of the CRM. */
+export function cleanCrmQuery(raw: unknown): string {
+  return parseCrm(z.string().max(CRM_LIMITS.query, 'Busca grande demais. Use menos palavras.'), raw, 'Busca inválida.')
+}
+
+export function cleanCsvKind(raw: unknown): CrmCsvKind {
+  return parse(z.enum(['customers', 'deals', 'payments']), raw, 'Tipo de exportação inválido.')
+}
+
+/** The ids of the rows to export (the screen's filter). */
+export function cleanCsvIds(raw: unknown): string[] {
+  return parseCrm(z.array(z.string().regex(CRM_ID_RE, 'Item inválido na exportação.')).max(CRM_LIMITS.payments, 'Itens demais para exportar de uma vez.'), raw, 'Lista inválida para exportar.')
+}
+
+/** importCustomersCsv's rows: each draft is cleaned on its own (a bad one is skipped, not fatal). */
+export function cleanImportRows(raw: unknown): { draft: unknown; onConflict: 'skip' | 'update' }[] {
+  const rows = parseCrm(
+    z.array(z.object({ draft: z.unknown(), onConflict: z.enum(['skip', 'update']).optional() })).max(CRM_LIMITS.csvRows, `A importação vai até ${CRM_LIMITS.csvRows.toLocaleString('pt-BR')} clientes por vez.`),
+    raw,
+    'Importação inválida. Escolha o arquivo de novo.',
+  )
+  return rows.map((r) => ({ draft: r.draft, onConflict: r.onConflict ?? 'skip' }))
+}
+
+const autonomySchema = z.enum(['draft', 'approval', 'auto'])
+const hhmmCrm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/)
+const paymentField = z
+  .string()
+  .max(CRM_LIMITS.paymentField)
+  .transform((s) => s.trim())
+/** Words of a list (opt-out, alert): trimmed, lower case, no empties or repeats. */
+const crmWords = z
+  .array(z.string().max(CRM_LIMITS.word * 2))
+  .max(CRM_LIMITS.words * 2)
+  .transform((list) => [...new Set(list.map((w) => w.trim().replace(/\s+/g, ' ').toLowerCase()).filter(Boolean))])
+  .pipe(z.array(z.string().max(CRM_LIMITS.word)).max(CRM_LIMITS.words))
+/** A domain allowed in messages ('meusite.com.br'); a pasted link keeps only its host. */
+const crmDomain = z
+  .string()
+  .max(300)
+  .transform((s) =>
+    s
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/[/?#].*$/, ''),
+  )
+  .pipe(z.string().regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/))
+
+/** Configurações → CRM, one schema per field: a bad one keeps its current value. */
+const crmFields = {
+  rehearsal: z.boolean(),
+  autonomy: z.object({ service: autonomySchema, billing: autonomySchema, offer: autonomySchema }),
+  hours: z.array(z.union([z.null(), z.object({ from: hhmmCrm, to: hhmmCrm }).refine((h) => h.from < h.to)])).length(7),
+  holidays: z
+    .array(z.string().refine(isDay))
+    .max(CRM_LIMITS.holidays)
+    .transform((l) => [...new Set(l)].sort()),
+  perCustomer: z.object({ day: clampedInt(0, 20), week: clampedInt(0, 100) }).refine((p) => p.day <= p.week),
+  offerEveryDays: clampedInt(1, 365),
+  globalCap: z.object({ hour: clampedInt(1, 500), day: clampedInt(1, 5000) }).refine((g) => g.hour <= g.day),
+  intervalSec: z.object({ min: clampedInt(1, 600), max: clampedInt(1, 600) }).refine((i) => i.min <= i.max),
+  dunning: z
+    .array(z.number().int().min(-30).max(90))
+    .max(10)
+    .transform((l) => [...new Set(l)].sort((a, b) => a - b)),
+  maxDiscountPct: clampedInt(0, 100),
+  payment: z.object({ pixKey: paymentField, pixKeyType: z.enum(['cpf', 'cnpj', 'email', 'phone', 'random', '']), payee: paymentField, bank: paymentField, note: paymentField }),
+  allowedLinks: z
+    .array(crmDomain)
+    .max(CRM_LIMITS.allowedLinks)
+    .transform((l) => [...new Set(l)]),
+  company: z
+    .string()
+    .max(CRM_LIMITS.company)
+    .transform((s) => s.trim()),
+  signature: z
+    .string()
+    .max(CRM_LIMITS.signature)
+    .transform((s) => s.trim()),
+  optOutWords: crmWords,
+  alertWords: crmWords,
+  stopAll: z.boolean(),
+  recurrenceLeadDays: clampedInt(0, 60),
+} satisfies { [K in keyof CrmSettings]-?: z.ZodType<CrmSettings[K], unknown> }
+
+/**
+ * The CRM's rules (from the screen, or crm.json as it loads) laid over `current`, field by field:
+ * unknown keys are dropped, a bad value keeps the current one, numbers out of range are clamped.
+ * An object field may come in part ({ autonomy: { offer: 'approval' } }).
+ */
+export function cleanCrmSettings(raw: unknown, current: CrmSettings): CrmSettings {
+  const patch = isPlain(raw) ? raw : {}
+  const next: CrmSettings = { ...current }
+  const put = next as unknown as Record<string, unknown>
+  for (const [key, schema] of Object.entries(crmFields)) {
+    if (!Object.hasOwn(patch, key)) continue
+    const cur = (current as unknown as Record<string, unknown>)[key]
+    const value = isPlain(cur) && isPlain(patch[key]) ? { ...cur, ...patch[key] } : patch[key]
+    const r = (schema as z.ZodType<unknown, unknown>).safeParse(value)
+    if (r.success) put[key] = r.data
+  }
+  return next
+}
+
+/** The patch of saveCrmSettings must be an object; its fields go through cleanCrmSettings. */
+export function cleanCrmSettingsPatch(raw: unknown, current: CrmSettings): CrmSettings {
+  if (!isPlain(raw)) throw new Error('Configurações inválidas. Feche e abra a tela de novo.')
+  return cleanCrmSettings(raw, current)
+}
+
+/** Configurações → CRM, the "CRM (prévia)" switch in office.json. */
+export function cleanCrmAppSettings(raw: unknown, current: CrmAppSettings): CrmAppSettings {
+  const patch = isPlain(raw) ? raw : {}
+  return { ...current, ...(typeof patch.enabled === 'boolean' ? { enabled: patch.enabled } : {}) }
 }
