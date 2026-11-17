@@ -67,8 +67,10 @@ export default defineConfig({
         'src/main/crm/*.ts',
         // Sala de CRM, fase 2 (CR-11 a CR-13)
         'src/shared/crm-keywords.ts',
+        'src/shared/crm-gate.ts',
       ],
-      thresholds: { lines: 70 },
+      // O portão de envio decide o que sai para um cliente: 95% de linhas só para ele.
+      thresholds: { lines: 70, 'src/shared/crm-gate.ts': { lines: 95 } },
     },
   },
 })
