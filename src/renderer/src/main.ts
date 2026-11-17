@@ -39,8 +39,9 @@ import { mountMeetingRoom } from './ui/meetings'
 import { OPEN_AGENT_EVENT } from './ui/meetings/office'
 import { meetingLive, onMeetingLive, setMeetingLive } from './meetings/live'
 import { doNotDisturb, waitingSummary } from '@shared/meeting-map'
-import { CHAT_DEFAULTS } from '@shared/types'
+import { CHAT_DEFAULTS, CRM_APP_DEFAULTS } from '@shared/types'
 import { chatShowsAgent, chatStore, mountChat, openChat } from './ui/chat'
+import { closeCrm, crmScreenOpen, crmStore, mountCrm, openCrm } from './ui/crm'
 import { botOf, onBotsIndex } from './ui/chat/bots-index'
 import { badgeText, countsAsUnread } from '@shared/bots-view'
 
@@ -208,7 +209,13 @@ async function boot(): Promise<void> {
   const chatBadge = h('span', { class: 'chat-launch-badge', hidden: true, 'aria-hidden': 'true' })
   const chatLaunch = h('button', { class: 'studio-launch chat-launch', 'aria-label': 'Chat dos bots' }, icon('message', 16), 'Chat', chatBadge, h('small', {}, 'C'))
   chatLaunch.addEventListener('click', () => openChat())
-  ui.append(h('div', { class: 'floor-launch' }, studioLaunch, meetingLaunch, chatLaunch))
+  // Sala de CRM (CR-04): "CRM" (or V) opens clients, deals and payments; only with "CRM (prévia)" on.
+  // The badge counts what waits for you (phase 1: pending suggestions); zero hides it.
+  const crmOn = () => (state.settings.crm ?? CRM_APP_DEFAULTS).enabled
+  const crmBadge = h('span', { class: 'crm-launch-badge', hidden: true, 'aria-hidden': 'true' })
+  const crmLaunch = h('button', { class: 'studio-launch crm-launch', 'data-tour': 'crm', 'aria-label': 'Sala de CRM', hidden: !crmOn() }, icon('users', 16), 'CRM', crmBadge, h('small', {}, 'V'))
+  crmLaunch.addEventListener('click', () => openCrm())
+  ui.append(h('div', { class: 'floor-launch' }, studioLaunch, meetingLaunch, chatLaunch, crmLaunch))
   // The Sala de reunião screen opens on openMeetingRoom (map label, M, this button) and follows the recording.
   mountMeetingRoom(ui, state, { toast })
   // The Chat screen opens on openChat (C, this button, bot:open); its store loads now for the badge.
@@ -219,6 +226,25 @@ async function boot(): Promise<void> {
     chatBadge.textContent = badgeText(n)
     chatLaunch.setAttribute('aria-label', n ? `Chat dos bots, ${n} ${n === 1 ? 'mensagem não lida' : 'mensagens não lidas'}` : 'Chat dos bots')
   })
+  // The CRM screen opens on openCrm (V, this button); the linked ticket opens on the board, under it.
+  mountCrm(ui, state, { toast, openTicket: (id) => board.open(id) })
+  crmStore.on(() => {
+    const n = crmOn() ? crmStore.waiting() : 0
+    crmBadge.hidden = n === 0
+    crmBadge.textContent = badgeText(n)
+    crmLaunch.setAttribute('aria-label', n ? `Sala de CRM, ${n} ${n === 1 ? 'item esperando você' : 'itens esperando você'}` : 'Sala de CRM')
+  })
+  /** "CRM (prévia)" turned on or off in Configurações: the button, the key and the store follow. */
+  const syncCrm = () => {
+    const on = crmOn()
+    crmLaunch.hidden = !on
+    if (on) void crmStore.start()
+    else {
+      crmBadge.hidden = true
+      if (crmScreenOpen()) closeCrm()
+    }
+  }
+  syncCrm()
   const syncLaunch = () => (studioLaunch.hidden = !codexReady || !game.currentProject)
 
   const radio = new Radio(document.getElementById('overlay')!)
@@ -387,6 +413,7 @@ async function boot(): Promise<void> {
     if (e.key.toLowerCase() === 'l' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) setNight(!game.engine.night)
     if (e.key.toLowerCase() === 'g' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openMeetingRoom(game.currentFloorId)
     if (e.key.toLowerCase() === 'c' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) openChat()
+    if (e.key.toLowerCase() === 'v' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop') && crmOn()) openCrm()
     if (e.key.toLowerCase() === 'm' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) void window.office.petEnter()
     if (e.key.toLowerCase() === 'i' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) hud.toggleInbox()
     if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat && !board.isOpen && !ui.querySelector('.backdrop')) {
@@ -402,8 +429,9 @@ async function boot(): Promise<void> {
       if (e.key !== '?' || e.metaKey || e.ctrlKey || e.altKey || e.repeat || isTyping() || tour.showing) return
       e.preventDefault()
       e.stopPropagation()
-      // over the Chat, the list opens inside it (the Chat sits above the other windows)
-      openShortcuts(ui.querySelector<HTMLElement>('.chat-backdrop') ?? ui, state.platform, { tour: replayTour })
+      // over the Chat or the CRM, the list opens inside it (they sit above the other windows)
+      const host = ui.querySelector<HTMLElement>('.crm-backdrop') ?? ui.querySelector<HTMLElement>('.chat-backdrop') ?? ui
+      openShortcuts(host, state.platform, { tour: replayTour, crm: crmOn() })
     },
     true,
   )
@@ -506,6 +534,7 @@ async function boot(): Promise<void> {
     applyVideo()
     game.setProjects(state.settings.projects, state.squads)
     syncLaunch()
+    syncCrm()
     hud.render()
     panel.render()
     dialog.sync()
