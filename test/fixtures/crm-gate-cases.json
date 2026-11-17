@@ -1,0 +1,3230 @@
+{
+  "version": 1,
+  "about": "Tabela de decisão do portão de envio da Sala de CRM (S-3). Regras e semântica em docs/adr/0017-portao-de-envio.md. O CR-11 roda cada caso por gate(draft, ctx) e confere expect.",
+  "merge": "Cada caso é base + patch: objetos se mesclam campo a campo; listas, textos, números e null substituem. Horários em ISO 8601 com o deslocamento; tz é o fuso em que o relógio de parede (janelas, dia, feriado) é lido.",
+  "expect": "action e rule sempre conferem; at confere quando action é schedule; rehearsal e overridable ausentes valem false.",
+  "tz": "America/Sao_Paulo",
+  "base": {
+    "now": "2026-11-18T10:00:00-03:00",
+    "connected": true,
+    "settings": {
+      "rehearsal": false,
+      "autonomy": {
+        "service": "auto",
+        "billing": "auto",
+        "offer": "auto"
+      },
+      "hours": [
+        null,
+        {
+          "from": "09:00",
+          "to": "18:00"
+        },
+        {
+          "from": "09:00",
+          "to": "18:00"
+        },
+        {
+          "from": "09:00",
+          "to": "18:00"
+        },
+        {
+          "from": "09:00",
+          "to": "18:00"
+        },
+        {
+          "from": "09:00",
+          "to": "18:00"
+        },
+        {
+          "from": "09:00",
+          "to": "13:00"
+        }
+      ],
+      "holidays": [],
+      "perCustomer": {
+        "day": 1,
+        "week": 3
+      },
+      "offerEveryDays": 30,
+      "globalCap": {
+        "hour": 30,
+        "day": 150
+      },
+      "maxDiscountPct": 10,
+      "allowedLinks": [
+        "estudioexemplo.com.br"
+      ],
+      "stopAll": false,
+      "payment": {
+        "pixKey": "12.345.678/0001-90",
+        "pixKeyType": "cnpj",
+        "payee": "Estúdio Exemplo Ltda",
+        "bank": "Banco Exemplo",
+        "note": "Recibo na hora."
+      }
+    },
+    "customer": {
+      "id": "c1",
+      "name": "Maria",
+      "phones": [
+        "5511900000001"
+      ],
+      "phoneChecked": true,
+      "group": false,
+      "consent": {
+        "service": true,
+        "billing": true,
+        "offers": true,
+        "optOutAt": null
+      },
+      "handedToPlayer": false,
+      "phoneReplyAt": null
+    },
+    "payments": [
+      {
+        "id": "p1",
+        "customerId": "c1",
+        "amountCents": 48000,
+        "due": "2026-11-20",
+        "state": "open",
+        "reference": "Manutenção · novembro/2026"
+      }
+    ],
+    "history": [],
+    "global": {
+      "lastHour": 0,
+      "oldestInHour": null,
+      "today": 0
+    },
+    "run": {
+      "kind": "customer",
+      "customerId": "c1"
+    },
+    "draft": {
+      "id": "d1",
+      "customerId": "c1",
+      "by": "bot",
+      "edited": false,
+      "category": "service",
+      "text": "Oi, Maria! Recebi sua mensagem e já confiro o seu pedido.",
+      "replyTo": {
+        "id": "in1",
+        "at": "2026-11-18T09:58:00-03:00"
+      },
+      "paymentId": null,
+      "discountPct": null,
+      "validUntil": null
+    },
+    "approved": false,
+    "override": false
+  },
+  "cases": [
+    {
+      "id": "R00-01",
+      "group": 0,
+      "title": "Resposta do bot em conversa aberta, dentro do horário, tudo em Autônomo",
+      "patch": {},
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R00-02",
+      "group": 0,
+      "title": "Você inicia uma mensagem de atendimento no horário",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R00-03",
+      "group": 0,
+      "title": "Cobrança do bot com os marcadores e pagamento aberto",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R00-04",
+      "group": 0,
+      "title": "Oferta do bot a quem aceitou ofertas, sem desconto",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R00-05",
+      "group": 0,
+      "title": "Cobrança da régua sem bot (texto padrão do sistema)",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "system",
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R01-01",
+      "group": 1,
+      "title": "Parar tudo ligado: o bot não envia",
+      "patch": {
+        "settings": {
+          "stopAll": true
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "R01-02",
+      "group": 1,
+      "title": "Parar tudo ligado: você também não envia",
+      "patch": {
+        "settings": {
+          "stopAll": true
+        },
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "R01-03",
+      "group": 1,
+      "title": "Parar tudo ligado: confirmar 'enviar mesmo assim' não passa",
+      "patch": {
+        "settings": {
+          "stopAll": true
+        },
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "R01-04",
+      "group": 1,
+      "title": "WhatsApp desconectado: o bot não envia",
+      "patch": {
+        "connected": false
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "R01-05",
+      "group": 1,
+      "title": "WhatsApp desconectado: você também não envia",
+      "patch": {
+        "connected": false,
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "R02-01",
+      "group": 2,
+      "title": "Cliente não existe (apagado no meio da rodada)",
+      "patch": {
+        "customer": null
+      },
+      "expect": {
+        "action": "block",
+        "rule": 2
+      }
+    },
+    {
+      "id": "R02-02",
+      "group": 2,
+      "title": "Número ainda não conferido no WhatsApp",
+      "patch": {
+        "customer": {
+          "phoneChecked": false
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 2
+      }
+    },
+    {
+      "id": "R02-03",
+      "group": 2,
+      "title": "Destino é um grupo",
+      "patch": {
+        "customer": {
+          "group": true
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 2
+      }
+    },
+    {
+      "id": "R02-04",
+      "group": 2,
+      "title": "Você confirma 'enviar mesmo assim' para número não conferido: barra",
+      "patch": {
+        "customer": {
+          "phoneChecked": false
+        },
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 2
+      }
+    },
+    {
+      "id": "R02-05",
+      "group": 2,
+      "title": "Cliente sem telefone",
+      "patch": {
+        "customer": {
+          "phones": []
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 2
+      }
+    },
+    {
+      "id": "R03-01",
+      "group": 3,
+      "title": "Rodada da Maria propõe mensagem para a Ana",
+      "patch": {
+        "customer": {
+          "id": "c2",
+          "name": "Ana",
+          "phones": [
+            "5511900000002"
+          ]
+        },
+        "payments": [],
+        "draft": {
+          "customerId": "c2"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 3
+      }
+    },
+    {
+      "id": "R03-02",
+      "group": 3,
+      "title": "Rodada de agenda (Vendedor) propõe mensagem direta",
+      "patch": {
+        "run": {
+          "kind": "schedule"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 3
+      }
+    },
+    {
+      "id": "R03-03",
+      "group": 3,
+      "title": "Rascunho de bot sem rodada",
+      "patch": {
+        "run": null
+      },
+      "expect": {
+        "action": "block",
+        "rule": 3
+      }
+    },
+    {
+      "id": "R03-04",
+      "group": 3,
+      "title": "Você aprova um rascunho da rodada da Maria endereçado à Ana: ainda barra",
+      "patch": {
+        "customer": {
+          "id": "c2",
+          "name": "Ana",
+          "phones": [
+            "5511900000002"
+          ]
+        },
+        "payments": [],
+        "draft": {
+          "customerId": "c2"
+        },
+        "approved": true
+      },
+      "expect": {
+        "action": "block",
+        "rule": 3
+      }
+    },
+    {
+      "id": "R03-05",
+      "group": 3,
+      "title": "Mensagem sua não tem rodada: a regra não vale",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R03-06",
+      "group": 3,
+      "title": "Rascunho de sugestão aprovada, cliente na lista da sugestão",
+      "patch": {
+        "run": {
+          "kind": "suggestion",
+          "suggestionId": "s1",
+          "customerIds": [
+            "c1",
+            "c3"
+          ]
+        },
+        "approved": true,
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R03-07",
+      "group": 3,
+      "title": "Rascunho de sugestão para cliente fora da lista",
+      "patch": {
+        "run": {
+          "kind": "suggestion",
+          "suggestionId": "s1",
+          "customerIds": [
+            "c3"
+          ]
+        },
+        "approved": true,
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 3
+      }
+    },
+    {
+      "id": "R04-01",
+      "group": 4,
+      "title": "Oferta a quem não aceitou ofertas",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false
+          }
+        },
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4
+      }
+    },
+    {
+      "id": "R04-02",
+      "group": 4,
+      "title": "Oferta a quem pediu para sair",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": true,
+            "optOutAt": "2026-11-10T15:00:00-03:00"
+          }
+        },
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4
+      }
+    },
+    {
+      "id": "R04-03",
+      "group": 4,
+      "title": "Você manda oferta a quem pediu para sair, com 'enviar mesmo assim': barra",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false,
+            "optOutAt": "2026-11-10T15:00:00-03:00"
+          }
+        },
+        "override": true,
+        "approved": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4
+      }
+    },
+    {
+      "id": "R04-04",
+      "group": 4,
+      "title": "Você manda oferta a quem não aceitou ofertas",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false
+          }
+        },
+        "run": null,
+        "draft": {
+          "by": "player",
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4
+      }
+    },
+    {
+      "id": "R04-05",
+      "group": 4,
+      "title": "Atendimento a quem saiu das ofertas: passa",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false,
+            "optOutAt": "2026-11-10T15:00:00-03:00"
+          }
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R04-06",
+      "group": 4,
+      "title": "Cobrança do bot a cliente com cobrança desmarcada",
+      "patch": {
+        "customer": {
+          "consent": {
+            "billing": false
+          }
+        },
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R04-07",
+      "group": 4,
+      "title": "Você escreve a cliente com atendimento desmarcado",
+      "patch": {
+        "customer": {
+          "consent": {
+            "service": false
+          }
+        },
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R04-08",
+      "group": 4,
+      "title": "O mesmo, com 'enviar mesmo assim'",
+      "patch": {
+        "customer": {
+          "consent": {
+            "service": false
+          }
+        },
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R04-09",
+      "group": 4,
+      "title": "Você aprova a oferta do bot a quem pediu para sair: barra",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false,
+            "optOutAt": "2026-11-10T15:00:00-03:00"
+          }
+        },
+        "approved": true,
+        "override": true,
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4
+      }
+    },
+    {
+      "id": "R05-01",
+      "group": 5,
+      "title": "Cobrança sem nenhum pagamento do cliente",
+      "patch": {
+        "payments": [],
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-02",
+      "group": 5,
+      "title": "Cobrança aponta para pagamento de outro cliente",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p9"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-03",
+      "group": 5,
+      "title": "Cobrança de pagamento já pago",
+      "patch": {
+        "payments": [
+          {
+            "id": "p1",
+            "customerId": "c1",
+            "amountCents": 48000,
+            "due": "2026-11-20",
+            "state": "paid",
+            "reference": "Manutenção · novembro/2026"
+          }
+        ],
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-04",
+      "group": 5,
+      "title": "Cobrança sem {pagamento}",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}: {valor}, vence em {vencimento}.",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-05",
+      "group": 5,
+      "title": "Cobrança sem {valor}",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente} vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-06",
+      "group": 5,
+      "title": "Cobrança sem {vencimento}",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}: {valor}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-07",
+      "group": 5,
+      "title": "Cobrança com valor digitado que não bate (R$ 520,00 contra R$ 480,00)",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! São R$ 520,00 de {referente}: {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-08",
+      "group": 5,
+      "title": "Cobrança com valor digitado igual ao do pagamento",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! São R$ 480,00 ({valor}) de {referente}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R05-09",
+      "group": 5,
+      "title": "Cobrança com data digitada que não bate (25/11 contra 20/11)",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}: {valor}, vence em {vencimento} (dia 25/11). {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-10",
+      "group": 5,
+      "title": "Cobrança com o valor por extenso",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! São quatrocentos e oitenta reais: {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-11",
+      "group": 5,
+      "title": "Atendimento do bot com cara de cobrança (valor e vencimento digitados)",
+      "patch": {
+        "draft": {
+          "text": "Oi, Maria! Seu boleto de R$ 480,00 vence dia 20."
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-12",
+      "group": 5,
+      "title": "Atendimento do bot com {pagamento}",
+      "patch": {
+        "draft": {
+          "text": "Oi, Maria! Segue: {pagamento}"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-13",
+      "group": 5,
+      "title": "Você escreve uma cobrança sem pagamento aberto",
+      "patch": {
+        "payments": [],
+        "run": null,
+        "draft": {
+          "by": "player",
+          "category": "billing",
+          "text": "Oi, Maria! Lembra do acerto da semana passada?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R05-14",
+      "group": 5,
+      "title": "O mesmo, com 'enviar mesmo assim'",
+      "patch": {
+        "payments": [],
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "category": "billing",
+          "text": "Oi, Maria! Lembra do acerto da semana passada?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R05-15",
+      "group": 5,
+      "title": "Você digita valor e chave na cobrança, com pagamento aberto",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player",
+          "category": "billing",
+          "text": "Oi, Maria! São R$ 480,00 até dia 20. PIX 12.345.678/0001-90.",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R05-16",
+      "group": 5,
+      "title": "Cobrança de pagamento atrasado (aberto, vencido)",
+      "patch": {
+        "payments": [
+          {
+            "id": "p1",
+            "customerId": "c1",
+            "amountCents": 48000,
+            "due": "2026-11-10",
+            "state": "open",
+            "reference": "Manutenção · novembro/2026"
+          }
+        ],
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R05-17",
+      "group": 5,
+      "title": "Só há pagamento em disputa",
+      "patch": {
+        "payments": [
+          {
+            "id": "p1",
+            "customerId": "c1",
+            "amountCents": 48000,
+            "due": "2026-11-20",
+            "state": "disputed",
+            "reference": "Manutenção · novembro/2026"
+          }
+        ],
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-18",
+      "group": 5,
+      "title": "Cobrança sem paymentId, um só pagamento aberto",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R05-19",
+      "group": 5,
+      "title": "Cobrança sem paymentId, dois pagamentos abertos",
+      "patch": {
+        "payments": [
+          {
+            "id": "p1",
+            "customerId": "c1",
+            "amountCents": 48000,
+            "due": "2026-11-20",
+            "state": "open",
+            "reference": "Manutenção · novembro/2026"
+          },
+          {
+            "id": "p2",
+            "customerId": "c1",
+            "amountCents": 120000,
+            "due": "2026-11-25",
+            "state": "open",
+            "reference": "Site · parcela 2"
+          }
+        ],
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-20",
+      "group": 5,
+      "title": "Cobrança com data digitada igual ao vencimento",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}: {valor}, vence em {vencimento} (dia 20/11). {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R05-21",
+      "group": 5,
+      "title": "Cobrança do bot com o valor em número solto, sem R$ (520)",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Ficou 520 de {referente}: {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R06-01",
+      "group": 6,
+      "title": "Link https fora da lista",
+      "patch": {
+        "draft": {
+          "text": "Veja os detalhes em https://pagamento-rapido.com/maria"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-02",
+      "group": 6,
+      "title": "Domínio sem http",
+      "patch": {
+        "draft": {
+          "text": "Acesse pagamento-rapido.com para ver"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-03",
+      "group": 6,
+      "title": "Encurtador",
+      "patch": {
+        "draft": {
+          "text": "Resumo aqui: bit.ly/3xYz9"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-04",
+      "group": 6,
+      "title": "wa.me",
+      "patch": {
+        "draft": {
+          "text": "Me chama no wa.me/5511988887777"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-05",
+      "group": 6,
+      "title": "Link do domínio permitido",
+      "patch": {
+        "draft": {
+          "text": "O portfólio novo está em https://estudioexemplo.com.br/portfolio"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-06",
+      "group": 6,
+      "title": "Subdomínio do domínio permitido",
+      "patch": {
+        "draft": {
+          "text": "Veja www.estudioexemplo.com.br/portfolio"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-07",
+      "group": 6,
+      "title": "Domínio parecido que termina em outro",
+      "patch": {
+        "draft": {
+          "text": "Acesse estudioexemplo.com.br.golpe.io"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-08",
+      "group": 6,
+      "title": "Domínio permitido no caminho de outro",
+      "patch": {
+        "draft": {
+          "text": "Link: https://golpe.io/estudioexemplo.com.br"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-09",
+      "group": 6,
+      "title": "CPF",
+      "patch": {
+        "draft": {
+          "text": "Meu CPF para o PIX: 123.456.789-09"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-10",
+      "group": 6,
+      "title": "CNPJ que não é o do sistema",
+      "patch": {
+        "draft": {
+          "text": "PIX no CNPJ 98.765.432/0001-10"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-11",
+      "group": 6,
+      "title": "CNPJ com espaços",
+      "patch": {
+        "draft": {
+          "text": "chave 98 765 432 0001 10"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-12",
+      "group": 6,
+      "title": "E-mail (chave PIX)",
+      "patch": {
+        "draft": {
+          "text": "manda no pix financeiro@golpe.com"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-13",
+      "group": 6,
+      "title": "E-mail disfarçado por extenso",
+      "patch": {
+        "draft": {
+          "text": "pix: maria arroba gmail ponto com"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-14",
+      "group": 6,
+      "title": "Telefone (chave PIX)",
+      "patch": {
+        "draft": {
+          "text": "PIX pelo celular (11) 98888-7777"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-15",
+      "group": 6,
+      "title": "Chave aleatória",
+      "patch": {
+        "draft": {
+          "text": "chave aleatória 123e4567-e89b-42d3-a456-426614174000"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-16",
+      "group": 6,
+      "title": "Linha digitável de boleto",
+      "patch": {
+        "draft": {
+          "text": "Segue a linha: 34191.79001 01043.510047 91020.150008 1 96610000048000"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-17",
+      "group": 6,
+      "title": "Número de cartão (Luhn)",
+      "patch": {
+        "draft": {
+          "text": "cartão 4111 1111 1111 1111"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-18",
+      "group": 6,
+      "title": "Agência e conta",
+      "patch": {
+        "draft": {
+          "text": "depósito na agência 1234 conta 56789-0"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-19",
+      "group": 6,
+      "title": "PIX copia e cola",
+      "patch": {
+        "draft": {
+          "text": "00020126580014br.gov.bcb.pix0136123e4567-e12b-12d1-a456-4266554400005204000053039865802BR5913Fulano de Tal6008BRASILIA62070503***63041D3D"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-20",
+      "group": 6,
+      "title": "CPF com parte por extenso",
+      "patch": {
+        "draft": {
+          "text": "CPF: um dois três 456.789-09"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-21",
+      "group": 6,
+      "title": "Números comuns (pedido, prazo, quantidade)",
+      "patch": {
+        "draft": {
+          "text": "Seu pedido 4521 sai em 3 dias, são 2 caixas."
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-22",
+      "group": 6,
+      "title": "Data e hora",
+      "patch": {
+        "draft": {
+          "text": "Combinado: amanhã, 19/11, às 14:30."
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-23",
+      "group": 6,
+      "title": "Você digita a sua própria chave PIX num atendimento",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player",
+          "text": "Pode pagar no PIX 12.345.678/0001-90"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-24",
+      "group": 6,
+      "title": "Você manda link fora da lista",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player",
+          "text": "Subi os arquivos em https://drive.exemplo.net/pasta"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R06-25",
+      "group": 6,
+      "title": "O mesmo, com 'enviar mesmo assim'",
+      "patch": {
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "text": "Subi os arquivos em https://drive.exemplo.net/pasta"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-26",
+      "group": 6,
+      "title": "Rascunho do bot editado por você ainda com CPF: barra",
+      "patch": {
+        "approved": true,
+        "draft": {
+          "edited": true,
+          "text": "Ajustei: CPF 123.456.789-09"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-27",
+      "group": 6,
+      "title": "Você aprova rascunho do bot com link fora da lista: barra",
+      "patch": {
+        "approved": true,
+        "draft": {
+          "text": "Veja https://pagamento-rapido.com"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-28",
+      "group": 6,
+      "title": "CPF com espaço entre os dígitos",
+      "patch": {
+        "draft": {
+          "text": "CPF 1 2 3 4 5 6 7 8 9 0 9"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-29",
+      "group": 6,
+      "title": "Domínio com espaços em volta do ponto",
+      "patch": {
+        "draft": {
+          "text": "entra em pagamento-rapido . com"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-30",
+      "group": 6,
+      "title": "Valor solto num atendimento, sem palavra de cobrança",
+      "patch": {
+        "draft": {
+          "text": "O plano custa R$ 480,00 por mês."
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R07-01",
+      "group": 7,
+      "title": "Oferta com 10% (teto 10%), validade em dia",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 10% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 10,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R07-02",
+      "group": 7,
+      "title": "Oferta com 15% acima do teto",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 15% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 15,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-03",
+      "group": 7,
+      "title": "Desconto no texto sem declarar",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 20% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-04",
+      "group": 7,
+      "title": "Desconto declarado sem validade",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 10% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 10
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-05",
+      "group": 7,
+      "title": "Validade já passou",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 10% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 10,
+          "validUntil": "2026-11-17"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-06",
+      "group": 7,
+      "title": "Desconto por extenso ('10 por cento') igual ao declarado",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão sai com 10 por cento de desconto até 30/11.",
+          "replyTo": null,
+          "discountPct": 10,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R07-07",
+      "group": 7,
+      "title": "Teto 0% (padrão): qualquer desconto do bot espera você",
+      "patch": {
+        "settings": {
+          "maxDiscountPct": 0
+        },
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 5% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 5,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-08",
+      "group": 7,
+      "title": "Você aprova a oferta de 15%",
+      "patch": {
+        "approved": true,
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 15% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 15,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R07-09",
+      "group": 7,
+      "title": "Você oferece 30%",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player",
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 30% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 30,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R07-10",
+      "group": 7,
+      "title": "Texto diz 15%, declarado 10%",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 15% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 10,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-11",
+      "group": 7,
+      "title": "Oferta sem desconto",
+      "patch": {
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R08-01",
+      "group": 8,
+      "title": "Mesmo texto enviado há 3 h",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T07:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Oi, Maria! Recebi sua mensagem e já confiro o seu pedido."
+          }
+        ]
+      },
+      "expect": {
+        "action": "block",
+        "rule": 8,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R08-02",
+      "group": 8,
+      "title": "Mesmo texto com caixa, acento, espaço e pontuação diferentes",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T07:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "OI  MARIA recebi sua mensagem e ja confiro o seu pedido"
+          }
+        ]
+      },
+      "expect": {
+        "action": "block",
+        "rule": 8,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R08-03",
+      "group": 8,
+      "title": "Mesmo texto enviado há 25 h",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-17T09:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Oi, Maria! Recebi sua mensagem e já confiro o seu pedido."
+          }
+        ]
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R08-04",
+      "group": 8,
+      "title": "Você reenvia o mesmo texto com 'enviar mesmo assim'",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T07:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Oi, Maria! Recebi sua mensagem e já confiro o seu pedido."
+          }
+        ],
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R08-05",
+      "group": 8,
+      "title": "Mesmo texto há 23 h 59 min",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-17T10:01:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Oi, Maria! Recebi sua mensagem e já confiro o seu pedido."
+          }
+        ]
+      },
+      "expect": {
+        "action": "block",
+        "rule": 8,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R09-01",
+      "group": 9,
+      "title": "Conversa passada para você",
+      "patch": {
+        "customer": {
+          "handedToPlayer": true
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 9
+      }
+    },
+    {
+      "id": "R09-02",
+      "group": 9,
+      "title": "Você respondeu pelo celular há 3 h",
+      "patch": {
+        "customer": {
+          "phoneReplyAt": "2026-11-18T07:00:00-03:00"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 9
+      }
+    },
+    {
+      "id": "R09-03",
+      "group": 9,
+      "title": "Você respondeu pelo celular há 14 h",
+      "patch": {
+        "customer": {
+          "phoneReplyAt": "2026-11-17T20:00:00-03:00"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R09-04",
+      "group": 9,
+      "title": "Você aprova o rascunho de uma conversa passada para você",
+      "patch": {
+        "customer": {
+          "handedToPlayer": true
+        },
+        "approved": true
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R09-05",
+      "group": 9,
+      "title": "Mensagem sua numa conversa passada para você",
+      "patch": {
+        "customer": {
+          "handedToPlayer": true
+        },
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R09-06",
+      "group": 9,
+      "title": "Resposta a mensagem recebida há mais de 2 h",
+      "patch": {
+        "draft": {
+          "replyTo": {
+            "id": "in1",
+            "at": "2026-11-18T07:30:00-03:00"
+          }
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 9
+      }
+    },
+    {
+      "id": "R09-07",
+      "group": 9,
+      "title": "Cobrança da régua numa conversa passada para você",
+      "patch": {
+        "customer": {
+          "handedToPlayer": true
+        },
+        "run": null,
+        "draft": {
+          "by": "system",
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 9
+      }
+    },
+    {
+      "id": "R10-01",
+      "group": 10,
+      "title": "Quarta 20:00: agenda para quinta 09:00",
+      "patch": {
+        "now": "2026-11-18T20:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-19T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-02",
+      "group": 10,
+      "title": "Sábado 14:00: agenda para segunda 09:00",
+      "patch": {
+        "now": "2026-11-21T14:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-23T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-03",
+      "group": 10,
+      "title": "Domingo 10:00: agenda para segunda 09:00",
+      "patch": {
+        "now": "2026-11-22T10:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-23T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-04",
+      "group": 10,
+      "title": "Feriado (sexta 20/11) às 10:00: agenda para sábado 09:00",
+      "patch": {
+        "now": "2026-11-20T10:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        },
+        "settings": {
+          "holidays": [
+            "2026-11-20"
+          ]
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-21T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-05",
+      "group": 10,
+      "title": "Quinta 19:00 com feriado na sexta: agenda para sábado 09:00",
+      "patch": {
+        "now": "2026-11-19T19:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        },
+        "settings": {
+          "holidays": [
+            "2026-11-20"
+          ]
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-21T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-06",
+      "group": 10,
+      "title": "Quarta 07:30: agenda para o mesmo dia 09:00",
+      "patch": {
+        "now": "2026-11-18T07:30:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-18T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-07",
+      "group": 10,
+      "title": "Quarta 18:00 em ponto (fim exclusivo): agenda para quinta",
+      "patch": {
+        "now": "2026-11-18T18:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-19T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-08",
+      "group": 10,
+      "title": "Quarta 17:59: envia",
+      "patch": {
+        "now": "2026-11-18T17:59:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R10-09",
+      "group": 10,
+      "title": "Quarta 09:00 em ponto (início inclusivo): envia",
+      "patch": {
+        "now": "2026-11-18T09:00:00-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R10-10",
+      "group": 10,
+      "title": "Quarta 22:00, resposta a mensagem de 10 min atrás: envia",
+      "patch": {
+        "now": "2026-11-18T22:00:00-03:00",
+        "draft": {
+          "replyTo": {
+            "id": "in1",
+            "at": "2026-11-18T21:50:00-03:00"
+          }
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R10-11",
+      "group": 10,
+      "title": "Quarta 22:00, resposta a mensagem de 20 min atrás: agenda",
+      "patch": {
+        "now": "2026-11-18T22:00:00-03:00",
+        "draft": {
+          "replyTo": {
+            "id": "in1",
+            "at": "2026-11-18T21:40:00-03:00"
+          }
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-19T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-12",
+      "group": 10,
+      "title": "Você inicia às 21:00: agenda",
+      "patch": {
+        "now": "2026-11-18T21:00:00-03:00",
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-19T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-13",
+      "group": 10,
+      "title": "O mesmo, com 'enviar mesmo assim'",
+      "patch": {
+        "now": "2026-11-18T21:00:00-03:00",
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R10-14",
+      "group": 10,
+      "title": "Horário de verão começa (Nova York): sábado 14:00 agenda para segunda 09:00 no novo fuso",
+      "tz": "America/New_York",
+      "patch": {
+        "now": "2026-03-07T14:00:00-05:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-03-09T09:00:00-04:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-15",
+      "group": 10,
+      "title": "Horário de verão termina (Nova York): sábado 13:30 agenda para segunda 09:00 no novo fuso",
+      "tz": "America/New_York",
+      "patch": {
+        "now": "2026-10-31T13:30:00-04:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-02T09:00:00-05:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-16",
+      "group": 10,
+      "title": "Quarta 23:59:30, virada do dia: agenda para quinta 09:00",
+      "patch": {
+        "now": "2026-11-18T23:59:30-03:00",
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-19T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "R10-17",
+      "group": 10,
+      "title": "Sábado 12:00, cobrança iniciada: dentro da janela de sábado",
+      "patch": {
+        "now": "2026-11-21T12:00:00-03:00",
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R10-18",
+      "group": 10,
+      "title": "Feriado, resposta a mensagem de 5 min atrás: envia",
+      "patch": {
+        "now": "2026-11-20T10:00:00-03:00",
+        "settings": {
+          "holidays": [
+            "2026-11-20"
+          ]
+        },
+        "draft": {
+          "replyTo": {
+            "id": "in1",
+            "at": "2026-11-20T09:55:00-03:00"
+          }
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R10-19",
+      "group": 10,
+      "title": "Domingo, resposta a mensagem de 10 min atrás: envia",
+      "patch": {
+        "now": "2026-11-22T11:00:00-03:00",
+        "draft": {
+          "replyTo": {
+            "id": "in1",
+            "at": "2026-11-22T10:50:00-03:00"
+          }
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-01",
+      "group": 11,
+      "title": "Já houve 1 mensagem iniciada hoje (limite 1/dia)",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 11,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R11-02",
+      "group": 11,
+      "title": "3 iniciadas nos últimos 7 dias (limite 3/semana)",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-13T10:30:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          },
+          {
+            "at": "2026-11-15T11:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          },
+          {
+            "at": "2026-11-17T15:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 11,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R11-03",
+      "group": 11,
+      "title": "2 iniciadas nos últimos 7 dias",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-15T11:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          },
+          {
+            "at": "2026-11-17T15:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-04",
+      "group": 11,
+      "title": "Respostas de hoje não contam",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T08:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Mensagem anterior."
+          },
+          {
+            "at": "2026-11-18T09:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Outra resposta."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-05",
+      "group": 11,
+      "title": "Rascunho que responde não conta nem é contado",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ]
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-06",
+      "group": 11,
+      "title": "Oferta 20 dias depois da última (1 a cada 30 dias)",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-10-29T10:00:00-03:00",
+            "category": "offer",
+            "initiated": true,
+            "text": "Oferta anterior."
+          }
+        ],
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 11,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R11-07",
+      "group": 11,
+      "title": "Oferta 31 dias depois da última",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-10-18T09:00:00-03:00",
+            "category": "offer",
+            "initiated": true,
+            "text": "Oferta anterior."
+          }
+        ],
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-08",
+      "group": 11,
+      "title": "Você inicia acima do limite do dia",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 11,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R11-09",
+      "group": 11,
+      "title": "O mesmo, com 'enviar mesmo assim'",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-10",
+      "group": 11,
+      "title": "Você aprova (sem 'enviar mesmo assim') rascunho acima do limite",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "approved": true,
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 11,
+        "overridable": true
+      }
+    },
+    {
+      "id": "R11-11",
+      "group": 11,
+      "title": "Iniciada ontem às 23:00: o dia é o do calendário local",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-17T23:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R11-12",
+      "group": 11,
+      "title": "A semana é de 7×24 h: a de 7 dias e 1 h atrás já não conta",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-11T09:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          },
+          {
+            "at": "2026-11-15T11:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          },
+          {
+            "at": "2026-11-17T15:00:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R12-01",
+      "group": 12,
+      "title": "30 envios na última hora: espera o mais antigo sair da hora",
+      "patch": {
+        "global": {
+          "lastHour": 30,
+          "oldestInHour": "2026-11-18T09:20:00-03:00",
+          "today": 40
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 12,
+        "at": "2026-11-18T10:20:00-03:00"
+      }
+    },
+    {
+      "id": "R12-02",
+      "group": 12,
+      "title": "150 envios hoje: próxima janela de amanhã",
+      "patch": {
+        "global": {
+          "lastHour": 10,
+          "oldestInHour": "2026-11-18T09:05:00-03:00",
+          "today": 150
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 12,
+        "at": "2026-11-19T09:00:00-03:00"
+      }
+    },
+    {
+      "id": "R12-03",
+      "group": 12,
+      "title": "Resposta também respeita o teto global",
+      "patch": {
+        "global": {
+          "lastHour": 30,
+          "oldestInHour": "2026-11-18T09:15:00-03:00",
+          "today": 40
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 12,
+        "at": "2026-11-18T10:15:00-03:00"
+      }
+    },
+    {
+      "id": "R12-04",
+      "group": 12,
+      "title": "'Enviar mesmo assim' não passa do teto global",
+      "patch": {
+        "global": {
+          "lastHour": 30,
+          "oldestInHour": "2026-11-18T09:30:00-03:00",
+          "today": 40
+        },
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 12,
+        "at": "2026-11-18T10:30:00-03:00"
+      }
+    },
+    {
+      "id": "R12-05",
+      "group": 12,
+      "title": "29 envios na última hora: envia",
+      "patch": {
+        "global": {
+          "lastHour": 29,
+          "oldestInHour": "2026-11-18T09:20:00-03:00",
+          "today": 40
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R12-06",
+      "group": 12,
+      "title": "17:40, hora cheia: vaga às 17:50, ainda na janela",
+      "patch": {
+        "now": "2026-11-18T17:40:00-03:00",
+        "global": {
+          "lastHour": 30,
+          "oldestInHour": "2026-11-18T16:50:00-03:00",
+          "today": 60
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 12,
+        "at": "2026-11-18T17:50:00-03:00"
+      }
+    },
+    {
+      "id": "R12-07",
+      "group": 12,
+      "title": "17:50, vaga só às 18:05, fora da janela: próxima janela",
+      "patch": {
+        "now": "2026-11-18T17:50:00-03:00",
+        "global": {
+          "lastHour": 30,
+          "oldestInHour": "2026-11-18T17:05:00-03:00",
+          "today": 60
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 12,
+        "at": "2026-11-19T09:00:00-03:00"
+      }
+    },
+    {
+      "id": "R12-08",
+      "group": 12,
+      "title": "149 envios hoje: envia",
+      "patch": {
+        "global": {
+          "lastHour": 0,
+          "today": 149
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R13-01",
+      "group": 13,
+      "title": "Ensaio ligado, Atendimento em Autônomo: teria sido enviada",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 13,
+        "rehearsal": true
+      }
+    },
+    {
+      "id": "R13-02",
+      "group": 13,
+      "title": "Ensaio ligado: mensagem sua sai",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "run": null,
+        "draft": {
+          "by": "player"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R13-03",
+      "group": 13,
+      "title": "Ensaio ligado: rascunho que você aprovou sai",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "approved": true
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R13-04",
+      "group": 13,
+      "title": "Ensaio ligado com Atendimento em Aprovação: decide a 14, sem 'teria sido enviada'",
+      "patch": {
+        "settings": {
+          "rehearsal": true,
+          "autonomy": {
+            "service": "approval"
+          }
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 14
+      }
+    },
+    {
+      "id": "R13-05",
+      "group": 13,
+      "title": "Ensaio ligado: cobrança da régua em Autônomo",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "run": null,
+        "draft": {
+          "by": "system",
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 13,
+        "rehearsal": true
+      }
+    },
+    {
+      "id": "R13-06",
+      "group": 13,
+      "title": "Ensaio ligado: cobrança do bot em Autônomo",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 13,
+        "rehearsal": true
+      }
+    },
+    {
+      "id": "R13-07",
+      "group": 13,
+      "title": "Ensaio ligado: oferta do bot em Autônomo",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 13,
+        "rehearsal": true
+      }
+    },
+    {
+      "id": "R14-01",
+      "group": 14,
+      "title": "Atendimento em Aprovação",
+      "patch": {
+        "settings": {
+          "autonomy": {
+            "service": "approval"
+          }
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 14
+      }
+    },
+    {
+      "id": "R14-02",
+      "group": 14,
+      "title": "Oferta em Rascunho",
+      "patch": {
+        "settings": {
+          "autonomy": {
+            "offer": "draft"
+          }
+        },
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 14
+      }
+    },
+    {
+      "id": "R14-03",
+      "group": 14,
+      "title": "Só Cobrança em Autônomo: a cobrança sai",
+      "patch": {
+        "settings": {
+          "autonomy": {
+            "service": "approval",
+            "billing": "auto",
+            "offer": "draft"
+          }
+        },
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R14-04",
+      "group": 14,
+      "title": "Você aprova um rascunho em Aprovação",
+      "patch": {
+        "settings": {
+          "autonomy": {
+            "service": "approval"
+          }
+        },
+        "approved": true
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R14-05",
+      "group": 14,
+      "title": "Configuração padrão (ensaio ligado, Aprovação): espera você",
+      "patch": {
+        "settings": {
+          "rehearsal": true,
+          "autonomy": {
+            "service": "approval",
+            "billing": "approval",
+            "offer": "draft"
+          },
+          "maxDiscountPct": 0,
+          "allowedLinks": []
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 14
+      }
+    },
+    {
+      "id": "R14-06",
+      "group": 14,
+      "title": "Confirmação de saída das ofertas (texto fixo) com Atendimento em Aprovação",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false,
+            "optOutAt": "2026-11-18T09:58:00-03:00"
+          }
+        },
+        "run": null,
+        "settings": {
+          "autonomy": {
+            "service": "approval"
+          }
+        },
+        "draft": {
+          "by": "system",
+          "text": "Pronto, você não vai mais receber ofertas. Se mudar de ideia, é só avisar."
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 14
+      }
+    },
+    {
+      "id": "X-01",
+      "group": "ordem",
+      "title": "Oferta a quem saiu, fora do horário: decide a 4",
+      "patch": {
+        "customer": {
+          "consent": {
+            "offers": false,
+            "optOutAt": "2026-11-10T15:00:00-03:00"
+          }
+        },
+        "now": "2026-11-18T21:00:00-03:00",
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 4
+      }
+    },
+    {
+      "id": "X-02",
+      "group": "ordem",
+      "title": "Link fora da lista e acima do limite do dia: decide a 6",
+      "patch": {
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null,
+          "text": "Veja pagamento-rapido.com"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "X-03",
+      "group": "ordem",
+      "title": "Texto repetido e fora do horário: decide a 8",
+      "patch": {
+        "now": "2026-11-18T20:00:00-03:00",
+        "history": [
+          {
+            "at": "2026-11-18T17:00:00-03:00",
+            "category": "service",
+            "initiated": false,
+            "text": "Oi, Maria! Recebi sua mensagem e já confiro o seu pedido."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 8,
+        "overridable": true
+      }
+    },
+    {
+      "id": "X-04",
+      "group": "ordem",
+      "title": "Conversa com você e fora do horário: decide a 9",
+      "patch": {
+        "now": "2026-11-18T20:00:00-03:00",
+        "customer": {
+          "handedToPlayer": true
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 9
+      }
+    },
+    {
+      "id": "X-05",
+      "group": "ordem",
+      "title": "Fora do horário e teto global cheio: decide a 10",
+      "patch": {
+        "now": "2026-11-18T20:00:00-03:00",
+        "global": {
+          "lastHour": 30,
+          "oldestInHour": "2026-11-18T19:30:00-03:00",
+          "today": 100
+        },
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "schedule",
+        "rule": 10,
+        "at": "2026-11-19T09:00:00-03:00",
+        "overridable": true
+      }
+    },
+    {
+      "id": "X-06",
+      "group": "ordem",
+      "title": "Ensaio ligado e acima do limite do dia: decide a 11",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "history": [
+          {
+            "at": "2026-11-18T09:10:00-03:00",
+            "category": "service",
+            "initiated": true,
+            "text": "Mensagem anterior."
+          }
+        ],
+        "draft": {
+          "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 11,
+        "overridable": true
+      }
+    },
+    {
+      "id": "X-07",
+      "group": "ordem",
+      "title": "Rodada de outro cliente com Parar tudo ligado: decide a 1",
+      "patch": {
+        "customer": {
+          "id": "c2",
+          "name": "Ana",
+          "phones": [
+            "5511900000002"
+          ]
+        },
+        "payments": [],
+        "draft": {
+          "customerId": "c2"
+        },
+        "settings": {
+          "stopAll": true
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "X-08",
+      "group": "ordem",
+      "title": "Cobrança sem {pagamento} e com link: decide a 5",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}: {valor}, vence em {vencimento}. Pague em pagamento-rapido.com",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "X-09",
+      "group": "ordem",
+      "title": "Cliente apagado com Parar tudo ligado: decide a 1",
+      "patch": {
+        "customer": null,
+        "settings": {
+          "stopAll": true
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 1
+      }
+    },
+    {
+      "id": "X-10",
+      "group": "ordem",
+      "title": "Desconto acima do teto com ensaio ligado: decide a 7",
+      "patch": {
+        "settings": {
+          "rehearsal": true
+        },
+        "draft": {
+          "category": "offer",
+          "text": "Oi, Maria! A revisão de fim de ano sai com 15% de desconto até 30/11. Quer os detalhes?",
+          "replyTo": null,
+          "discountPct": 15,
+          "validUntil": "2026-11-30"
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    }
+  ]
+}
