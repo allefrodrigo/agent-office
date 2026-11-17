@@ -23,7 +23,16 @@ let events: OfficeEvent[]
 const draft = (extra: Record<string, unknown> = {}) => ({ name: 'Rita', role: 'Resume o dia.', floor: 'terreo', cwd: project, ...extra })
 const kindsOf = (type: OfficeEvent['type']) => events.filter((e) => e.type === type)
 
+/** The store and runner of the running test are open (afterEach closes them). */
+let open = false
+
 function setup(bots: Bot[] = [makeBot(project)]): void {
+  // a test that sets up again leaves no store behind with a write due after its folder is gone
+  if (open) {
+    runner.dispose()
+    store.flush()
+  }
+  open = true
   store = new BotStore(dir)
   store.bots = bots
   manager = new FakeManager(project)
@@ -48,6 +57,7 @@ beforeEach(() => {
 afterEach(() => {
   runner.dispose()
   store.flush()
+  open = false
   vi.useRealTimers()
   rmSync(dir, { recursive: true, force: true })
 })
@@ -189,6 +199,7 @@ describe('botsApi: o fio e a lista', () => {
     const day = 86_400_000
     const run = (id: string, startedAt: number, costUsd: number) => ({ id, trigger: { kind: 'message' as const }, startedAt, status: 'ok' as const, steps: 0, costUsd, threadId: 'gabi', itemId: id })
     setup([makeBot(project, { runs: [run('a', t - 1000, 0.1), run('b', t - 3 * day, 0.2), run('c', t - 20 * day, 0.3), run('d', t - 40 * day, 1)] })])
+    runner.dispose()
     runner = new BotRunner({ store, manager, settings: () => ({ projects: [], chat: {} as ChatSettings }), broadcast: () => undefined, notify: () => undefined, now: () => t })
     api = botsApi({ store, runner, settings: () => ({ projects: [], accounts: [] }), broadcast: () => undefined })
     expect(api.botSpend('gabi')).toEqual({ today: 0.1, week: 0.3, month: 0.6 })
