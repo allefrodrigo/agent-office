@@ -234,12 +234,17 @@ export function drawCell(ctx: CanvasRenderingContext2D, img: CanvasImageSource, 
   } else ctx.drawImage(img, sx, sy, CELL_W, CELL_H, fx - Math.round(FOOT_X * s), y, w, h)
 }
 
-/** Draws one person; returns where, for clicks. */
-export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number): Rect {
+/** Where and how a person is drawn this frame: the pose's cell, its sheet and the sole point. */
+function placed(av: Avatar, t: number) {
   const s = av.root.scale.x
   const { cell, flip, posture, dir } = frameOf(av, t)
   const { fx, fy } = footOf(av, posture === 'sit' ? flip : null, BACK_SEATS.has(cell), av.pose === 'play' ? PLAY_REACH : 0)
-  const sheet = dressed(av)
+  return { s, cell, flip, posture, dir, fx, fy, sheet: dressed(av) }
+}
+
+/** Draws one person; returns where, for clicks. */
+export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number): Rect {
+  const { s, cell, flip, posture, dir, fx, fy, sheet } = placed(av, t)
   // a flat dark ellipse under the feet (the seat casts its own)
   if (posture !== 'sit') {
     ctx.globalAlpha = 0.25
@@ -267,6 +272,90 @@ export function drawPerson(ctx: CanvasRenderingContext2D, av: Avatar, t: number)
   const gem = av.gemColor
   if (gem) drawGem(ctx, gem, fx, fy - Math.round((tall + 12) * s) + Math.round(Math.sin(t * 2.4 + hash(av.id)) * 1.5))
   return rect
+}
+
+// ---------- seen through a wall ----------
+
+/** Rim of the silhouette, how solid its fill is, and how strong the whole of it shows over the wall. */
+const XRAY_RIM = '#1c1830'
+const XRAY_FILL = 0.7
+const XRAY_ALPHA = 0.9
+
+/** Each person's silhouette for the current frame: flat fill with a 1-pixel rim, and where it goes. */
+const ghosts = new WeakMap<Avatar, { t: number; canvas: HTMLCanvasElement; x: number; y: number }>()
+const flat = document.createElement('canvas')
+const cut = document.createElement('canvas')
+
+/** The silhouette's fill: the shirt's color (the uniform's, in a squad) lifted toward white. */
+function xrayFill(av: Avatar): string {
+  const hex = (av.uniformColor ?? av.look.shirt).replace('#', '')
+  const n = parseInt(hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex, 16)
+  const lift = (v: number) => Math.round(v + (255 - v) * 0.45)
+  return `rgb(${lift((n >> 16) & 255)},${lift((n >> 8) & 255)},${lift(n & 255)})`
+}
+
+/** The person's figure this frame as a silhouette canvas; null until their sheet loads. */
+function ghostOf(av: Avatar, t: number): { canvas: HTMLCanvasElement; x: number; y: number } | null {
+  const hit = ghosts.get(av)
+  if (hit && hit.t === t) return hit
+  const { s, cell, flip, fx, fy, sheet } = placed(av, t)
+  if (!sheet) return null
+  const src = source(sheet, cell, false)
+  const w = Math.round(CELL_W * s) + 2
+  const h = Math.round(CELL_H * s) + 2
+  const x = fx - Math.round(FOOT_X * s) - 1
+  const y = fy - Math.round(FOOT_Y * s) - 1
+  // the figure in one flat color
+  flat.width = w
+  flat.height = h
+  const f = flat.getContext('2d')!
+  f.imageSmoothingEnabled = false
+  drawCell(f, src.img, src.cell, flip, fx - x, fy - y, s)
+  f.globalCompositeOperation = 'source-in'
+  f.fillStyle = xrayFill(av)
+  f.fillRect(0, 0, w, h)
+  f.globalCompositeOperation = 'source-over'
+  // a dark rim one pixel around it, the fill on top
+  const canvas = hit?.canvas ?? document.createElement('canvas')
+  canvas.width = w
+  canvas.height = h
+  const g = canvas.getContext('2d')!
+  g.imageSmoothingEnabled = false
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) g.drawImage(flat, dx, dy)
+  g.globalCompositeOperation = 'source-in'
+  g.fillStyle = XRAY_RIM
+  g.fillRect(0, 0, w, h)
+  // the rim stays solid, the fill lets the wall through a little
+  g.globalCompositeOperation = 'destination-out'
+  g.drawImage(flat, 0, 0)
+  g.globalCompositeOperation = 'source-over'
+  g.globalAlpha = XRAY_FILL
+  g.drawImage(flat, 0, 0)
+  g.globalAlpha = 1
+  const ghost = { t, canvas, x, y }
+  ghosts.set(av, ghost)
+  return ghost
+}
+
+/**
+ * A person behind a wall, seen through it: their silhouette cut to the wall's pixels (`mask`, the
+ * wall tile drawn at mx, my), so only what the wall hides shows, and nobody vanishes behind one.
+ */
+export function drawThroughWall(ctx: CanvasRenderingContext2D, av: Avatar, t: number, mask: CanvasImageSource, mx: number, my: number): void {
+  if (av.isDown) return
+  const ghost = ghostOf(av, t)
+  if (!ghost) return
+  const { canvas, x, y } = ghost
+  cut.width = canvas.width
+  cut.height = canvas.height
+  const c = cut.getContext('2d')!
+  c.drawImage(canvas, 0, 0)
+  c.globalCompositeOperation = 'destination-in'
+  c.drawImage(mask, mx - x, my - y)
+  c.globalCompositeOperation = 'source-over'
+  ctx.globalAlpha = XRAY_ALPHA
+  ctx.drawImage(cut, x, y)
+  ctx.globalAlpha = 1
 }
 
 /**

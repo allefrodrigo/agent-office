@@ -7,7 +7,7 @@ import * as THREE from 'three'
  * box show: its top, its +z face (left, lit) and its +x face (right, in shade).
  *
  * Our furniture sprites (pixel/iso-art.ts) replace these shapes object by object; whatever has
- * no sprite (walls, glass, live panels) is drawn from its 3D pieces here.
+ * no sprite (walls, room walls, live panels) is drawn from its 3D pieces here.
  */
 
 /** Half the width and half the height of a floor tile, and the art pixels of one world unit up. */

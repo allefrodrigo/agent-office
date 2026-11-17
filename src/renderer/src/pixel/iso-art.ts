@@ -169,7 +169,7 @@ const it = (name: string, back = false): Item => ({ name, back })
  * Drawings that came out mirrored (front to the lower-left): the view flips them the other way.
  * Check where the front went after redrawing one (`npm run arte:iso -- <key>`).
  */
-const DRAWN_LEFT = new Set(['officeChair', 'bossChair', 'simpleChair', 'armchair'])
+const DRAWN_LEFT = new Set(['bossChair', 'simpleChair', 'armchair'])
 
 const BY_TAG: Record<string, Item> = {
   desk: it('desk'),
@@ -182,8 +182,10 @@ const BY_TAG: Record<string, Item> = {
   mug: it('mug'),
   paperStack: it('paperStack'),
   officeChair: it('officeChair', true),
+  meetingChair: it('meetingChair', true),
   bossChair: it('bossChair', true),
   simpleChair: it('simpleChair', true),
+  planter: it('planter'),
   stool: it('stool'),
   beanBag: it('beanBag'),
   armchair: it('armchair', true),
@@ -207,6 +209,17 @@ const BY_TAG: Record<string, Item> = {
   cabinet: it('cabinet'),
   trash: it('trash'),
   clock: it('clock'),
+  // the startup pieces of 0.4.0-beta.6
+  phoneBooth: it('phoneBooth'),
+  sectional: it('sectional'),
+  bleachers: it('bleachers'),
+  communalTable: it('communalTable'),
+  kitchenIsland: it('kitchenIsland'),
+  shelfDivider: it('shelfDivider'),
+  greenWall: it('greenWall'),
+  credenza: it('credenza'),
+  mobileWhiteboard: it('mobileWhiteboard'),
+  eggChair: it('eggChair'),
 }
 
 /** Plant kinds of world/furniture.ts. */
@@ -217,6 +230,9 @@ const PLANTS: Record<string, Item> = {
   flower: it('plant-flower'),
   cactus: it('plant-cactus'),
 }
+
+/** The sit-stand desk in each finish of world/furniture.ts DESK_FINISHES (oak is 'desk'). */
+const DESKS: Record<string, Item> = { white: it('desk-white'), walnut: it('desk-dark') }
 
 /** Sofas by length. */
 const SOFAS: Record<number, Item> = { 3: it('sofa3', true), 2: it('sofa2', true), 1: it('armchair', true) }
@@ -250,7 +266,14 @@ export function furniFor(obj: THREE.Object3D, small = false): FurniUse | 'loadin
   if (!tag) return null
   // the keyboard's picture comes with its mouse
   if (tag.key === 'mouse') return urlOf('keyboard') ? 'hidden' : null
-  const item = tag.key === 'plant' ? PLANTS[String(tag.kind)] : tag.key === 'sofa' ? SOFAS[Number(tag.len)] : BY_TAG[tag.key]
+  const item =
+    tag.key === 'plant'
+      ? PLANTS[String(tag.kind)]
+      : tag.key === 'sofa'
+        ? SOFAS[Number(tag.len)]
+        : tag.key === 'desk'
+          ? (DESKS[String(tag.finish)] ?? BY_TAG.desk)
+          : BY_TAG[tag.key]
   if (!item) return null
   const dir = furniDirection(obj)
   const away = dir === 0 || dir === 6

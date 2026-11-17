@@ -13,7 +13,13 @@ Em dev, `AGENT_OFFICE_VIEW=2d npm run dev` abre em 2D sem mexer nas configuraç�
 - O jogo é o mesmo: andares, agentes, caminhos, cliques e etiquetas. Muda só quem desenha (`src/renderer/src/pixel/`).
 - Projeção: um tile é um losango de 64 x 32, x desce para a direita e z para a esquerda. As paredes do fundo (z = 0 e x = 0) fecham a sala por cima, como no 3D.
 - Cada móvel com px() tag que tem sprite vira a imagem de `src/renderer/src/assets/iso/<chave>.png`. A tabela fica em `pixel/iso-art.ts` (`BY_TAG`, `PLANTS`, `SOFAS`).
-- O resto (paredes, vidro, quadros, elevador, TVs, painéis) é desenhado a partir das peças do modelo 3D, projetadas em isométrico (`pixel/voxel.ts`). Telas, céu das janelas e placas continuam ao vivo.
+- O resto (paredes, quadros, elevador, TVs, painéis) é desenhado a partir das peças do modelo 3D, projetadas em isométrico (`pixel/voxel.ts`). Telas, céu das janelas e placas continuam ao vivo.
+- Paredes das salas: sólidas, com lambri, rodapé e verga sobre cada porta (`buildPartitions` em `world/office.ts`; altura e espessura em `world/layout.ts`). Cada tile de parede é desenhado sozinho, e o que fica pendurado nele (placa, TV, lousa) sai em fatias logo depois do tile, para o próximo tile não pintar por cima.
+- Raio-x: quem passa atrás de uma parede aparece através dela como silhueta na cor da camisa, com contorno, só onde a parede cobre (`drawThroughWall` em `pixel/people.ts`). No 3D, o boneco ganha um "fantasma" que só desenha onde algo está na frente, ligado quando `behindWall` (`world/layout.ts`) diz que há parede entre ele e a câmera.
+- Arranjo: as mesas ficam em bancadas (mesas lado a lado, todas viradas para o fundo, com a tela para a câmera). Uma parede esconde uns 3 tiles do chão atrás dela: o que importa (mesas, assentos) fica fora dessa faixa.
+- Paleta (0.4.0-beta.6): paredes brancas quentes com lambri sálvia e batentes grafite (`world/office.ts`). Pisos em `world/textures.ts`: concreto nos corredores, carvalho claro no time e nas salas com mesas, carvalho mais quente no lounge, granilite no café, nogueira na sua sala e na Diretoria, carpete azul-petróleo na sala de reunião.
+- Tapetes: `rugTexture` tem quatro estilos (`border`, `stripes`, `bauhaus`, `kilim`).
+- Peça em L (o sofá de canto) ordena pela parte de trás: `depthBias` na tag (`px(g, 'sectional', { depthBias })`) corrige a ordem de desenho, senão quem senta atrás do meio da caixa sumiria atrás do sofá.
 - Pessoas: `pixel/people.ts`, com as cores do visual de cada um (Configurações → Você e o editor de modelo dos agentes: cores e corte de cabelo). Enquanto as folhas carregam, o avatar 3D aparece desenhado plano.
 
 ## Móveis
@@ -26,7 +32,9 @@ npm run arte:iso -- --list             # os jobs e quais já estão prontos
 ```
 
 - Os prompts e o tamanho 3D de cada móvel (comprimento, profundidade, altura, em tiles) ficam em `scripts/iso/prompts.mjs` (`ISO_JOBS`). A largura do sprite sai do tamanho: (comprimento + profundidade) x 32 px.
-- Para cada job, o script desenha uma caixa cinza em isométrico 2:1 exato (`arte-2d/iso/_blockout-<chave>.png`) e manda junto com o prompt, para o Codex manter o ângulo do piso. A mesa (`desk`) sai primeiro e vai junto como régua de estilo.
+- Para cada job, o script desenha uma caixa cinza em isométrico 2:1 exato (`arte-2d/iso/_blockout-<chave>.png`) e manda junto com o prompt, para o Codex manter o ângulo do piso. A mesa executiva (`bossDesk`) vai junto como régua de estilo (`RULER`); era a mesa comum até a 0.4.0-beta.6, que a redesenhou.
+- Mesas e cadeiras da 0.4.0-beta.6: mesa sit-stand em três acabamentos (`desk` carvalho, `desk-white`, `desk-dark` nogueira; o acabamento vem de `DESK_FINISHES` em `world/furniture.ts`, um por bancada), cadeira ergonômica de tela (`officeChair`), cadeira de reunião de tela (`meetingChair`) e a floreira atrás das bancadas (`planter`).
+- Peças de startup da 0.4.0-beta.6: cabine de ligação (`phoneBooth`), sofá de canto (`sectional`), arquibancada (`bleachers`), mesa comunitária com bancos (`communalTable`), ilha da cozinha (`kitchenIsland`), estante divisória (`shelfDivider`), parede verde (`greenWall`, pendurada), aparador (`credenza`), lousa com rodinhas (`mobileWhiteboard`) e poltrona-ovo (`eggChair`).
 - O bruto vai para `arte-2d/iso/` (fora do git); o sprite pronto, para `src/renderer/src/assets/iso/<chave>.png`.
 - Direção: a arte de frente olha para baixo-direita (direção 2); espelhada, vira a 4. A arte `<chave>-back` mostra o móvel de costas (direção 6); espelhada, a 0. Sem `-back`, o móvel mostra a frente também de costas.
 - Móvel novo: crie o job em `ISO_JOBS`, rode `npm run arte:iso -- <chave>` e ligue a tag em `BY_TAG` (`pixel/iso-art.ts`).

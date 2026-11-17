@@ -13,19 +13,28 @@ const WOOD_DARK = '#8a5a3b'
 const METAL = '#4b4f63'
 const DARK = '#2b2d3a'
 
-export function desk(w = 2, top = '#f3efe6', legs = METAL): THREE.Group {
+/** The sit-stand desk's finishes: its top and frame (the 2D view has a sprite for each). */
+export const DESK_FINISHES = {
+  oak: { top: '#c8925e', frame: '#2b2d3a' },
+  white: { top: '#f3efe6', frame: '#e4e0d8' },
+  walnut: { top: '#7a4a2e', frame: '#2b2d3a' },
+} as const
+export type DeskFinish = keyof typeof DESK_FINISHES
+
+/** A sit-stand desk: a top with rounded corners on two telescopic T-legs, a crossbar and a cable tray. */
+export function desk(w = 2, finish: DeskFinish = 'oak'): THREE.Group {
+  const { top, frame } = DESK_FINISHES[finish]
   const g = new THREE.Group()
   const d = 0.82
-  box(g, w - 0.04, 0.06, d, top, 0, 0.7, 0)
-  box(g, w - 0.04, 0.02, d, '#d8d2c4', 0, 0.69, 0, false)
-  box(g, 0.06, 0.7, d - 0.08, legs, -w / 2 + 0.08, 0, 0)
-  box(g, 0.06, 0.7, d - 0.08, legs, w / 2 - 0.08, 0, 0)
-  box(g, w - 0.24, 0.35, 0.04, legs, 0, 0.3, -d / 2 + 0.06)
-  // drawer block
-  box(g, 0.42, 0.5, d - 0.12, '#e3ddd0', w / 2 - 0.36, 0.16, 0)
-  box(g, 0.34, 0.02, 0.01, '#b9b1a1', w / 2 - 0.36, 0.5, d / 2 - 0.05, false)
-  box(g, 0.34, 0.02, 0.01, '#b9b1a1', w / 2 - 0.36, 0.33, d / 2 - 0.05, false)
-  return px(g, 'desk', { w, top, legs })
+  box(g, w - 0.04, 0.05, d, top, 0, 0.71, 0)
+  for (const x of [-w / 2 + 0.22, w / 2 - 0.22]) {
+    box(g, 0.08, 0.04, d - 0.06, frame, x, 0, 0)
+    box(g, 0.09, 0.66, 0.09, frame, x, 0.04, 0)
+    box(g, 0.07, 0.03, d - 0.16, frame, x, 0.68, 0)
+  }
+  box(g, w - 0.5, 0.04, 0.04, frame, 0, 0.36, 0)
+  box(g, w - 0.6, 0.07, 0.12, frame, 0, 0.6, -d / 2 + 0.12)
+  return px(g, 'desk', { w, finish })
 }
 
 export function bossDesk(w = 3): THREE.Group {
@@ -98,15 +107,37 @@ export function deskLamp(color = '#f6c445'): THREE.Group {
   return px(g, 'deskLamp')
 }
 
-export function officeChair(color = '#3d4a6b'): THREE.Group {
+/** An ergonomic mesh task chair: graphite mesh seat and tall curved back, padded arms, aluminum star base. */
+export function officeChair(): THREE.Group {
   const g = new THREE.Group()
-  box(g, 0.5, 0.04, 0.08, DARK, 0, 0.02, 0)
-  box(g, 0.08, 0.04, 0.5, DARK, 0, 0.02, 0)
-  box(g, 0.05, 0.3, 0.05, '#55596b', 0, 0.06, 0)
-  box(g, 0.5, 0.08, 0.48, color, 0, 0.36, 0)
-  box(g, 0.48, 0.5, 0.08, color, 0, 0.44, -0.22)
-  box(g, 0.4, 0.06, 0.06, '#2f3550', 0, 0.94, -0.22)
-  return px(g, 'officeChair', { color })
+  const ALU = '#b9bdc7'
+  const MESH = '#3b3b45'
+  box(g, 0.56, 0.04, 0.07, ALU, 0, 0.03, 0)
+  box(g, 0.07, 0.04, 0.56, ALU, 0, 0.03, 0)
+  box(g, 0.05, 0.3, 0.05, DARK, 0, 0.07, 0)
+  box(g, 0.5, 0.07, 0.48, MESH, 0, 0.37, 0.01)
+  box(g, 0.46, 0.08, 0.06, '#2a2a32', 0, 0.5, -0.21)
+  const back = box(g, 0.46, 0.56, 0.06, MESH, 0, 0.46, -0.23)
+  back.rotation.x = -0.12
+  box(g, 0.04, 0.2, 0.04, DARK, -0.27, 0.42, 0)
+  box(g, 0.04, 0.2, 0.04, DARK, 0.27, 0.42, 0)
+  box(g, 0.08, 0.03, 0.26, '#2a2a32', -0.27, 0.62, 0.02)
+  box(g, 0.08, 0.03, 0.26, '#2a2a32', 0.27, 0.62, 0.02)
+  return px(g, 'officeChair')
+}
+
+/** A mid-back conference chair: light-gray mesh back, warm gray seat, aluminum arms and star base. */
+export function meetingChair(): THREE.Group {
+  const g = new THREE.Group()
+  const ALU = '#c9ccd3'
+  box(g, 0.48, 0.03, 0.06, ALU, 0, 0.02, 0)
+  box(g, 0.06, 0.03, 0.48, ALU, 0, 0.02, 0)
+  box(g, 0.05, 0.36, 0.05, ALU, 0, 0.05, 0)
+  box(g, 0.46, 0.07, 0.44, '#a8968c', 0, 0.41, 0)
+  box(g, 0.44, 0.42, 0.04, '#d3d6dc', 0, 0.5, -0.2)
+  box(g, 0.03, 0.03, 0.34, ALU, -0.24, 0.6, 0)
+  box(g, 0.03, 0.03, 0.34, ALU, 0.24, 0.6, 0)
+  return px(g, 'meetingChair')
 }
 
 export function bossChair(): THREE.Group {
@@ -442,6 +473,18 @@ export function beanBag(color: string): THREE.Group {
   return px(g, 'beanBag', { color })
 }
 
+/** A long low planter on slim legs, full of leaves: the divider behind a bench of desks. */
+export function planter(len = 2): THREE.Group {
+  const g = new THREE.Group()
+  const d = 0.42
+  for (const x of [-len / 2 + 0.08, len / 2 - 0.08]) box(g, 0.04, 0.2, d - 0.06, DARK, x, 0, 0)
+  box(g, len - 0.04, 0.34, d, WOOD, 0, 0.2, 0)
+  const greens = ['#3f9b4f', '#4fb35e', '#368a45', '#5cc46a']
+  const n = Math.max(2, Math.round(len * 2))
+  for (let i = 0; i < n; i++) blob(g, 0.2, greens[i % greens.length], -len / 2 + (i + 0.5) * (len / n), 0.62 + (i % 2) * 0.06, (i % 2 ? 0.04 : -0.04), 1.2)
+  return px(g, 'planter', { len })
+}
+
 export function floorLamp(): THREE.Group {
   const g = new THREE.Group()
   cylinder(g, 0.14, 0.16, 0.04, DARK, 0, 0, 0, 8)
@@ -556,4 +599,169 @@ export function roundTable(r = 0.5): THREE.Group {
   cylinder(g, 0.05, 0.05, 0.68, '#55596b', 0, 0.04, 0, 8)
   cylinder(g, r, r, 0.05, '#f2efe8', 0, 0.72, 0, 18)
   return px(g, 'roundTable')
+}
+
+// ---------- startup pieces (0.4.0-beta.6) ----------
+
+const OAK = '#d6ad7c'
+const FELT = '#4a4f5c'
+
+/** A one-person acoustic booth: oak shell, a glass door in front, felt inside, a shelf and a stool. */
+export function phoneBooth(): THREE.Group {
+  const g = new THREE.Group()
+  const s = 0.96
+  const h = 2.05
+  box(g, s, 0.06, s, OAK, 0, 0, 0)
+  box(g, s, 0.08, s, OAK, 0, h - 0.08, 0)
+  box(g, s, h, 0.06, OAK, 0, 0, -s / 2 + 0.03)
+  for (const x of [-s / 2 + 0.03, s / 2 - 0.03]) box(g, 0.06, h, s, OAK, x, 0, 0)
+  box(g, s - 0.14, h - 0.2, 0.02, FELT, 0, 0.08, -s / 2 + 0.07, false)
+  box(g, s - 0.2, 0.04, 0.3, OAK, 0, 0.95, -s / 2 + 0.2)
+  cylinder(g, 0.16, 0.14, 0.45, '#e0b34a', 0, 0.06, 0.05, 10)
+  const glass = new THREE.MeshLambertMaterial({ color: '#bfe3ef', transparent: true, opacity: 0.35 })
+  box(g, s - 0.12, h - 0.16, 0.02, glass, 0, 0.06, s / 2 - 0.02, false)
+  box(g, s, 0.05, 0.05, DARK, 0, h - 0.13, s / 2 - 0.02, false)
+  box(g, 0.03, 0.7, 0.04, DARK, s / 2 - 0.16, 0.7, s / 2 + 0.02, false)
+  glow(g, '#ffd59a', 1.2, 2.4, 0, h - 0.3, 0)
+  return px(g, 'phoneBooth')
+}
+
+/**
+ * An L-shaped sectional: three seats along the back, a chaise toward the front at its +x end
+ * (where the 2D picture has it when the sofa faces +z).
+ */
+export function sectional(color = '#c4693f'): THREE.Group {
+  const g = new THREE.Group()
+  const len = 3
+  const d = 0.85
+  const deep = 1.8
+  const dark = shadeHex(color, -28)
+  const zb = -deep / 2 + d / 2
+  box(g, len, 0.22, d, dark, 0, 0.05, zb)
+  for (let i = 0; i < len; i++) box(g, 0.94, 0.14, d - 0.24, color, -len / 2 + i + 0.5, 0.27, zb + 0.08)
+  box(g, len, 0.5, 0.22, color, 0, 0.27, -deep / 2 + 0.11)
+  // the chaise
+  const cl = deep - d
+  box(g, 0.95, 0.22, cl, dark, len / 2 - 0.475, 0.05, deep / 2 - cl / 2)
+  box(g, 0.89, 0.14, cl, color, len / 2 - 0.475, 0.27, deep / 2 - cl / 2)
+  box(g, 0.18, 0.3, deep, dark, len / 2 - 0.09, 0.27, 0)
+  box(g, 0.18, 0.3, d, dark, -len / 2 + 0.09, 0.27, zb)
+  for (const [x, z] of [[-0.6, zb], [0.9, zb]] as const) box(g, 0.34, 0.3, 0.14, '#e0b34a', x, 0.41, z - 0.18)
+  // people on the back seats sit 0.5 behind the box's middle: sort by the seats, not the chaise
+  return px(g, 'sectional', { color, depthBias: -0.5 })
+}
+
+/** Oak steps for all-hands talks: three broad steps rising toward the back, cushions on them. */
+export function bleachers(): THREE.Group {
+  const g = new THREE.Group()
+  const len = 3
+  const deep = 2
+  const step = deep / 3
+  const cushions = ['#2f8f83', '#e0b34a', '#d97757']
+  for (let k = 0; k < 3; k++) {
+    const h = 0.37 * (k + 1)
+    const z = deep / 2 - step * (k + 0.5)
+    box(g, len, h, step, k % 2 ? OAK : shadeHex(OAK, -14), 0, 0, z)
+    for (let i = 0; i < 3; i++) if ((i + k) % 2 === 0) box(g, 0.7, 0.07, step * 0.7, cushions[(i + k) % 3], -1 + i, h, z + 0.04)
+  }
+  // whoever sits on the front step sits ahead of the box's middle: keep the steps behind them
+  return px(g, 'bleachers', { depthBias: -0.3 })
+}
+
+/** A long oak table with a bench on each long side, for the café and the studio. */
+export function communalTable(): THREE.Group {
+  const g = new THREE.Group()
+  const len = 3
+  box(g, len, 0.07, 0.92, OAK, 0, 0.7, 0)
+  for (const x of [-len / 2 + 0.3, len / 2 - 0.3]) {
+    box(g, 0.06, 0.7, 0.7, DARK, x, 0, 0)
+  }
+  for (const z of [-0.64, 0.64]) {
+    box(g, len - 0.2, 0.06, 0.3, OAK, 0, 0.42, z)
+    for (const x of [-len / 2 + 0.35, len / 2 - 0.35]) box(g, 0.05, 0.42, 0.24, DARK, x, 0, z)
+  }
+  return px(g, 'communalTable')
+}
+
+/** The café's island: white cabinets, a stone top overhanging the front for the stools, a sink. */
+export function kitchenIsland(): THREE.Group {
+  const g = new THREE.Group()
+  const len = 3
+  box(g, len - 0.04, 0.88, 0.62, '#f2efe8', 0, 0, -0.12)
+  box(g, len, 0.07, 0.96, '#c9ccd2', 0, 0.88, 0)
+  for (let i = 0; i < len; i++) box(g, 0.18, 0.025, 0.02, '#5b6074', -len / 2 + i + 0.5, 0.7, -0.12 - 0.31, false)
+  box(g, 0.4, 0.02, 0.3, '#9aa3b5', len / 2 - 0.6, 0.95, -0.1, false)
+  box(g, 0.03, 0.26, 0.03, '#c9ced8', len / 2 - 0.6, 0.95, -0.28, false)
+  cylinder(g, 0.17, 0.12, 0.08, '#b5793f', -len / 2 + 0.6, 0.95, 0, 10)
+  for (const [x, z] of [[-0.05, 0], [0.05, 0.05], [0, -0.06]] as const) blob(g, 0.05, '#f39c12', -len / 2 + 0.6 + x, 1.05, z)
+  return px(g, 'kitchenIsland')
+}
+
+/** Open shelves on a black frame, plants and books on them: divides an open area. */
+export function shelfDivider(len = 2): THREE.Group {
+  const g = new THREE.Group()
+  const d = 0.42
+  const h = 1.5
+  for (const x of [-len / 2 + 0.02, len / 2 - 0.02]) box(g, 0.04, h, d, DARK, x, 0, 0)
+  for (const y of [0.08, 0.55, 1.02, h - 0.04]) box(g, len - 0.04, 0.04, d - 0.02, OAK, 0, y, 0)
+  const greens = ['#3f9b4f', '#4fb35e', '#368a45']
+  blob(g, 0.17, greens[0], -len / 2 + 0.35, 0.78, 0, 1.1)
+  cylinder(g, 0.1, 0.08, 0.14, '#c56a45', -len / 2 + 0.35, 0.59, 0, 8)
+  box(g, 0.32, 0.26, 0.24, '#2f8f83', 0.2, 0.59, 0)
+  box(g, 0.08, 0.3, 0.24, '#e0b34a', 0.45, 0.59, 0)
+  cylinder(g, 0.09, 0.07, 0.24, '#f2efe8', -0.3, 1.06, 0, 8)
+  blob(g, 0.2, greens[1], len / 2 - 0.35, 1.3, 0, 1.1)
+  cylinder(g, 0.1, 0.08, 0.14, '#f2efe8', len / 2 - 0.35, 1.06, 0, 8)
+  box(g, 0.4, 0.06, 0.26, '#d97757', 0.1, 0.12, 0)
+  blob(g, 0.16, greens[2], -0.5, 0.3, 0, 1.2)
+  return px(g, 'shelfDivider', { len })
+}
+
+/** A framed panel of moss and leaves, hung on a wall like a picture (its top at y = 0). */
+export function greenWall(w = 2, h = 1.2): THREE.Group {
+  const g = new THREE.Group()
+  box(g, w, h, 0.06, OAK, 0, -h, 0, false)
+  box(g, w - 0.1, h - 0.1, 0.05, '#2f6b3a', 0, -h + 0.05, 0.04, false)
+  const greens = ['#3f9b4f', '#4fb35e', '#368a45', '#5cc46a', '#2f7d3e']
+  const r = (i: number) => ((i * 9301 + 49297) % 233280) / 233280
+  for (let i = 0; i < Math.round(w * h * 10); i++) blob(g, 0.09, greens[i % greens.length], (r(i) - 0.5) * (w - 0.2), -h + 0.1 + r(i + 7) * (h - 0.2), 0.08, 0.8)
+  return px(g, 'greenWall', { w })
+}
+
+/** A low walnut sideboard with slatted oak doors, under a TV or behind a desk. */
+export function credenza(len = 2): THREE.Group {
+  const g = new THREE.Group()
+  const d = 0.46
+  for (const x of [-len / 2 + 0.1, len / 2 - 0.1]) for (const z of [-d / 2 + 0.06, d / 2 - 0.06]) box(g, 0.04, 0.14, 0.04, DARK, x, 0, z)
+  box(g, len, 0.5, d, WOOD_DARK, 0, 0.14, 0)
+  for (let i = 0; i < len * 2; i++) box(g, len / (len * 2) - 0.04, 0.42, 0.01, OAK, -len / 2 + (i + 0.5) * (len / (len * 2)), 0.18, d / 2 + 0.005, false)
+  return px(g, 'credenza', { len })
+}
+
+/** A whiteboard on casters: sketches, arrows and sticky notes, a marker tray. */
+export function mobileWhiteboard(): THREE.Group {
+  const g = new THREE.Group()
+  const w = 1.25
+  for (const x of [-w / 2 + 0.05, w / 2 - 0.05]) {
+    box(g, 0.05, 0.03, 0.46, DARK, x, 0.06, 0)
+    box(g, 0.04, 1.75, 0.04, DARK, x, 0.06, 0)
+    for (const z of [-0.2, 0.2]) cylinder(g, 0.04, 0.04, 0.06, '#1e1f26', x, 0, z, 6)
+  }
+  const board = whiteboardTexture()
+  box(g, w - 0.04, 0.88, 0.04, '#c8ccd4', 0, 0.82, 0)
+  panel(g, w - 0.12, 0.8, board, 0, 1.26, 0.025, true)
+  box(g, w - 0.3, 0.03, 0.08, '#c8ccd4', 0, 0.79, 0.05, false)
+  return px(g, 'mobileWhiteboard')
+}
+
+/** A rattan egg chair hanging from a curved stand, a cream cushion inside. */
+export function eggChair(): THREE.Group {
+  const g = new THREE.Group()
+  cylinder(g, 0.36, 0.4, 0.05, DARK, 0, 0, -0.1, 14)
+  box(g, 0.06, 1.85, 0.06, DARK, 0, 0.05, -0.42)
+  box(g, 0.06, 0.06, 0.42, DARK, 0, 1.86, -0.21)
+  box(g, 0.02, 0.24, 0.02, '#7d7f86', 0, 1.62, 0)
+  blob(g, 0.38, '#c99a5b', 0, 0.98, 0, 1.45, 1)
+  blob(g, 0.26, '#f3ead8', 0, 0.84, 0.12, 0.7, 1)
+  return px(g, 'eggChair')
 }
