@@ -14,8 +14,12 @@ import { parseJson, writeFileAtomic, writeJsonAtomic } from './fs-safe'
  * stats.json stays out: it is rebuilt from the transcripts and can be large.
  */
 
-export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json', 'meetings.json', 'bots.json'] as const
+export const DATA_FILES = ['office.json', 'tickets.json', 'tickets-closed.json', 'routines.json', 'meetings.json', 'bots.json', 'crm.json'] as const
 export type DataFile = (typeof DATA_FILES)[number]
+
+/** Customers' personal data (LGPD): its copies are 0600, like the file itself. */
+const PRIVATE_FILES: ReadonlySet<DataFile> = new Set(['crm.json'])
+const modeOf = (name: DataFile): number | undefined => (PRIVATE_FILES.has(name) ? 0o600 : undefined)
 
 export const KEEP_DAILY = 14
 export const KEEP_SNAPSHOTS = 5
@@ -45,6 +49,8 @@ export const DATA_SHAPES: Record<DataFile, (v: unknown) => boolean> = {
   'routines.json': (v) => isObj(v) && isList(v.routines),
   'meetings.json': (v) => isObj(v) && isList(v.meetings),
   'bots.json': (v) => isObj(v) && isList(v.bots) && isList(v.channels) && isList(v.eventTriggers),
+  'crm.json': (v) =>
+    isObj(v) && isList(v.customers) && isList(v.deals) && isList(v.pipelines) && isList(v.payments) && isList(v.recurrences) && isList(v.suggestions) && isMap(v.settings),
 }
 
 /** The `valid` option of loadJson for a data file. */
@@ -75,7 +81,7 @@ function copyGood(dataDir: string, dest: string): string[] {
     } catch {
       continue
     }
-    writeFileAtomic(join(dest, name), text)
+    writeFileAtomic(join(dest, name), text, modeOf(name))
     copied.push(name)
   }
   return copied
@@ -173,7 +179,7 @@ export function replaceData(dataDir: string, files: DataSet): void {
     if (kept.includes(name)) continue
     const target = join(dataDir, name)
     const text = files[name]
-    if (text !== undefined) writeFileAtomic(target, text)
+    if (text !== undefined) writeFileAtomic(target, text, modeOf(name))
     else rmSync(target, { force: true })
     // The .bak of the old state would win over the restored file if it broke.
     rmSync(`${target}.bak`, { force: true })
@@ -231,7 +237,8 @@ export function buildExport(dataDir: string, now = new Date()): ExportFile {
 }
 
 export function writeExport(dataDir: string, dest: string): void {
-  writeJsonAtomic(dest, buildExport(dataDir))
+  // It carries the CRM's customers (personal data): 0600, like crm.json.
+  writeJsonAtomic(dest, buildExport(dataDir), { mode: 0o600 })
 }
 
 /** Checks an export file; throws with a message for the user when it is not one. */
@@ -317,6 +324,17 @@ export function sanitizeImportedBots(data: unknown): unknown {
   return { ...rest, bots, eventTriggers }
 }
 
+/**
+ * The CRM from an export (spec "Dados"): it arrives in rehearsal mode, so nothing goes out by
+ * itself on this machine until the player turns rehearsal off here. Demo items never come.
+ */
+export function sanitizeImportedCrm(data: unknown): unknown {
+  if (!isObj(data)) return data
+  const settings = isObj(data.settings) ? { ...data.settings, rehearsal: true } : { rehearsal: true }
+  const real = (v: unknown) => (Array.isArray(v) ? v.filter((x) => !isObj(x) || x.demo !== true) : v)
+  return { ...data, customers: real(data.customers), deals: real(data.deals), payments: real(data.payments), recurrences: real(data.recurrences), settings }
+}
+
 /** The files an export (already checked by parseExport) puts in place. */
 export function importSet(exp: ExportFile, home = homedir()): DataSet {
   const files: DataSet = {}
@@ -328,7 +346,9 @@ export function importSet(exp: ExportFile, home = homedir()): DataSet {
           ? sanitizeImportedRoutines(exp.files[name])
           : name === 'bots.json'
             ? sanitizeImportedBots(exp.files[name])
-            : exp.files[name]
+            : name === 'crm.json'
+              ? sanitizeImportedCrm(exp.files[name])
+              : exp.files[name]
     if (v !== undefined) files[name] = JSON.stringify(v)
   }
   return files
