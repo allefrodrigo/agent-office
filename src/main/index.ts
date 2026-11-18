@@ -63,6 +63,7 @@ import { CrmStore } from './crm/store'
 import { registerCrmIpc } from './ipc/crm'
 import { registerCrmServerIpc } from './ipc/crm-server'
 import { registerCrmWhatsappIpc, type CrmWhatsapp } from './ipc/crm-whatsapp'
+import { wireCrmChat, type CrmChatWiring } from './ipc/crm-chat'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -313,6 +314,8 @@ app.whenReady().then(async () => {
   const crmStore = new CrmStore(app.getPath('userData'))
   // Sala de CRM, phase 2: the WhatsApp link and the conversations (registered with the IPC below).
   let crmWhatsapp: CrmWhatsapp | null = null
+  // CR-14: the send queue, the audit and the Conversas tab, tied to the WhatsApp side.
+  let crmChat: CrmChatWiring | null = null
   // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
   meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
@@ -649,11 +652,23 @@ app.whenReady().then(async () => {
   registerMeetingsIpc(ipc)
   registerBotsIpc(ipc)
   // Sala de CRM, phase 1: customers, deals, payments; the api also runs the recurrences once a day.
-  const crm = registerCrmIpc(ipc)
+  // Deleting a customer takes their conversation, queue items and audit names first (LGPD).
+  const crm = registerCrmIpc(ipc, { onCustomerDeleted: (id) => crmChat?.chat.forget(id) ?? {} })
   // Sala de CRM, phase 2: the local Evolution (Docker or Colima), turned on and off from the app.
   registerCrmServerIpc(ipc, app.getPath('userData'))
   // Sala de CRM, phase 2: the WhatsApp (Evolution), its events and the conversations (CR-08 a CR-10).
-  crmWhatsapp = registerCrmWhatsappIpc(ipc, app.getPath('userData'))
+  crmWhatsapp = registerCrmWhatsappIpc(
+    {
+      ...ipc,
+      broadcast: (e) => {
+        ipc.broadcast(e)
+        // The link opened: the queue sends what waited for it.
+        if (e.type === 'crm:connection' && e.connection.state === 'open') crmChat?.connected()
+      },
+    },
+    app.getPath('userData'),
+  )
+  crmChat = wireCrmChat({ crmStore, broadcast: ipc.broadcast, dir: app.getPath('userData'), whatsapp: crmWhatsapp })
   registerBotAutomationsIpc({
     triggers,
     routines,
@@ -781,6 +796,7 @@ app.whenReady().then(async () => {
     book.stop()
     routines.stop()
     bots.dispose()
+    crmChat?.stop()
     crmWhatsapp?.stop()
     macJobs.stop()
     void stopAllWhisper()
