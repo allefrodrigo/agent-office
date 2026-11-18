@@ -1094,6 +1094,77 @@
       }
     },
     {
+      "id": "R05-22",
+      "group": 5,
+      "title": "Atendimento do bot com {valor}, sem palavra de cobrança (marcador de pagamento fora da Cobrança)",
+      "patch": {
+        "draft": {
+          "text": "Oi, Maria! O plano fica em {valor} por mês."
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-23",
+      "group": 5,
+      "title": "Cobrança do bot sem os Dados de pagamento ({pagamento} ficaria vazio)",
+      "patch": {
+        "settings": {
+          "payment": {
+            "pixKey": ""
+          }
+        },
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! Passando para lembrar: {referente}, {valor}, vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-24",
+      "group": 5,
+      "title": "Cobrança do bot com um marcador escrito errado ({ Valor })",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}: {valor} ({ Valor }), vence em {vencimento}. {pagamento}",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
+      "id": "R05-25",
+      "group": 5,
+      "title": "Você escreve {valor} sem pagamento: barra, nem com 'enviar mesmo assim'",
+      "patch": {
+        "payments": [],
+        "override": true,
+        "run": null,
+        "draft": {
+          "by": "player",
+          "text": "Segue o valor: {valor}"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 5
+      }
+    },
+    {
       "id": "R06-01",
       "group": 6,
       "title": "Link https fora da lista",
@@ -1525,6 +1596,106 @@
       }
     },
     {
+      "id": "R06-31",
+      "group": 6,
+      "title": "Link com o domínio permitido como usuário na frente do host",
+      "patch": {
+        "draft": {
+          "text": "Pague em https://estudioexemplo.com.br@golpe.io/pix"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-32",
+      "group": 6,
+      "title": "Ponto escondido entre colchetes",
+      "patch": {
+        "draft": {
+          "text": "Acesse golpe[.]io/maria"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-33",
+      "group": 6,
+      "title": "Domínio parecido com o permitido, com acento",
+      "patch": {
+        "draft": {
+          "text": "Veja estúdioexemplo.com.br/portfolio"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-34",
+      "group": 6,
+      "title": "Ponto com por extenso",
+      "patch": {
+        "draft": {
+          "text": "Acesse pagamentorapido ponto com"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-35",
+      "group": 6,
+      "title": "CPF com dígitos de largura total",
+      "patch": {
+        "draft": {
+          "text": "CPF １２３．４５６．７８９-０９"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-36",
+      "group": 6,
+      "title": "Link do domínio permitido com vírgula logo depois",
+      "patch": {
+        "draft": {
+          "text": "O portfólio está em https://estudioexemplo.com.br, dá uma olhada."
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R06-37",
+      "group": 6,
+      "title": "E-mail num texto seu não é link",
+      "patch": {
+        "run": null,
+        "draft": {
+          "by": "player",
+          "text": "Mandei para maria@gmail.com, confere?"
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
       "id": "R07-01",
       "group": 7,
       "title": "Oferta com 10% (teto 10%), validade em dia",
@@ -1716,6 +1887,34 @@
           "category": "offer",
           "text": "Oi, Maria! Estamos com a revisão de fim de ano para sites. Quer que eu mande os detalhes?",
           "replyTo": null
+        }
+      },
+      "expect": {
+        "action": "send",
+        "rule": 0
+      }
+    },
+    {
+      "id": "R07-12",
+      "group": 7,
+      "title": "Atendimento do bot promete desconto",
+      "patch": {
+        "draft": {
+          "text": "Oi, Maria! Fecho com 30% de desconto se confirmar hoje."
+        }
+      },
+      "expect": {
+        "action": "hold",
+        "rule": 7
+      }
+    },
+    {
+      "id": "R07-13",
+      "group": 7,
+      "title": "Atendimento do bot com porcentagem que não é desconto",
+      "patch": {
+        "draft": {
+          "text": "Oi, Maria! O site já está 80% pronto."
         }
       },
       "expect": {
