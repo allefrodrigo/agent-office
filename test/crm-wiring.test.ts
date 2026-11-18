@@ -17,7 +17,8 @@ vi.mock('electron', () => ({
 const { CrmStore } = await import('../src/main/crm/store')
 const { ConversationStore } = await import('../src/main/crm/conversations')
 const { EvolutionError } = await import('../src/main/crm/contracts')
-const { liveSender, wireCrmChat } = await import('../src/main/ipc/crm-chat')
+const { wireCrmChat } = await import('../src/main/ipc/crm-chat')
+const { liveSender } = await import('../src/main/crm/outbox')
 
 const CHANNELS = ['crmConversations', 'crmConversation', 'crmSend', 'crmDraft', 'crmHandOff', 'crmCheckPhone', 'crmStopAll'].map(
   (n) => `office:${n}`,

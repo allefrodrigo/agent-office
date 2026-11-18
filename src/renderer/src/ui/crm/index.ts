@@ -5,6 +5,7 @@ import type { State } from '../../state'
 import { modalA11y } from '../a11y'
 import { h, icon } from '../dom'
 import { confirmDialog } from '../modals'
+import { connectionDot } from './connect'
 import { ConversationsView } from './conversations'
 import { closeCustomerCard, openCustomerCard, refreshCustomerCard } from './customer-card'
 import { CustomersView } from './customers'
@@ -118,11 +119,12 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
   // The office's toasts land here, in the free space of the bar, instead of over the tables.
   const toastSlot = h('div', { class: 'crm-toasts', role: 'status', 'aria-live': 'polite' })
   const server = serverChip({ toast: opts.toast })
+  const whatsapp = connectionDot()
   const stopBtn = h('button', { class: 'btn crm-stop', type: 'button' }) as HTMLButtonElement
   const box = h(
     'div',
     { class: 'crm-screen' },
-    h('header', { class: 'crm-top' }, title, tabs, toastSlot, server.el, stopBtn, search, newBtn, closeBtn),
+    h('header', { class: 'crm-top' }, title, tabs, toastSlot, whatsapp.el, server.el, stopBtn, search, newBtn, closeBtn),
     panel,
   )
   const el = h('div', { class: 'backdrop crm-backdrop' }, box)
@@ -360,6 +362,7 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
     screen = null
     opts.toastHost?.(null)
     server.dispose()
+    whatsapp.dispose()
     offStore()
     closeCustomerCard()
     for (const v of Object.values(views)) v.dispose?.()

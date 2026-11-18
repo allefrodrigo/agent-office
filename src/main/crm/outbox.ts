@@ -136,6 +136,23 @@ function compact<T extends object>(o: T): T {
   return out as T
 }
 
+const NOT_LINKED = 'O WhatsApp não está configurado. Salve o endereço, a instância e o token em Configurações → CRM → WhatsApp.'
+
+/** The Outbox sends through whatever client the link has now; none = a clear error, never a send. */
+export function liveSender(current: () => EvolutionSender | null): EvolutionSender {
+  const s = (): EvolutionSender => {
+    const c = current()
+    if (!c) throw new EvolutionError(NOT_LINKED, 'config')
+    return c
+  }
+  return {
+    sendText: async (number, text) => s().sendText(number, text),
+    sendDocument: async (number, doc) => s().sendDocument(number, doc),
+    presence: async (number, ms) => s().presence(number, ms),
+    findSent: async (number, text, since) => s().findSent(number, text, since),
+  }
+}
+
 export class Outbox {
   private readonly now: () => number
   private readonly random: () => number
