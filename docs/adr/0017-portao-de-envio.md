@@ -131,12 +131,50 @@ O spec continua valendo; estes pontos ele não dizia, ou dizia de um jeito que n
 
 O JSON tem a `base` (uma resposta do bot dentro da regra, tudo em Autônomo, ensaio desligado, quarta-feira 18/11/2026 às 10:00 em São Paulo) e um `patch` por caso. Por grupo: 5 casos que passam em tudo, de 5 a 30 por regra (30 na regra 6, a dos disfarces) e 10 de ordem, em que duas regras falham e a primeira decide. Dois casos usam o fuso de Nova York para o começo e o fim do horário de verão.
 
-## O que fica para o CR-11
+## O que ficou decidido no CR-11
 
-- Os detectores (`findLinks`, `findPaymentData`, `sameText`, a cobrança disfarçada), o formato do `fillPayment` e os textos de `reason`.
-- Rodar os 167 casos com o fuso de cada um (`process.env.TZ`), mais os testes de propriedade do plano.
-- Revisão de segurança dedicada, com 95% de cobertura de linhas.
-- Achado novo de revisão vira caso no JSON antes da correção.
+O código está em `src/shared/crm-gate.ts`. Os testes: o corpus em `test/crm-gate-cases.test.ts` (cada caso no seu fuso), uma bateria por regra e as propriedades em `test/crm-gate.test.ts`, os detectores em `test/crm-gate-detectors.test.ts`. Cobertura de linhas: 100%.
+
+**`fillPayment(text, payment, settings)`.** Uma passada só: o que entra não é lido de novo.
+
+| Marcador | Vira |
+|---|---|
+| `{valor}` | `R$ 480,00` |
+| `{vencimento}` | `20/11/2026` |
+| `{referente}` | o "referente a" do pagamento |
+| `{pagamento}` | uma linha por dado: `Chave PIX (CNPJ): …`, `Favorecido: …`, `Banco: …` e o texto fixo. Linha vazia sai; tipo de chave vazio sai sem rótulo. |
+
+Marcador sem dado (sem pagamento; `{pagamento}` sem chave PIX) fica como está, e a regra 5 barra.
+
+**Textos de `reason`.** Curtos, em pt-BR, dizendo o que fazer. Espera você começa com "Espera você:"; agendar diz quando sai ("sai qui 19/11 às 09:00", "sai hoje às 10:20"); a regra 11 conta a mensagem que seria enviada ("2ª oferta em 30 dias"); a 13 é "Modo ensaio: teria sido enviada."; a 14 usa as duas frases deste ADR. Link barrado mostra o domínio; dado de pagamento barrado diz o tipo.
+
+**Detectores.**
+
+- `findLinks`: URL com qualquer esquema (o host vem depois do `usuário@`), domínio solto com TLD conhecido ou de duas letras, qualquer TLD quando vem caminho depois ou o host começa com `www.`, espaço antes do ponto, `[.]`, `(ponto)`, "ponto com" no fim da frase, ponto de largura total, caractere invisível e IPv4. Host com acento não vira ASCII: `estúdioexemplo.com.br` não é o domínio da lista. E-mail não é link.
+- `findPaymentData`: PIX copia e cola, chave aleatória (com ao menos uma letra), e-mail ("arroba", "ponto", "(at)", "at … dot"), agência e conta, e sequências de dígitos unidas por espaço, ponto, traço, barra, parênteses ou vírgula colada. Dígito por extenso ("um", "meia" = 6), de largura total ou de outra escrita conta. Data e hora saem antes, para não grudar nos vizinhos. Dez dígitos ou mais sempre barram (CPF, CNPJ, telefone, cartão com Luhn, boleto, número longo); oito ou nove barram com cara de telefone (`98888-7777`) ou partidos em cinco pedaços ou mais.
+- `sameText`: compara só letras e dígitos, sem acento e sem caixa. Texto só de símbolos compara como veio.
+- Cobrança disfarçada (`looksLikeBilling`): qualquer marcador de pagamento, ou valor em reais (`R$ 480`, `480 reais`, por extenso, `{valor}`) ou data (`20/11`, `dia 20`, `20 de novembro`, `{vencimento}`) junto de boleto, PIX, pagamento, pagar, pague, vencimento, vence, venceu, vencido, fatura ou cobrança.
+- Número da cobrança (`strayNumber`): datas, "N de mês" e "dia N" contra o vencimento; o resto contra o valor (`parseMoney`). Centena ou milhar por extenso nunca bate.
+- Desconto: porcentagens com `%` ou "por cento"; "fala em desconto" é a palavra desconto, off, abatimento, "pela metade" ou, numa oferta, qualquer porcentagem.
+
+**Pontas que a tabela não fechava.** Nenhuma muda uma regra; cada uma tem caso no JSON ou teste.
+
+1. Marcador de pagamento em Atendimento ou Oferta do bot é cobrança disfarçada (regra 5), mesmo sem palavra de cobrança.
+2. Marcador sem dado ou escrito errado (`{ Valor }`, `{PAGAMENTO}`) barra na regra 5 para qualquer autor, sem "Enviar mesmo assim": a mensagem sairia quebrada.
+3. A regra 7 vale para o bot em qualquer categoria, como diz a tabela. Fora da oferta, só a palavra desconto conta ("80% pronto" passa).
+4. Nenhum dia com horário de envio: a regra 10 espera você, com "Enviar mesmo assim", em vez de agendar para nunca.
+5. Teto por hora: `at` é a vaga, mas no mínimo um minuto à frente. Sem janela nenhuma, o `at` fica como calculado (dia cheio: meia-noite seguinte).
+6. Hora da decisão ilegível barra com regra 0. Autor desconhecido vale como bot; categoria desconhecida vale como oferta na regra 4. Hora ilegível no histórico ou na resposta pelo celular conta como agora; na mensagem respondida, como muito antiga.
+
+**Corpus.** Passou de 167 para 180 casos com os achados da revisão: R05-22 a R05-25, R06-31 a R06-37, R07-12 e R07-13.
+
+**Falsos positivos conhecidos** (todos no texto do bot ou do sistema, salvo o de link):
+
+- Número de dez dígitos ou mais (protocolo, rastreio só de dígitos) barra, e também quatro dígitos ou mais depois de "conta" ou "cc" ("Total da conta: 4800").
+- Numa cobrança, todo número que não é o valor nem o vencimento barra ("parcela 2 de 3", "novembro/2026", "multa de 2%").
+- Numa oferta, qualquer porcentagem é desconto ("80% dos clientes").
+- `palavra . palavra` com TLD de duas letras ("ok . vc") e "ponto com" no fim da frase viram link. No texto seu, isso custa um "Enviar mesmo assim".
+- Perfil com ponto e espaço antes da arroba ("insta @estudio.com") conta como e-mail.
 
 ## Consequências
 
