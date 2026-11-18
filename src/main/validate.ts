@@ -1130,6 +1130,13 @@ const crmWords = z
   .max(CRM_LIMITS.words * 2)
   .transform((list) => [...new Set(list.map((w) => w.trim().replace(/\s+/g, ' ').toLowerCase()).filter(Boolean))])
   .pipe(z.array(z.string().max(CRM_LIMITS.word)).max(CRM_LIMITS.words))
+/**
+ * Suffixes anyone can register under: allowing one would allow every site below it (the gate
+ * passes the domain and its subdomains). "com.br" and the like, plus free hosting where each
+ * user gets a subdomain.
+ */
+const SHARED_SUFFIX = /^(?:(?:com|net|org|gov|edu|co|ac|mil|nom|art|blog|app|dev|eco|emp|eti|ind|inf|jus|leg|log|med|adv|arq|eng|psi|tec|tv|wiki)\.[a-z]{2}|github\.io|gitlab\.io|vercel\.app|netlify\.app|pages\.dev|workers\.dev|web\.app|firebaseapp\.com|appspot\.com|herokuapp\.com|blogspot\.com|wordpress\.com|wixsite\.com|substack\.com|glitch\.me|ngrok\.io|ngrok-free\.app|azurewebsites\.net|cloudfront\.net|s3\.amazonaws\.com|linktr\.ee|bit\.ly|wa\.me)$/
+
 /** A domain allowed in messages ('meusite.com.br'); a pasted link keeps only its host. */
 const crmDomain = z
   .string()
@@ -1141,7 +1148,12 @@ const crmDomain = z
       .replace(/^https?:\/\//, '')
       .replace(/[/?#].*$/, ''),
   )
-  .pipe(z.string().regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/))
+  .pipe(
+    z
+      .string()
+      .regex(/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/)
+      .refine((d) => !SHARED_SUFFIX.test(d)),
+  )
 
 /** Configurações → CRM, one schema per field: a bad one keeps its current value. */
 const crmFields = {

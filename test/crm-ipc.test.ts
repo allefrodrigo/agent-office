@@ -294,6 +294,16 @@ describe('regras: valores ruins não passam', () => {
     expect(lastDelta()).toEqual({ settings: out })
   })
 
+  it('links permitidos recusam sufixo que qualquer um registra (com.br, github.io): liberaria todo site embaixo dele', async () => {
+    await call('saveCrmSettings', { allowedLinks: ['meusite.com.br'] })
+    for (const bad of ['com.br', 'https://COM.BR/', 'github.io', 'vercel.app', 'co.uk', 'wa.me', 'bit.ly']) {
+      const out = (await call('saveCrmSettings', { allowedLinks: ['meusite.com.br', bad] })) as { allowedLinks: string[] }
+      expect(out.allowedLinks).toEqual(['meusite.com.br'])
+    }
+    const ok = (await call('saveCrmSettings', { allowedLinks: ['loja.github.io', 'estudio.com.br', 'meu.app.br'] })) as { allowedLinks: string[] }
+    expect(ok.allowedLinks).toEqual(['loja.github.io', 'estudio.com.br', 'meu.app.br'])
+  })
+
   it('caracteres de controle e de direção do texto saem dos nomes, das notas e das regras', async () => {
     const c = await newCustomer({ name: 'Maria\u0000\u0007 \u202Eodagap', company: '\u2066Padaria\u2069  Trigo', tags: ['\u202Dvip'] })
     expect(c).toMatchObject({ name: 'Maria odagap', company: 'Padaria Trigo', tags: ['vip'] })
