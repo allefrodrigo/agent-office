@@ -91,7 +91,7 @@ export function crmWhatsappApi(deps: CrmWhatsappDeps): CrmWhatsappApi {
         try {
           global = await c.probeGlobalKey()
         } catch (err) {
-          throw new Error(`Não consegui conferir o token: ${errorText(err)}`)
+          throw new Error(`Não consegui conferir o token: ${errorText(err)}`, { cause: err })
         }
         if (global)
           throw new Error(
@@ -101,7 +101,7 @@ export function crmWhatsappApi(deps: CrmWhatsappDeps): CrmWhatsappApi {
           await c.state()
         } catch (err) {
           if ((err as { status?: number }).status === 401 || (err as { status?: number }).status === 403)
-            throw new Error(`Esse token não abre a instância "${d.instance}". Copie o token dessa instância no painel da Evolution.`)
+            throw new Error(`Esse token não abre a instância "${d.instance}". Copie o token dessa instância no painel da Evolution.`, { cause: err })
           throw err
         }
       }

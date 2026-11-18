@@ -218,6 +218,30 @@ export function readWaMessage(raw: unknown, now: number): { ok: true; message: W
   }
 }
 
+/**
+ * findSent: the waId of our message (fromMe) to `phone` with exactly `text`, sent at or after
+ * `since` (ms), among findMessages records. The number is compared normalized (a JID without the
+ * BR 9th digit matches); a @lid with no phone and the same text also counts: on doubt, the queue
+ * never sends twice.
+ */
+export function findSentIn(records: readonly unknown[], q: { phone: string; text: string; since: number }): string | undefined {
+  const want = cleanWaText(q.text)
+  const phone = jidPhone(`${q.phone}@s.whatsapp.net`)
+  const from = Math.floor(q.since / 1000)
+  if (!want || !phone) return undefined
+  for (const raw of records) {
+    const r = recordSchema.safeParse(raw)
+    if (!r.success || r.data.key.fromMe !== true || !WA_ID_RE.test(r.data.key.id)) continue
+    const sec = r.data.messageTimestamp
+    if (!sec || !Number.isFinite(sec) || sec < from) continue
+    const content = waContent(r.data.message)
+    if (!content || content.media || content.text !== want) continue
+    const side = keyPhoneJid(r.data.key)
+    if (side.kind === 'lid' || (side.kind === 'user' && jidPhone(side.jid) === phone)) return r.data.key.id
+  }
+  return undefined
+}
+
 /** When a record was sent (ms), even one left out (a group): the sync moves past it. Never in the future. */
 export function recordTime(raw: unknown, now: number): number | undefined {
   const r = tsSchema.safeParse(obj(raw)?.messageTimestamp)

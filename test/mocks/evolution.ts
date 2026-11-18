@@ -40,7 +40,7 @@ export interface FakeRequest {
   query: URLSearchParams
   headers: Record<string, string>
   body: unknown
-  redirect?: RequestRedirect
+  redirect?: RequestInit['redirect']
   signal?: AbortSignal | null
 }
 
@@ -94,15 +94,23 @@ export class FakeEvolution {
       const n = (req.body as { numbers?: string[] })?.numbers?.[0]
       return { status: 200, body: n === FAKE.customer ? fixture('whatsapp-numbers') : fixture('whatsapp-numbers-missing') }
     })
-    // findMessages as the 2.3.7 does it (channel.service.ts): newest first, the date filter only
-    // with gte and lte, page and offset (skip = offset × (page − 1)).
+    // findMessages as the 2.3.7 does it (whatsapp.baileys.service.ts, fetchMessages): newest
+    // first; the date filter only with gte and lte; key.id, key.fromMe (only when true) and
+    // key.remoteJid (or remoteJidAlt) as exact matches; page and offset (skip = offset × (page − 1)).
     this.on('POST /chat/findMessages', (req) => {
-      const q = (req.body ?? {}) as { where?: { messageTimestamp?: { gte?: string; lte?: string } }; page?: number; offset?: number }
+      type Where = { messageTimestamp?: { gte?: string; lte?: string }; key?: { id?: string; fromMe?: boolean; remoteJid?: string; remoteJidAlt?: string } }
+      const q = (req.body ?? {}) as { where?: Where; page?: number; offset?: number }
       const ts = q.where?.messageTimestamp
+      const k = q.where?.key ?? {}
       const sec = (r: unknown) => Number((r as { messageTimestamp?: unknown }).messageTimestamp)
+      const key = (r: unknown) => ((r as { key?: Record<string, unknown> }).key ?? {}) as Record<string, unknown>
       const inRange = (r: unknown) =>
         !ts?.gte || !ts.lte || (sec(r) >= Math.floor(new Date(ts.gte).getTime() / 1000) && sec(r) <= Math.floor(new Date(ts.lte).getTime() / 1000))
-      const all = this.records.filter(inRange).sort((a, b) => sec(b) - sec(a))
+      const byKey = (r: unknown) =>
+        (!k.id || key(r).id === k.id) &&
+        (!k.fromMe || key(r).fromMe === true) &&
+        (!(k.remoteJid || k.remoteJidAlt) || key(r).remoteJid === k.remoteJid || (!!k.remoteJidAlt && key(r).remoteJidAlt === k.remoteJidAlt))
+      const all = this.records.filter((r) => inRange(r) && byKey(r)).sort((a, b) => sec(b) - sec(a))
       const offset = q.offset || 50
       const page = q.page || 1
       return {

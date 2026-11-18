@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { networkInterfaces } from 'node:os'
 import { z } from 'zod'
 import { CRM_LIMITS, type CrmQr } from '@shared/types'
-import { EVOLUTION_EVENTS, jidPhone, waState } from '@shared/crm-inbound'
+import { EVOLUTION_EVENTS, findSentIn, jidPhone, waState } from '@shared/crm-inbound'
 import { log, secret } from '../log'
 import { CRM_INSTANCE_RE } from '../validate'
 import { EvolutionError, type EvolutionSender } from './contracts'
@@ -26,6 +26,8 @@ export const MAX_PRESENCE_MS = 6_000
 const MAX_DOCUMENT_B64 = Math.ceil((16 * 1024 * 1024 * 4) / 3)
 /** Digits with the country code (E.164 has at most 15). Never a JID: '@' cannot pass. */
 const NUMBER_RE = /^\d{8,15}$/
+/** findSent reads up to this many pages of 100 of our messages (a window of about 2 minutes). */
+const FIND_SENT_PAGES = 3
 
 type Fetch = typeof fetch
 
@@ -179,6 +181,20 @@ interface CallOpts {
   okWhen?: (status: number, body: unknown) => boolean
 }
 
+/**
+ * Errors of the connect step (TCP, DNS, TLS handshake): the request never left. A reset or a
+ * closed socket after sending is not here: the server may have acted.
+ */
+const NEVER_SENT =
+  /^(ECONNREFUSED|ENOTFOUND|EAI_AGAIN|EAI_NONAME|EHOSTUNREACH|ENETUNREACH|EHOSTDOWN|ENETDOWN|EADDRNOTAVAIL|UND_ERR_CONNECT_TIMEOUT|CERT_\w+|ERR_TLS_\w+|DEPTH_ZERO_SELF_SIGNED_CERT|SELF_SIGNED_CERT_IN_CHAIN|UNABLE_TO_\w+)$/
+
+/** The code of a fetch failure (undici puts it in `cause`; many addresses give an AggregateError). */
+function networkCode(err: unknown): string {
+  const cause = (err as { cause?: { code?: unknown; errors?: { code?: unknown }[] } })?.cause
+  const code = cause?.code ?? cause?.errors?.[0]?.code ?? (err as { code?: unknown })?.code
+  return typeof code === 'string' ? code.slice(0, 60) : ''
+}
+
 export class EvolutionClient implements EvolutionSender {
   readonly base: string
   readonly host: string
@@ -234,7 +250,7 @@ export class EvolutionClient implements EvolutionSender {
     if (body !== undefined) headers['content-type'] = 'application/json'
     if (opts.auth !== false) headers.apikey = this.#token
     const timeout = opts.timeoutMs ?? this.#timeout
-    let res: Response
+    let res: Response | undefined
     let text: string
     try {
       res = await this.#fetch(`${this.base}${route}`, {
@@ -256,11 +272,16 @@ export class EvolutionClient implements EvolutionSender {
       const name = err instanceof Error ? err.name : ''
       if (name === 'TimeoutError' || name === 'AbortError')
         throw new EvolutionError(`A Evolution não respondeu em ${Math.round(timeout / 1000)} s ${what}. Confira se ela está ligada e tente de novo.`, 'timeout')
-      const code = (err as { cause?: { code?: unknown } })?.cause?.code
-      log.warn(`CRM: Evolution fora do ar ${what} (${typeof code === 'string' ? code : name || 'erro de rede'})`)
+      const code = networkCode(err)
+      // The request never reached the server (refused, DNS, no route): nothing went out. Any
+      // other failure, or one after the answer began, may come after the server acted.
+      const refused = !res && NEVER_SENT.test(code)
+      log.warn(`CRM: Evolution fora do ar ${what} (${code || name || 'erro de rede'})`)
       throw new EvolutionError(
-        `Não consegui falar com a Evolution em ${this.host} ${what}. Confira se ela está ligada (Configurações → CRM → Servidor local) e se o endereço está certo.`,
-        'network',
+        refused
+          ? `Não consegui falar com a Evolution em ${this.host} ${what}. Confira se ela está ligada (Configurações → CRM → Servidor local) e se o endereço está certo.`
+          : `A conexão com a Evolution em ${this.host} caiu ${what}. Confira se ela está ligada e tente de novo.`,
+        refused ? 'refused' : 'network',
       )
     }
     const json = parseBody(text)
@@ -393,14 +414,17 @@ export class EvolutionClient implements EvolutionSender {
   /**
    * Messages between `since` and `until` (ms), newest first, by page. The filter by date is
    * where.messageTimestamp { gte, lte } (both, or none is applied); the page is page/offset.
+   * `fromMe` keeps only ours (where.key.fromMe, which the 2.3.7 applies in the database).
    */
-  async findMessages(q: { since?: number; until?: number; page?: number; size?: number }): Promise<FoundMessages> {
+  async findMessages(q: { since?: number; until?: number; page?: number; size?: number; fromMe?: true }): Promise<FoundMessages> {
     const size = Math.min(100, Math.max(1, Math.floor(q.size ?? 100)))
     const page = Math.max(1, Math.floor(q.page ?? 1))
-    const where =
-      q.since !== undefined
+    const where = {
+      ...(q.fromMe ? { key: { fromMe: true } } : {}),
+      ...(q.since !== undefined
         ? { messageTimestamp: { gte: new Date(q.since).toISOString(), lte: new Date(q.until ?? Date.now()).toISOString() } }
-        : {}
+        : {}),
+    }
     const r = await this.call(
       'ao buscar mensagens',
       'POST',
@@ -416,6 +440,26 @@ export class EvolutionClient implements EvolutionSender {
       { where, page, offset: size },
     )
     return { total: r.messages.total, pages: r.messages.pages, page, records: r.messages.records }
+  }
+
+  /**
+   * After a send that may have gone out (timeout, dropped connection, 5xx): our message to this
+   * number with exactly this text, at or after `since` (ms). Filters by fromMe and date on the
+   * server and by number and text here: the server keeps the JID it resolved (without the BR 9th
+   * digit, or a @lid), not the number we sent, so where.key.remoteJid could miss it and send twice.
+   * Needs DATABASE_SAVE_DATA_NEW_MESSAGE on. Throws when it cannot tell.
+   */
+  async findSent(number: string, text: string, since: number): Promise<{ waId: string } | null> {
+    const n = this.number(number)
+    if (typeof text !== 'string' || !text || !Number.isFinite(since)) throw config('Pedido de conferência de envio inválido.')
+    const until = Date.now() + 60_000
+    for (let page = 1; page <= FIND_SENT_PAGES; page++) {
+      const r = await this.findMessages({ since, until, page, size: 100, fromMe: true })
+      const waId = findSentIn(r.records, { phone: n, text, since })
+      if (waId) return { waId }
+      if (page >= r.pages) return null
+    }
+    throw new EvolutionError('Não deu para conferir se a mensagem saiu: há envios demais nesse intervalo. Confira no celular.', 'schema')
   }
 
   // ---------- envio (só a Outbox chama) ----------

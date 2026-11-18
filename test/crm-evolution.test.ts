@@ -110,18 +110,59 @@ describe('cliente da Evolution', () => {
     expect(client().state).toBeDefined()
   })
 
-  it('servidor fora do ar vira erro de rede, com o que fazer', async () => {
-    const off = new EvolutionClient({
+  it('servidor fora do ar: o pedido nem saiu (recusado), com o que fazer', async () => {
+    const failing = (cause: unknown) =>
+      new EvolutionClient({
+        url: FAKE.url,
+        instance: FAKE.instance,
+        token: FAKE.token,
+        fetch: async () => {
+          throw Object.assign(new TypeError('fetch failed'), { cause })
+        },
+      })
+    const err = await failure(failing({ code: 'ECONNREFUSED' }).state())
+    expect(err.kind).toBe('refused')
+    expect(err.retryable).toBe(true)
+    expect(err.maybeDelivered).toBe(false)
+    expect(err.message).toMatch(/Não consegui falar com a Evolution em localhost:8080 ao ler o estado. Confira se ela está ligada/)
+    // localhost has two addresses: Node joins the refusals in an AggregateError.
+    expect((await failure(failing({ errors: [{ code: 'ECONNREFUSED' }, { code: 'ECONNREFUSED' }] }).state())).kind).toBe('refused')
+    expect((await failure(failing({ code: 'ENOTFOUND' }).state())).kind).toBe('refused')
+    expect((await failure(failing({ code: 'UND_ERR_CONNECT_TIMEOUT' }).state())).kind).toBe('refused')
+  })
+
+  it('conexão que cai depois de enviar é erro de rede: a mensagem pode ter saído', async () => {
+    const reset = new EvolutionClient({
       url: FAKE.url,
       instance: FAKE.instance,
       token: FAKE.token,
       fetch: async () => {
-        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } })
+        throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNRESET' } })
       },
     })
-    const err = await failure(off.state())
+    const err = await failure(reset.sendText(FAKE.customer, 'texto de teste'))
     expect(err.kind).toBe('network')
-    expect(err.message).toMatch(/Não consegui falar com a Evolution em localhost:8080 ao ler o estado. Confira se ela está ligada/)
+    expect(err.maybeDelivered).toBe(true)
+    expect(err.message).toMatch(/caiu ao enviar a mensagem/)
+    // Unknown failure: on doubt, it may have gone out.
+    const odd = new EvolutionClient({ url: FAKE.url, instance: FAKE.instance, token: FAKE.token, fetch: async () => Promise.reject(new TypeError('fetch failed')) })
+    expect((await failure(odd.state())).kind).toBe('network')
+    // The answer began and broke midway: never "refused", even with a connect-like code.
+    const broken = new EvolutionClient({
+      url: FAKE.url,
+      instance: FAKE.instance,
+      token: FAKE.token,
+      fetch: async () =>
+        new Response(
+          new ReadableStream({
+            start(c) {
+              c.error(Object.assign(new TypeError('terminated'), { cause: { code: 'ECONNREFUSED' } }))
+            },
+          }),
+          { status: 201 },
+        ),
+    })
+    expect((await failure(broken.sendText(FAKE.customer, 'texto de teste'))).kind).toBe('network')
   })
 
   it('resposta acima de 2 MB é cortada e vira erro', async () => {
@@ -302,6 +343,57 @@ describe('cliente da Evolution', () => {
     expect((await client().findMessages({ since: FAKE.t0, until: FAKE.t0 + 60_000, page: 2, size: 2 })).records).toHaveLength(2)
     await client().findMessages({})
     expect(evo.callsTo('POST /chat/findMessages')[2].body).toEqual({ where: {}, page: 1, offset: 100 })
+  })
+
+  describe('findSent: a mensagem saiu mesmo?', () => {
+    const at = Date.now()
+    const sec = Math.floor(at / 1000)
+    const ours = (id: string, o: { jid?: string; alt?: string; fromMe?: boolean; text?: string; sec?: number } = {}) => ({
+      key: { remoteJid: o.jid ?? `${FAKE.customer}@s.whatsapp.net`, fromMe: o.fromMe ?? true, id, ...(o.alt ? { remoteJidAlt: o.alt } : {}) },
+      message: { conversation: o.text ?? 'texto de teste' },
+      messageTimestamp: o.sec ?? sec,
+    })
+    const find = (number: string = FAKE.customer) => client().findSent(number, 'texto de teste', at - 1_000)
+
+    it('acha pelo número e pelo texto, só as nossas e desde a hora pedida', async () => {
+      evo.records = [
+        ours('3EB0000000000000000001', { text: 'outro texto' }),
+        ours('3EB0000000000000000002', { fromMe: false }),
+        ours('3EB0000000000000000003', { sec: sec - 120 }),
+        ours('3EB0000000000000000004', { jid: '5511900000009@s.whatsapp.net' }),
+      ]
+      expect(await find()).toBeNull()
+      const body = evo.callsTo('POST /chat/findMessages')[0].body as { where: { key: unknown; messageTimestamp: { gte: string } } }
+      expect(body.where.key).toEqual({ fromMe: true })
+      expect(body.where.messageTimestamp.gte).toBe(new Date(at - 1_000).toISOString())
+      expect(body).toMatchObject({ page: 1, offset: 100 })
+      evo.records.push(ours('3EB0000000000000000005'))
+      expect(await find()).toEqual({ waId: '3EB0000000000000000005' })
+    })
+
+    it('o servidor guarda o JID sem o 9 ou um @lid: acha do mesmo jeito', async () => {
+      evo.records = [ours('3EB0000000000000000006', { jid: '553188880001@s.whatsapp.net' })]
+      expect(await find('5531988880001')).toEqual({ waId: '3EB0000000000000000006' })
+      evo.records = [ours('3EB0000000000000000007', { jid: '123456789012345@lid', alt: `${FAKE.customer}@s.whatsapp.net` })]
+      expect(await find()).toEqual({ waId: '3EB0000000000000000007' })
+      // A @lid with no phone and the same text: on doubt, it went out (never send twice).
+      evo.records = [ours('3EB0000000000000000008', { jid: '123456789012345@lid' })]
+      expect(await find()).toEqual({ waId: '3EB0000000000000000008' })
+      evo.records = [ours('3EB0000000000000000009', { jid: '123456789012345@lid', alt: '5511900000009@s.whatsapp.net' })]
+      expect(await find()).toBeNull()
+    })
+
+    it('lê as páginas seguintes; sem conseguir saber, lança erro', async () => {
+      const other = (n: number) => ours(`3EB1${String(n).padStart(18, '0')}`, { text: `outro texto ${n}` })
+      evo.records = [ours('3EB0000000000000000010', { sec: sec - 1 }), ...Array.from({ length: 150 }, (_, i) => other(i))]
+      expect(await find()).toEqual({ waId: '3EB0000000000000000010' })
+      expect(evo.callsTo('POST /chat/findMessages').map((c) => (c.body as { page: number }).page)).toEqual([1, 2])
+      evo.records = Array.from({ length: 350 }, (_, i) => other(i))
+      expect((await failure(find())).message).toMatch(/Confira no celular/)
+      evo.on('POST /chat/findMessages', { status: 500, body: {} })
+      expect((await failure(find())).kind).toBe('http5xx')
+      expect((await failure(client().findSent('5511900000001@s.whatsapp.net', 'texto de teste', at))).kind).toBe('config')
+    })
   })
 
   it('reconhece a chave global colada no lugar do token, sem criar nada', async () => {

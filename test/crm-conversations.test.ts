@@ -19,7 +19,7 @@ const open = () => {
 }
 
 const inbound = (n: number, t = n * 1000): ConversationItem => ({ id: `wa-IN${n}`, t, kind: 'in', text: `texto de teste ${n}`, waId: `IN${n}` })
-const out = (n: number, t = n * 1000, status: 'sent' | 'delivered' = 'sent'): ConversationItem => ({
+const out = (n: number, t = n * 1000, status: 'sent' | 'delivered' = 'sent'): Extract<ConversationItem, { kind: 'out' }> => ({
   id: `out-${n}`,
   t,
   kind: 'out',
@@ -88,6 +88,17 @@ describe('conversas', () => {
     expect(s.page(C, undefined, 10).items).toHaveLength(10)
     expect(s.page(C, 'nao-existe', 5).items.map((x) => x.id)).toEqual(['wa-IN146', 'wa-IN147', 'wa-IN148', 'wa-IN149', 'wa-IN150'])
     expect(s.page('sem-conversa')).toEqual({ items: [], more: false })
+  })
+
+  it('a fila acha o rascunho pelo id dele e o envio pela chave, com a resposta a quem', () => {
+    const s = open()
+    s.put(C, draft(1, 'pending'))
+    expect(s.get(C, 'd-1')).toMatchObject({ kind: 'draft', draft: { id: 'd-1', status: 'pending' } })
+    const key = '7f1c2e9a-1b2c-4d3e-8f40-0a1b2c3d4e5f'
+    s.put(C, { id: key, t: 2000, kind: 'out', text: 'resposta', by: { kind: 'player' }, status: 'queued', key, draftId: 'd-1', replyTo: 'wa-IN1' })
+    s.put(C, { id: key, t: 2000, kind: 'out', text: 'resposta', by: { kind: 'player' }, status: 'sent', key, draftId: 'd-1', replyTo: 'wa-IN1', waId: 'OUT1' })
+    expect(open().get(C, key)).toMatchObject({ status: 'sent', replyTo: 'wa-IN1', key, waId: 'OUT1' })
+    expect(s.sentSince(C, 0).map((x) => x.id)).toEqual([key])
   })
 
   it('o que enviamos desde uma hora, do mais velho ao mais novo', () => {

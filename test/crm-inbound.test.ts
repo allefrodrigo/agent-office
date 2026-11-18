@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { CRM_LIMITS, type ConversationItem } from '@shared/types'
 import {
+  findSentIn,
   composePortFix,
   connectionView,
   cleanWaLine,
@@ -329,5 +330,30 @@ describe('lista de conversas', () => {
     expect(previewOf({ ...at, kind: 'notice', text: 'aviso' })).toBe('aviso')
     const draft = { ...at, kind: 'draft', draft: { text: 'rascunho' } } as unknown as ConversationItem
     expect(previewOf(draft)).toBe('rascunho')
+  })
+})
+
+describe('conferir um envio (findSent)', () => {
+  const rec = (id: string, message: unknown, o: { fromMe?: unknown; sec?: number; jid?: string } = {}) => ({
+    key: { remoteJid: o.jid ?? `${FAKE.customer}@s.whatsapp.net`, fromMe: o.fromMe ?? true, id },
+    message,
+    messageTimestamp: o.sec ?? 1_794_916_800,
+  })
+  const q = { phone: FAKE.customer, text: 'texto de teste\nlinha 2', since: FAKE.t0 }
+
+  it('compara o texto limpo, nas duas pontas', () => {
+    expect(findSentIn([rec('3EB0AAAA', { conversation: 'texto de teste\r\nlinha 2' })], q)).toBe('3EB0AAAA')
+    expect(findSentIn([rec('3EB0AAAB', { extendedTextMessage: { text: 'texto de teste\nlinha 2' } })], q)).toBe('3EB0AAAB')
+    expect(findSentIn([rec('3EB0AAAC', { conversation: 'texto de teste' })], q)).toBeUndefined()
+  })
+
+  it('deixa de fora mídia, a mensagem do cliente, o que veio antes e o que está fora do formato', () => {
+    expect(findSentIn([rec('3EB0AAAD', { imageMessage: { caption: q.text } })], q)).toBeUndefined()
+    expect(findSentIn([rec('3EB0AAAE', { conversation: q.text }, { fromMe: false })], q)).toBeUndefined()
+    expect(findSentIn([rec('3EB0AAAF', { conversation: q.text }, { sec: 1_794_916_799 })], q)).toBeUndefined()
+    expect(findSentIn([rec('<b>', { conversation: q.text }), null, 'x', { key: 1 }], q)).toBeUndefined()
+    expect(findSentIn([rec('3EB0AAB0', { conversation: q.text }, { jid: '120363000000000001@g.us' })], q)).toBeUndefined()
+    expect(findSentIn([rec('3EB0AAB1', { conversation: q.text })], { ...q, phone: 'abc' })).toBeUndefined()
+    expect(findSentIn([rec('3EB0AAB2', { conversation: '' })], { ...q, text: '' })).toBeUndefined()
   })
 })

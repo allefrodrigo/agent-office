@@ -205,7 +205,7 @@ export class ConversationStore implements ConversationLog {
 
   /** Rows from the files changed after `since` (ms; 0 = all). Unread counts of a new row start at 0. */
   private rebuild(since: number): void {
-    let files: string[] = []
+    let files: string[]
     try {
       files = readdirSync(this.dir).filter((f) => f.endsWith('.jsonl'))
     } catch {
