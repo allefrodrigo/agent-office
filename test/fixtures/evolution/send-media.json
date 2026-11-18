@@ -1,0 +1,25 @@
+{
+  "key": {
+    "remoteJid": "5511900000001@s.whatsapp.net",
+    "fromMe": true,
+    "id": "3EB0B1B2C3D4E5F6A7B8C9"
+  },
+  "pushName": "Você",
+  "status": "PENDING",
+  "message": {
+    "documentMessage": {
+      "url": "https://mmg.whatsapp.net/v/t62.7119-24/teste.enc",
+      "mimetype": "application/pdf",
+      "title": "fatura.pdf",
+      "fileLength": "1024",
+      "pageCount": 1,
+      "fileName": "fatura.pdf",
+      "caption": "texto de teste"
+    }
+  },
+  "contextInfo": null,
+  "messageType": "documentMessage",
+  "messageTimestamp": 1794916930,
+  "instanceId": "00000000-0000-4000-8000-000000000001",
+  "source": "web"
+}

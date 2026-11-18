@@ -1,0 +1,29 @@
+{
+  "event": "messages.upsert",
+  "instance": "teste",
+  "data": {
+    "key": {
+      "remoteJid": "5511900000001@s.whatsapp.net",
+      "fromMe": false,
+      "id": "3A5F0C1D2E3F4A5B6C7D"
+    },
+    "pushName": "Cliente Teste",
+    "status": "DELIVERY_ACK",
+    "message": {
+      "conversation": "texto de teste",
+      "messageContextInfo": {
+        "deviceListMetadata": {},
+        "deviceListMetadataVersion": 2
+      }
+    },
+    "contextInfo": null,
+    "messageType": "conversation",
+    "messageTimestamp": 1794916800,
+    "instanceId": "00000000-0000-4000-8000-000000000001",
+    "source": "ios"
+  },
+  "server_url": "http://localhost:8080",
+  "date_time": "2026-11-17T09:00:00.000Z",
+  "sender": "5511900000002@s.whatsapp.net",
+  "apikey": null
+}

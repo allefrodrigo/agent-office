@@ -1,0 +1,16 @@
+{
+  "event": "qrcode.updated",
+  "instance": "teste",
+  "data": {
+    "qrcode": {
+      "instance": "teste",
+      "pairingCode": null,
+      "code": "2@AAAA",
+      "base64": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+    }
+  },
+  "server_url": "http://localhost:8080",
+  "date_time": "2026-11-17T09:00:00.000Z",
+  "sender": "5511900000002@s.whatsapp.net",
+  "apikey": null
+}
