@@ -132,7 +132,8 @@ function serverMessages(body: unknown): unknown[] {
 const mentions = (body: unknown, re: RegExp) => serverMessages(body).some((m) => typeof m === 'string' && re.test(m))
 
 /** sendText to a number without WhatsApp: 400 with [{ jid, exists: false, number }]. */
-const notOnWhatsapp = (body: unknown) => serverMessages(body).some((m) => !!m && typeof m === 'object' && (m as { exists?: unknown }).exists === false)
+const notOnWhatsapp = (body: unknown) =>
+  serverMessages(body).some((m) => !!m && typeof m === 'object' && (m as { exists?: unknown }).exists === false)
 
 const anyBody = z.unknown()
 const sentSchema = z.object({ key: z.object({ id: z.string().regex(/^[A-Za-z0-9_-]{4,100}$/) }) })
@@ -208,9 +209,11 @@ export class EvolutionClient implements EvolutionSender {
 
   constructor(opts: EvolutionClientOptions) {
     const b = evolutionBase(opts.url)
-    if (!CRM_INSTANCE_RE.test(opts.instance ?? '')) throw config('Nome de instância inválido. Use o nome que aparece no painel da Evolution.')
+    if (!CRM_INSTANCE_RE.test(opts.instance ?? ''))
+      throw config('Nome de instância inválido. Use o nome que aparece no painel da Evolution.')
     const token = (opts.token ?? '').trim()
-    if (!token || token.length > CRM_LIMITS.token || /\s/.test(token)) throw config('Cole o token da instância (painel da Evolution → instância → token).')
+    if (!token || token.length > CRM_LIMITS.token || /\s/.test(token))
+      throw config('Cole o token da instância (painel da Evolution → instância → token).')
     secret(token)
     this.base = b.base
     this.host = b.host
@@ -233,19 +236,34 @@ export class EvolutionClient implements EvolutionSender {
   private httpError(what: string, status: number, body: unknown, opts: CallOpts): EvolutionError {
     const e = (message: string, kind: 'http4xx' | 'http5xx' | 'not-whatsapp') => new EvolutionError(this.scrub(message), kind, status)
     if (status === 401 || status === 403)
-      return e(`A Evolution recusou o token (HTTP ${status}) ${what}. Cole de novo o token da instância "${this.instance}" (painel da Evolution → instância → token).`, 'http4xx')
+      return e(
+        `A Evolution recusou o token (HTTP ${status}) ${what}. Cole de novo o token da instância "${this.instance}" (painel da Evolution → instância → token).`,
+        'http4xx',
+      )
     if (status === 404)
       return mentions(body, /instance does not exist/i)
         ? e(`A instância "${this.instance}" não existe nesse servidor. Confira o nome no painel da Evolution.`, 'http4xx')
         : e(`A Evolution não tem essa rota (HTTP 404) ${what}. Confira se o endereço é o da Evolution API 2.3.`, 'http4xx')
-    if (status === 400 && opts.numberCall && notOnWhatsapp(body)) return e('Esse número não tem WhatsApp. Confira o telefone na ficha do cliente.', 'not-whatsapp')
+    if (status === 400 && opts.numberCall && notOnWhatsapp(body))
+      return e('Esse número não tem WhatsApp. Confira o telefone na ficha do cliente.', 'not-whatsapp')
     if (status === 413) return e(`O arquivo é grande demais para a Evolution (HTTP 413) ${what}.`, 'http4xx')
     if (status === 429) return e(`A Evolution pediu para esperar (HTTP 429) ${what}. Tente de novo em alguns minutos.`, 'http4xx')
-    if (status >= 500) return e(`A Evolution falhou ${what} (HTTP ${status}). Tente de novo em instantes; se repetir, veja o log do contêiner da Evolution.`, 'http5xx')
+    if (status >= 500)
+      return e(
+        `A Evolution falhou ${what} (HTTP ${status}). Tente de novo em instantes; se repetir, veja o log do contêiner da Evolution.`,
+        'http5xx',
+      )
     return e(`A Evolution recusou o pedido (HTTP ${status}) ${what}. Veja o log do contêiner da Evolution para o motivo.`, 'http4xx')
   }
 
-  private async call<T>(what: string, method: 'GET' | 'POST' | 'DELETE', route: string, schema: z.ZodType<T, unknown>, body?: unknown, opts: CallOpts = {}): Promise<T> {
+  private async call<T>(
+    what: string,
+    method: 'GET' | 'POST' | 'DELETE',
+    route: string,
+    schema: z.ZodType<T, unknown>,
+    body?: unknown,
+    opts: CallOpts = {},
+  ): Promise<T> {
     const headers: Record<string, string> = { accept: 'application/json' }
     if (body !== undefined) headers['content-type'] = 'application/json'
     if (opts.auth !== false) headers.apikey = this.#token
@@ -271,7 +289,10 @@ export class EvolutionClient implements EvolutionSender {
       if (err instanceof EvolutionError) throw err
       const name = err instanceof Error ? err.name : ''
       if (name === 'TimeoutError' || name === 'AbortError')
-        throw new EvolutionError(`A Evolution não respondeu em ${Math.round(timeout / 1000)} s ${what}. Confira se ela está ligada e tente de novo.`, 'timeout')
+        throw new EvolutionError(
+          `A Evolution não respondeu em ${Math.round(timeout / 1000)} s ${what}. Confira se ela está ligada e tente de novo.`,
+          'timeout',
+        )
       const code = networkCode(err)
       // The request never reached the server (refused, DNS, no route): nothing went out. Any
       // other failure, or one after the answer began, may come after the server acted.
@@ -291,7 +312,10 @@ export class EvolutionClient implements EvolutionSender {
     }
     const r = schema.safeParse(json)
     if (!r.success)
-      throw new EvolutionError(`A Evolution respondeu fora do esperado ${what}. Confira se o servidor é a Evolution API 2.3 (a testada é a 2.3.7).`, 'schema')
+      throw new EvolutionError(
+        `A Evolution respondeu fora do esperado ${what}. Confira se o servidor é a Evolution API 2.3 (a testada é a 2.3.7).`,
+        'schema',
+      )
     return r.data
   }
 
@@ -344,7 +368,9 @@ export class EvolutionClient implements EvolutionSender {
       'ao ler a instância',
       'GET',
       `/instance/fetchInstances?instanceName=${encodeURIComponent(this.instance)}`,
-      z.array(z.object({ name: z.string().max(200).optional(), ownerJid: z.string().max(200).nullable().optional() }).passthrough()).max(50),
+      z
+        .array(z.object({ name: z.string().max(200).optional(), ownerJid: z.string().max(200).nullable().optional() }).passthrough())
+        .max(50),
     )
     const row = rows.find((x) => x.name === this.instance)
     return jidPhone(row?.ownerJid) ?? undefined
@@ -352,7 +378,14 @@ export class EvolutionClient implements EvolutionSender {
 
   /** The server's version ('2.3.7'), from GET / (no token needed). */
   async version(): Promise<string | undefined> {
-    const r = await this.call('ao ler a versão', 'GET', '/', z.object({ version: z.string().max(40).optional() }).passthrough(), undefined, { auth: false })
+    const r = await this.call(
+      'ao ler a versão',
+      'GET',
+      '/',
+      z.object({ version: z.string().max(40).optional() }).passthrough(),
+      undefined,
+      { auth: false },
+    )
     return r.version && /^[\w.+-]{1,40}$/.test(r.version) ? r.version : undefined
   }
 
@@ -466,9 +499,17 @@ export class EvolutionClient implements EvolutionSender {
 
   async sendText(number: string, text: string): Promise<{ waId: string }> {
     const n = this.number(number)
-    if (typeof text !== 'string' || !text.trim() || text.length > CRM_LIMITS.messageText) throw config('Mensagem vazia ou grande demais para enviar.')
+    if (typeof text !== 'string' || !text.trim() || text.length > CRM_LIMITS.messageText)
+      throw config('Mensagem vazia ou grande demais para enviar.')
     // linkPreview off: the server would fetch the link to draw the preview.
-    const r = await this.call('ao enviar a mensagem', 'POST', this.path('/message/sendText'), sentSchema, { number: n, text, linkPreview: false }, { numberCall: true })
+    const r = await this.call(
+      'ao enviar a mensagem',
+      'POST',
+      this.path('/message/sendText'),
+      sentSchema,
+      { number: n, text, linkPreview: false },
+      { numberCall: true },
+    )
     return { waId: r.key.id }
   }
 
@@ -530,12 +571,18 @@ export function lanIPv4(ifaces: Interfaces): string[] {
  * machine's network addresses, briefly, with no token (only GET /). Any answer means the
  * docker-compose publishes the port on every interface ("8080:8080" without 127.0.0.1).
  */
-export async function lanExposed(port: number, opts: { interfaces?: () => Interfaces; fetch?: Fetch; timeoutMs?: number; https?: boolean } = {}): Promise<boolean> {
+export async function lanExposed(
+  port: number,
+  opts: { interfaces?: () => Interfaces; fetch?: Fetch; timeoutMs?: number; https?: boolean } = {},
+): Promise<boolean> {
   const addrs = lanIPv4((opts.interfaces ?? networkInterfaces)())
   if (!addrs.length) return false
   const f = opts.fetch ?? fetch
   const tries = addrs.map(async (ip) => {
-    const res = await f(`${opts.https ? 'https' : 'http'}://${ip}:${port}/`, { redirect: 'manual', signal: AbortSignal.timeout(opts.timeoutMs ?? 1_200) })
+    const res = await f(`${opts.https ? 'https' : 'http'}://${ip}:${port}/`, {
+      redirect: 'manual',
+      signal: AbortSignal.timeout(opts.timeoutMs ?? 1_200),
+    })
     await res.body?.cancel().catch(() => undefined)
     return true
   })

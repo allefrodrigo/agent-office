@@ -46,7 +46,10 @@ const itemSchema = z
     id: z.string().regex(ITEM_ID_RE),
     t: ms,
     kind: z.enum(['in', 'out', 'draft', 'notice']),
-    text: z.string().max(CRM_LIMITS.messageText * 2).optional(),
+    text: z
+      .string()
+      .max(CRM_LIMITS.messageText * 2)
+      .optional(),
     draft: z.object({ id: z.string(), text: z.string(), status: z.string() }).passthrough().optional(),
   })
   .passthrough()
@@ -252,7 +255,11 @@ export class ConversationStore implements ConversationLog {
     if (!this.dirty) return
     try {
       this.ensureDir()
-      writeJsonAtomic(this.indexFile, { v: 1, ...(this.seenAt !== undefined ? { lastSeen: this.seenAt } : {}), rows: [...this.rows.values()] }, { mode: FILE_MODE })
+      writeJsonAtomic(
+        this.indexFile,
+        { v: 1, ...(this.seenAt !== undefined ? { lastSeen: this.seenAt } : {}), rows: [...this.rows.values()] },
+        { mode: FILE_MODE },
+      )
       chmod(this.indexFile, FILE_MODE)
       this.dirty = false
     } catch (err) {

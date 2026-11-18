@@ -101,7 +101,9 @@ export function crmWhatsappApi(deps: CrmWhatsappDeps): CrmWhatsappApi {
           await c.state()
         } catch (err) {
           if ((err as { status?: number }).status === 401 || (err as { status?: number }).status === 403)
-            throw new Error(`Esse token não abre a instância "${d.instance}". Copie o token dessa instância no painel da Evolution.`, { cause: err })
+            throw new Error(`Esse token não abre a instância "${d.instance}". Copie o token dessa instância no painel da Evolution.`, {
+              cause: err,
+            })
           throw err
         }
       }
@@ -168,7 +170,8 @@ export function registerCrmWhatsappIpc(ctx: Pick<IpcContext, 'crmStore' | 'broad
   const lan = (c: EvolutionClient) => lanExposed(c.port, { https: c.base.startsWith('https:') })
   const events = new EvolutionEvents({ store: ctx.crmStore, conversations, broadcast: ctx.broadcast, lan })
   const api = crmWhatsappApi({ vault, events, client: (cfg) => new EvolutionClient(cfg), lan })
-  for (const [channel, handler] of Object.entries(crmWhatsappHandlers(api))) ipcMain.handle(channel, (_e, ...args: unknown[]) => handler(...args))
+  for (const [channel, handler] of Object.entries(crmWhatsappHandlers(api)))
+    ipcMain.handle(channel, (_e, ...args: unknown[]) => handler(...args))
   return {
     api,
     events,

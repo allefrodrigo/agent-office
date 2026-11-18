@@ -83,7 +83,9 @@ export class FakeEvolution {
   private routes = new Map<string, Handler>()
 
   constructor() {
-    const ok = (name: string, status = 200) => () => ({ status, body: fixture(name) })
+    const ok =
+      (name: string, status = 200) =>
+      () => ({ status, body: fixture(name) })
     this.on('GET /', ok('root'))
     this.on('GET /instance/connectionState', ok('connection-state-open'))
     this.on('GET /instance/connect', ok('connect-qr'))
@@ -98,24 +100,38 @@ export class FakeEvolution {
     // first; the date filter only with gte and lte; key.id, key.fromMe (only when true) and
     // key.remoteJid (or remoteJidAlt) as exact matches; page and offset (skip = offset × (page − 1)).
     this.on('POST /chat/findMessages', (req) => {
-      type Where = { messageTimestamp?: { gte?: string; lte?: string }; key?: { id?: string; fromMe?: boolean; remoteJid?: string; remoteJidAlt?: string } }
+      type Where = {
+        messageTimestamp?: { gte?: string; lte?: string }
+        key?: { id?: string; fromMe?: boolean; remoteJid?: string; remoteJidAlt?: string }
+      }
       const q = (req.body ?? {}) as { where?: Where; page?: number; offset?: number }
       const ts = q.where?.messageTimestamp
       const k = q.where?.key ?? {}
       const sec = (r: unknown) => Number((r as { messageTimestamp?: unknown }).messageTimestamp)
       const key = (r: unknown) => ((r as { key?: Record<string, unknown> }).key ?? {}) as Record<string, unknown>
       const inRange = (r: unknown) =>
-        !ts?.gte || !ts.lte || (sec(r) >= Math.floor(new Date(ts.gte).getTime() / 1000) && sec(r) <= Math.floor(new Date(ts.lte).getTime() / 1000))
+        !ts?.gte ||
+        !ts.lte ||
+        (sec(r) >= Math.floor(new Date(ts.gte).getTime() / 1000) && sec(r) <= Math.floor(new Date(ts.lte).getTime() / 1000))
       const byKey = (r: unknown) =>
         (!k.id || key(r).id === k.id) &&
         (!k.fromMe || key(r).fromMe === true) &&
-        (!(k.remoteJid || k.remoteJidAlt) || key(r).remoteJid === k.remoteJid || (!!k.remoteJidAlt && key(r).remoteJidAlt === k.remoteJidAlt))
+        (!(k.remoteJid || k.remoteJidAlt) ||
+          key(r).remoteJid === k.remoteJid ||
+          (!!k.remoteJidAlt && key(r).remoteJidAlt === k.remoteJidAlt))
       const all = this.records.filter((r) => inRange(r) && byKey(r)).sort((a, b) => sec(b) - sec(a))
       const offset = q.offset || 50
       const page = q.page || 1
       return {
         status: 200,
-        body: { messages: { total: all.length, pages: Math.ceil(all.length / offset), currentPage: page, records: all.slice(offset * (page - 1), offset * page) } },
+        body: {
+          messages: {
+            total: all.length,
+            pages: Math.ceil(all.length / offset),
+            currentPage: page,
+            records: all.slice(offset * (page - 1), offset * page),
+          },
+        },
       }
     })
     this.on('POST /chat/sendPresence', ok('presence', 201))
@@ -123,7 +139,9 @@ export class FakeEvolution {
     this.on('POST /message/sendMedia', ok('send-media', 201))
     // Only the global key opens /instance/create; an integration that does not exist creates nothing (S-1).
     this.on('POST /instance/create', (req) =>
-      req.headers.apikey === this.global ? { status: 400, body: fixture('invalid-integration') } : { status: 401, body: fixture('unauthorized') },
+      req.headers.apikey === this.global
+        ? { status: 400, body: fixture('invalid-integration') }
+        : { status: 401, body: fixture('unauthorized') },
     )
   }
 
@@ -159,7 +177,8 @@ export class FakeEvolution {
     if (init.signal?.aborted) throw init.signal.reason
     const handler = this.routes.get(`${method} ${req.route}`)
     let reply: FakeReply
-    if (!handler) reply = { status: 404, body: { status: 404, error: 'Not Found', response: { message: [`Cannot ${method} ${url.pathname}`] } } }
+    if (!handler)
+      reply = { status: 404, body: { status: 404, error: 'Not Found', response: { message: [`Cannot ${method} ${url.pathname}`] } } }
     else if (req.route !== '/' && req.route !== '/instance/create' && headers.apikey !== this.token && headers.apikey !== this.global)
       reply = { status: 401, body: fixture('unauthorized') }
     else if (req.instance !== undefined && req.instance !== this.instance) reply = { status: 404, body: fixture('instance-not-found') }
@@ -232,7 +251,11 @@ export class FakeSocket implements SocketLike {
 }
 
 /** A socket factory that keeps every socket it opened. */
-export function fakeSockets(): { factory: (url: string, headers: Record<string, string>) => FakeSocket; sockets: FakeSocket[]; last(): FakeSocket } {
+export function fakeSockets(): {
+  factory: (url: string, headers: Record<string, string>) => FakeSocket
+  sockets: FakeSocket[]
+  last(): FakeSocket
+} {
   const sockets: FakeSocket[] = []
   return {
     sockets,

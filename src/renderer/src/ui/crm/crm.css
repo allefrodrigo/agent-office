@@ -357,6 +357,153 @@
   color: var(--crm-muted);
 }
 
+/* ---------- conexão com o WhatsApp (CR-10): a caixa em Configurações → CRM e o ponto no topo ---------- */
+
+.crm-connect-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.crm-connect-label {
+  font-weight: 700;
+}
+
+.crm-connect-via {
+  padding: 1px 7px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.crm-connect-actions {
+  flex-wrap: wrap;
+}
+
+.crm-connect-qr {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.crm-connect-qr-img {
+  flex: none;
+  width: 200px;
+  height: 200px;
+  box-sizing: border-box;
+  padding: 8px;
+  border-radius: 8px;
+  /* a margem branca em volta do código: sem ela o celular demora a ler */
+  background: #fff;
+  image-rendering: pixelated;
+}
+
+.crm-connect-qr-wait {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 200px;
+  height: 200px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.crm-connect-qr-text {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.crm-connect-steps {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.crm-connect-pair {
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+}
+
+.crm-connect-warn,
+.crm-connect-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.crm-connect-warn {
+  border: 1px solid rgba(239, 91, 91, 0.45);
+  background: rgba(239, 91, 91, 0.08);
+}
+
+.crm-connect-notice {
+  border: 1px solid rgba(245, 165, 36, 0.4);
+  background: rgba(245, 165, 36, 0.07);
+}
+
+.crm-connect-warn > svg,
+.crm-connect-notice > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.crm-connect-warn > svg {
+  color: var(--red-text);
+}
+
+.crm-connect-notice > svg {
+  color: var(--amber-text);
+}
+
+.crm-connect-warn-text,
+.crm-connect-notice-text {
+  flex: 1;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.crm-connect-warn-text strong,
+.crm-connect-notice-text strong {
+  color: var(--text);
+}
+
+.crm-connect-warn-text .code {
+  margin: 6px 0;
+}
+
+.crm-connect-slot:empty {
+  display: none;
+}
+
+/* the dot at the top of the CRM screen, beside the server chip */
+.crm-connect-dot {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--crm-line-strong);
+  border-radius: 8px;
+  color: var(--crm-muted);
+  font: 600 13px var(--font);
+  white-space: nowrap;
+}
+
 .crm-search {
   position: relative;
   display: flex;

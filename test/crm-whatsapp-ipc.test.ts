@@ -32,7 +32,13 @@ const { CrmVault, NO_VAULT, VAULT_FILE } = await import('../src/main/crm/vault')
 const { NO_SELF_TEST, crmWhatsappApi, crmWhatsappHandlers, registerCrmWhatsappIpc } = await import('../src/main/ipc/crm-whatsapp')
 const { FAKE, FakeEvolution, fakeSockets } = await import('./mocks/evolution')
 
-const CHANNELS = ['office:crmWhatsapp', 'office:saveCrmWhatsapp', 'office:connectCrmWhatsapp', 'office:testCrmWhatsapp', 'office:disconnectCrmWhatsapp']
+const CHANNELS = [
+  'office:crmWhatsapp',
+  'office:saveCrmWhatsapp',
+  'office:connectCrmWhatsapp',
+  'office:testCrmWhatsapp',
+  'office:disconnectCrmWhatsapp',
+]
 const settle = async () => {
   for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r))
 }
@@ -92,12 +98,23 @@ describe('canais do WhatsApp', () => {
     expect([...h.handlers.keys()].sort()).toEqual([...CHANNELS].sort())
     expect(Object.keys(crmWhatsappHandlers(wa.api)).sort()).toEqual([...CHANNELS].sort())
     const call = (channel: string, ...args: unknown[]) => h.handlers.get(channel)!({}, ...args)
-    expect(await call('office:crmWhatsapp')).toEqual({ url: 'http://localhost:8080', instance: '', hasToken: false, vault: true, connection: { state: 'off' } })
+    expect(await call('office:crmWhatsapp')).toEqual({
+      url: 'http://localhost:8080',
+      instance: '',
+      hasToken: false,
+      vault: true,
+      connection: { state: 'off' },
+    })
     expect(await call('office:testCrmWhatsapp')).toBe(NO_SELF_TEST)
-    await expect(call('office:connectCrmWhatsapp')).rejects.toThrow('Salve o endereço, a instância e o token da Evolution antes de conectar.')
+    await expect(call('office:connectCrmWhatsapp')).rejects.toThrow(
+      'Salve o endereço, a instância e o token da Evolution antes de conectar.',
+    )
     await expect(call('office:disconnectCrmWhatsapp')).resolves.toBeUndefined()
     // Without a token, saving only keeps the address and the instance.
-    const info = (await call('office:saveCrmWhatsapp', { url: FAKE.url, instance: FAKE.instance })) as { instance: string; hasToken: boolean }
+    const info = (await call('office:saveCrmWhatsapp', { url: FAKE.url, instance: FAKE.instance })) as {
+      instance: string
+      hasToken: boolean
+    }
     expect(info).toMatchObject({ instance: FAKE.instance, hasToken: false })
     expect(wa.events.current().state).toBe('off')
   })

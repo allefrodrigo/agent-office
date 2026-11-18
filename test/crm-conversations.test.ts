@@ -18,7 +18,13 @@ const open = () => {
   return s
 }
 
-const inbound = (n: number, t = n * 1000): ConversationItem => ({ id: `wa-IN${n}`, t, kind: 'in', text: `texto de teste ${n}`, waId: `IN${n}` })
+const inbound = (n: number, t = n * 1000): ConversationItem => ({
+  id: `wa-IN${n}`,
+  t,
+  kind: 'in',
+  text: `texto de teste ${n}`,
+  waId: `IN${n}`,
+})
 const out = (n: number, t = n * 1000, status: 'sent' | 'delivered' = 'sent'): Extract<ConversationItem, { kind: 'out' }> => ({
   id: `out-${n}`,
   t,
@@ -95,8 +101,29 @@ describe('conversas', () => {
     s.put(C, draft(1, 'pending'))
     expect(s.get(C, 'd-1')).toMatchObject({ kind: 'draft', draft: { id: 'd-1', status: 'pending' } })
     const key = '7f1c2e9a-1b2c-4d3e-8f40-0a1b2c3d4e5f'
-    s.put(C, { id: key, t: 2000, kind: 'out', text: 'resposta', by: { kind: 'player' }, status: 'queued', key, draftId: 'd-1', replyTo: 'wa-IN1' })
-    s.put(C, { id: key, t: 2000, kind: 'out', text: 'resposta', by: { kind: 'player' }, status: 'sent', key, draftId: 'd-1', replyTo: 'wa-IN1', waId: 'OUT1' })
+    s.put(C, {
+      id: key,
+      t: 2000,
+      kind: 'out',
+      text: 'resposta',
+      by: { kind: 'player' },
+      status: 'queued',
+      key,
+      draftId: 'd-1',
+      replyTo: 'wa-IN1',
+    })
+    s.put(C, {
+      id: key,
+      t: 2000,
+      kind: 'out',
+      text: 'resposta',
+      by: { kind: 'player' },
+      status: 'sent',
+      key,
+      draftId: 'd-1',
+      replyTo: 'wa-IN1',
+      waId: 'OUT1',
+    })
     expect(open().get(C, key)).toMatchObject({ status: 'sent', replyTo: 'wa-IN1', key, waId: 'OUT1' })
     expect(s.sentSince(C, 0).map((x) => x.id)).toEqual([key])
   })
@@ -174,7 +201,11 @@ describe('conversas', () => {
     expect(s.summaries().map((x) => x.customerId)).toEqual([D])
     expect(s.customerOfWa('OUT1')).toBeUndefined()
     s.flush()
-    expect(open().summaries().map((x) => x.customerId)).toEqual([D])
+    expect(
+      open()
+        .summaries()
+        .map((x) => x.customerId),
+    ).toEqual([D])
   })
 
   it('recusa id de cliente que é caminho e item fora do formato', () => {
@@ -227,7 +258,9 @@ describe('conversas', () => {
   it('compacta o arquivo quando as versões velhas passam do limite', () => {
     const s = open()
     for (let i = 0; i < 260; i++) s.put(C, { ...out(1), text: `versão ${i}` })
-    const lines = readFileSync(join(s.dir, `${C}.jsonl`), 'utf8').trim().split('\n')
+    const lines = readFileSync(join(s.dir, `${C}.jsonl`), 'utf8')
+      .trim()
+      .split('\n')
     expect(lines.length).toBeLessThan(60)
     expect(open().get(C, 'out-1')).toMatchObject({ text: 'versão 259' })
   })
