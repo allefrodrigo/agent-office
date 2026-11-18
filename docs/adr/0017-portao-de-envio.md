@@ -157,7 +157,7 @@ Marcador sem dado (sem pagamento; `{pagamento}` sem chave PIX) fica como está, 
 - Número da cobrança (`strayNumber`): datas, "N de mês" e "dia N" contra o vencimento; o resto contra o valor (`parseMoney`). Centena ou milhar por extenso nunca bate.
 - Desconto: porcentagens com `%` ou "por cento"; "fala em desconto" é a palavra desconto, off, abatimento, "pela metade" ou, numa oferta, qualquer porcentagem.
 
-**Pontas que a tabela não fechava.** Nenhuma muda uma regra; cada uma tem caso no JSON ou teste.
+**Pontas que a tabela não fechava.** Nenhuma muda uma regra; cada uma tem caso no JSON ou teste. Aprovadas pelo dono do produto em 18/11/2026.
 
 1. Marcador de pagamento em Atendimento ou Oferta do bot é cobrança disfarçada (regra 5), mesmo sem palavra de cobrança.
 2. Marcador sem dado ou escrito errado (`{ Valor }`, `{PAGAMENTO}`) barra na regra 5 para qualquer autor, sem "Enviar mesmo assim": a mensagem sairia quebrada.
