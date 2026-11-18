@@ -40,7 +40,8 @@ export function messageText(text: string, root: HTMLElement): HTMLElement {
       'button',
       { class: 'crm-msg-link', type: 'button', title: `Abrir ${part.host}` },
       h('span', {}, part.text),
-      h('span', { class: 'crm-msg-host' }, part.host),
+      // the real domain beside the link, when the text shows more (or something else) than it
+      part.text === part.host ? null : h('span', { class: 'crm-msg-host' }, part.host),
     )
     link.addEventListener('click', () => void openLink(part.url, part.host, root))
     el.append(link)

@@ -29,7 +29,7 @@ function tone(d: Draft): string {
 
 export function draftCard(o: DraftCardOpts): HTMLElement {
   const d = o.draft
-  const who = d.by.kind === 'player' ? 'Sua mensagem' : `Rascunho de ${o.author}`
+  const who = d.by.kind === 'player' ? 'Sua mensagem' : d.by.kind === 'system' ? 'Rascunho do app' : `Rascunho de ${o.author}`
   const head = h(
     'div',
     { class: 'crm-draft-head' },
