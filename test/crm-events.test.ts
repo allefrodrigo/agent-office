@@ -325,6 +325,38 @@ describe('mensagens que saem do número', () => {
 })
 
 describe('reconexão e busca', () => {
+  it('cliente apagado não volta como contato novo quando o app reabre dentro da margem (revisão de segurança, achado 1)', async () => {
+    const c = customer()
+    const old = rec(id(1), FAKE.t0, { text: 'texto de teste: apaguem meus dados' })
+    const s = await linked()
+    s.emit(upsert(old))
+    expect(items(c)).toHaveLength(1)
+    // "Apagar este cliente": CrmChat.forget runs before the store drops the customer.
+    conversations.remove(c.id)
+    conversations.forgetPhones(c.phones, Date.now())
+    store.deleteCustomer(c.id)
+    events.stop()
+    await settle()
+    // The app opens again: nothing in memory, the sync reads the margin before the last message seen.
+    conversations = new ConversationStore(dir)
+    events = new EvolutionEvents({ store, conversations, broadcast: (e) => sent.push(e), socket: socks.factory, lan: async () => false })
+    evo.records = [old]
+    events.start(client())
+    await settle()
+    await events.sync()
+    await settle()
+    expect(store.ownerOfPhone(FAKE.customer)).toBeUndefined()
+    expect(conversations.summaries()).toEqual([])
+    // A message written after the delete is a new contact, as always.
+    await tick(5_000)
+    evo.records = [old, rec(id(2), Date.now() - 1_000, { text: 'texto de teste depois' })]
+    await events.sync()
+    await settle()
+    const back = store.ownerOfPhone(FAKE.customer)
+    expect(back).toBeDefined()
+    expect(items(back!).map((x) => x.id)).toEqual([waItemId(id(2))])
+  })
+
   it('cai, busca a cada 20 s, reconecta e não perde nem duplica', async () => {
     const c = customer()
     const a = rec(id(1), FAKE.t0)

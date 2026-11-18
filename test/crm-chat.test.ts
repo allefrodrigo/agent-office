@@ -28,6 +28,10 @@ class FakeLog implements ChatLog {
   waiting = new Map<string, 'handoff' | 'new-contact'>()
   read: string[] = []
   removed: string[] = []
+  forgottenPhones: { phones: readonly string[]; at: number }[] = []
+  forgetPhones(phones: readonly string[], at: number): void {
+    this.forgottenPhones.push({ phones, at })
+  }
   private all(customerId: string): ConversationItem[] {
     return [...(this.items.get(customerId)?.values() ?? [])].sort((a, b) => a.t - b.t)
   }
@@ -270,6 +274,14 @@ describe('CrmChat.draft: o cartão do rascunho', () => {
     expect(inputs).toHaveLength(1)
   })
 
+  it('rascunho do bot barrado por ser de outra rodada (regra 3) só sai descartado', () => {
+    botDraft({ status: 'blocked', decision: { action: 'block', rule: 3, reason: 'Esta rodada atende outro cliente.' } })
+    expect(() => chat.draft(maria.id, 'd1', 'send')).toThrow(/rodada de outro cliente/)
+    expect(() => chat.draft(maria.id, 'd1', 'override')).toThrow(/rodada de outro cliente/)
+    expect(inputs).toHaveLength(0)
+    expect(chat.draft(maria.id, 'd1', 'discard').status).toBe('discarded')
+  })
+
   it('rascunho já decidido, sumido ou de outro cliente dá erro', () => {
     botDraft({ status: 'sent' })
     expect(() => chat.draft(maria.id, 'd1', 'send')).toThrow(/já foi enviado/)
@@ -370,6 +382,8 @@ describe('CrmChat.forget: apagar o cliente', () => {
     expect(delta.outboxRemoved).toEqual(keys)
     expect(store.outbox).toEqual([])
     expect(log.removed).toEqual([maria.id])
+    // The sync must not bring the customer back from the messages it reads again (security review, finding 1).
+    expect(log.forgottenPhones).toEqual([{ phones: ['5511900000001'], at: Date.now() }])
     const lines = audit.read()
     expect(lines.length).toBeGreaterThan(0)
     expect(JSON.stringify(lines)).not.toContain(maria.id)

@@ -1,4 +1,4 @@
-import { draftNote, draftOpen } from '@shared/crm-chat-view'
+import { draftNote, draftOpen, outOfRound } from '@shared/crm-chat-view'
 import { CRM_LIMITS, MESSAGE_CATEGORY_LABEL, type Draft, type DraftAction } from '@shared/types'
 import { h, icon } from '../dom'
 import { confirmDialog } from '../modals'
@@ -128,6 +128,10 @@ export function draftCard(o: DraftCardOpts): HTMLElement {
 
   function fill(): void {
     buttons.length = 0
+    if (outOfRound(d)) {
+      actions.replaceChildren(button('Descartar', 'crm-btn-quiet', () => void act('discard')))
+      return
+    }
     actions.replaceChildren(
       button('Enviar', 'crm-btn-accent', () => void act('send'), 'send'),
       button('Editar', '', edit),

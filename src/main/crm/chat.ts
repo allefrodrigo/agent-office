@@ -12,6 +12,7 @@ import type {
   OfficeEvent,
 } from '@shared/types'
 import { maskPhone } from '@shared/crm'
+import { outOfRound } from '@shared/crm-chat-view'
 import { matchAlert, matchOptOut } from '@shared/crm-keywords'
 import { log } from '../log'
 import type { AuditLog, ConversationLog } from './contracts'
@@ -26,6 +27,8 @@ import type { CrmStore } from './store'
 export interface ChatLog extends ConversationLog {
   summary(customerId: string): ConversationSummary | undefined
   setWaiting(customerId: string, flag: 'handoff' | 'new-contact' | undefined): ConversationSummary | undefined
+  /** "Apagar este cliente": the sync never brings these numbers' older messages back. */
+  forgetPhones(phones: readonly string[], at: number): void
 }
 
 export interface ChatDeps {
@@ -108,6 +111,10 @@ export class CrmChat {
     if (found?.kind !== 'draft' || found.draft.customerId !== customerId) throw new Error('Esse rascunho não existe mais.')
     const draft = found.draft
     if (!OPEN_DRAFT.has(draft.status)) throw new Error('Esse rascunho já foi enviado, agendado ou descartado. Confira o fio da conversa.')
+    if (action !== 'discard' && outOfRound(draft))
+      throw new Error(
+        'Este rascunho veio da rodada de outro cliente e não pode ir para este. Descarte e escreva uma mensagem nova, se fizer sentido.',
+      )
 
     if (action === 'discard') {
       const saved: Draft = { ...draft, status: 'discarded' }
@@ -214,8 +221,10 @@ export class CrmChat {
 
   /** "Apagar este cliente": the conversation file, the queue items with its text, and the audit keeps only date, category and hash. */
   forget(customerId: string): CrmDelta {
+    const phones = this.deps.store.customer(customerId)?.phones ?? []
     const delta = this.deps.outbox.forget(customerId)
     this.deps.conversations.remove(customerId)
+    this.deps.conversations.forgetPhones(phones, this.now())
     this.deps.audit.forget(customerId)
     return delta
   }

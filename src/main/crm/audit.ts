@@ -43,6 +43,7 @@ function line(e: AuditEntry): string {
     e.by.kind === 'bot' ? { kind: 'bot', botId: e.by.botId } : ({ kind: e.by.kind } as Exclude<AuditEntry['by'], { kind: 'bot' }>)
   const out: AuditEntry = { t: e.t, customerId: e.customerId, category: e.category, by, outcome: e.outcome, rule: e.rule, hash: e.hash }
   if (e.key) out.key = e.key
+  if (e.override === true) out.override = true
   return `${JSON.stringify(out)}\n`
 }
 

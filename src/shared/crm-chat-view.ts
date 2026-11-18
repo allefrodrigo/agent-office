@@ -102,6 +102,14 @@ export function draftOpen(d: Pick<Draft, 'status'>): boolean {
   return CARD.has(d.status)
 }
 
+/**
+ * A bot draft the gate blocked for coming from another customer's round (rule 3). Approving does
+ * not fix the round (ADR 0017), so the card only discards it.
+ */
+export function outOfRound(d: Pick<Draft, 'by' | 'decision'>): boolean {
+  return d.by.kind === 'bot' && d.decision?.action === 'block' && d.decision.rule === 3
+}
+
 /** "Hoje", "Ontem", or "18/11/2026": the day line between messages. */
 export function dayLabel(t: number, now: number): string {
   const day = (x: number) => {

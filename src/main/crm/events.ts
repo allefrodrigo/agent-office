@@ -502,6 +502,11 @@ export class EvolutionEvents implements ConnectionView {
     if (!r.ok) return r.skip
     const m = r.message
     if (this.seen.has(m.waId)) return false
+    // A deleted customer's message, read again by the sync margin after a restart: it stays deleted.
+    if (this.deps.conversations.forgotten(m.phone, m.t)) {
+      this.seen.add(m.waId)
+      return false
+    }
     const owner = this.deps.store.ownerOfPhone(m.phone)
     return m.fromMe ? this.fromMe(m, owner, raw) : this.fromCustomer(m, owner)
   }

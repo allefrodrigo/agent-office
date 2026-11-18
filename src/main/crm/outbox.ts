@@ -437,6 +437,15 @@ export class Outbox {
       this.settle(item, queueHold('O rascunho desta mensagem sumiu da conversa. Escreva de novo, se ainda fizer sentido.'), 'canceled')
       return
     }
+    if (this.mayGo(item, draft)) await this.send(item, draft)
+  }
+
+  /**
+   * The gate for this item now. True = send; otherwise the item was settled or rescheduled. Runs
+   * when the item comes up and again before each attempt: typing and retries take seconds, and a
+   * PARAR, a hand-off or an answer from the phone may arrive meanwhile.
+   */
+  private mayGo(item: OutboxItem, draft: Draft): boolean {
     // The round was checked when it entered; the destination of a queued item never changes.
     const run: GateRun | null = draft.by.kind === 'bot' ? { kind: 'customer', customerId: item.customerId } : null
     let judged: { decision: GateDecision; text: string }
@@ -445,7 +454,7 @@ export class Outbox {
     } catch (err) {
       log.error(`CRM: o portão falhou no instante de enviar ${item.key}: ${(err as Error).message}`)
       this.settle(item, queueHold('O portão não conseguiu decidir no instante de enviar. Confira e mande de novo.'), 'canceled')
-      return
+      return false
     }
     const { decision, text } = judged
     if (text !== item.text) {
@@ -454,16 +463,17 @@ export class Outbox {
         queueHold('O texto ou os dados de pagamento mudaram depois de a mensagem entrar na fila. Confira e mande de novo.'),
         'canceled',
       )
-      return
+      return false
     }
     if (decision.action === 'block' || decision.action === 'hold') this.settle(item, decision, OUTCOME[decision.action])
     else if (decision.action === 'schedule') this.reschedule(item, draft, decision)
-    else await this.send(item, draft)
+    else return true
+    return false
   }
 
   /** The gate said "later": the item waits for the new time. */
   private reschedule(item: OutboxItem, draft: Draft, decision: GateDecision): void {
-    this.put({ ...item, at: this.later(decision, this.now()) }, false)
+    this.put({ ...item, state: 'queued', at: this.later(decision, this.now()) }, false)
     this.saveDraft({ ...draft, status: 'scheduled', decision })
     this.record(draft, item.text, 'scheduled', decision.rule, item.key)
   }
@@ -499,6 +509,7 @@ export class Outbox {
         this.settle(item, stop, 'canceled')
         return
       }
+      if (!this.mayGo(item, draft)) return
       // On disk before the call: an app closed from here on loads it as failed, never sends it twice.
       item = this.put({ ...item, state: 'sending', attempts: item.attempts + 1 }, true)
       const tried = this.now()
@@ -550,7 +561,7 @@ export class Outbox {
     const done = this.put({ ...item, state: 'sent', sentAt, waId, error: undefined }, true)
     this.markOut(done, 'sent', { waId, t: sentAt })
     this.saveDraft({ ...draft, status: 'sent' })
-    this.record(draft, done.text, 'sent', 0, done.key)
+    this.record(draft, done.text, 'sent', 0, done.key, done.override === true)
     try {
       this.emit(this.deps.store.patchCustomer(done.customerId, { lastContactAt: sentAt }).delta)
     } catch {
@@ -701,6 +712,7 @@ export class Outbox {
     outcome: AuditEntry['outcome'],
     rule: number,
     key?: string,
+    override?: boolean,
   ): void {
     this.deps.audit.record(
       compact({
@@ -713,6 +725,7 @@ export class Outbox {
         rule,
         hash: textHash(text),
         key,
+        ...(override ? { override: true as const } : {}),
       }),
     )
   }

@@ -1,8 +1,9 @@
+import { createHash, randomBytes } from 'node:crypto'
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { CRM_LIMITS, type ConversationItem, type ConversationPage, type ConversationSummary, type ConversationWaiting } from '@shared/types'
-import { previewOf } from '@shared/crm-inbound'
+import { previewOf, SYNC_MARGIN_MS } from '@shared/crm-inbound'
 import { writeFileAtomic, writeJsonAtomic } from '../fs-safe'
 import { log } from '../log'
 import { CRM_ID_RE } from '../validate'
@@ -19,6 +20,8 @@ const DIR_MODE = 0o700
 const CACHE = 50
 /** A file with this many more lines than items is rewritten without the old versions. */
 const COMPACT_SLACK = 200
+/** Deleted numbers kept at most (the oldest go first). */
+const FORGOTTEN_MAX = 10_000
 
 /** Ids the conversation accepts: ours (randomUUID) and 'wa-<WhatsApp id>'. Never a path. */
 const ITEM_ID_RE = /^[A-Za-z0-9_-]{1,120}$/
@@ -58,6 +61,18 @@ const itemSchema = z
 const indexSchema = z.object({
   v: z.literal(1),
   lastSeen: ms.optional().catch(undefined),
+  /** Salt of the deleted numbers' hashes, random per office. */
+  salt: z
+    .string()
+    .regex(/^[a-f0-9]{32}$/)
+    .optional()
+    .catch(undefined),
+  /** Deleted customers' numbers (salted sha256, never the number) and when they were deleted. */
+  forgotten: z
+    .array(z.object({ hash: z.string().regex(/^[a-f0-9]{64}$/), at: ms }))
+    .max(FORGOTTEN_MAX)
+    .optional()
+    .catch(undefined),
   rows: z
     .array(
       z.object({
@@ -93,6 +108,9 @@ export class ConversationStore implements ConversationLog {
   /** waId -> customer, for delivery updates that name only a @lid. Fills as items go in. */
   private waOwner = new Map<string, string>()
   private seenAt: number | undefined
+  private salt: string | undefined
+  /** Salted hash of a deleted customer's number -> when it was deleted. */
+  private forgottenAt = new Map<string, number>()
   private timer: NodeJS.Timeout | null = null
   private dirty = false
 
@@ -193,6 +211,8 @@ export class ConversationStore implements ConversationLog {
       const r = indexSchema.safeParse(JSON.parse(readFileSync(this.indexFile, 'utf8')))
       if (r.success) {
         this.seenAt = r.data.lastSeen
+        this.salt = r.data.salt
+        for (const f of r.data.forgotten ?? []) this.forgottenAt.set(f.hash, f.at)
         for (const row of r.data.rows) this.rows.set(row.summary.customerId, row as Row)
         // The app may have closed before the index caught up: files newer than it are read again.
         this.rebuild(at)
@@ -253,11 +273,18 @@ export class ConversationStore implements ConversationLog {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     if (!this.dirty) return
+    this.prune()
+    const forgotten = [...this.forgottenAt].map(([hash, at]) => ({ hash, at }))
     try {
       this.ensureDir()
       writeJsonAtomic(
         this.indexFile,
-        { v: 1, ...(this.seenAt !== undefined ? { lastSeen: this.seenAt } : {}), rows: [...this.rows.values()] },
+        {
+          v: 1,
+          ...(this.seenAt !== undefined ? { lastSeen: this.seenAt } : {}),
+          ...(forgotten.length && this.salt ? { salt: this.salt, forgotten } : {}),
+          rows: [...this.rows.values()],
+        },
         { mode: FILE_MODE },
       )
       chmod(this.indexFile, FILE_MODE)
@@ -403,5 +430,41 @@ export class ConversationStore implements ConversationLog {
     if (!Number.isFinite(t) || (this.seenAt !== undefined && t <= this.seenAt)) return
     this.seenAt = t
     this.save()
+  }
+
+  // ---------- números apagados (LGPD) ----------
+
+  /**
+   * "Apagar este cliente": the sync reads again from 30 min before the last message seen, and after
+   * a restart it no longer knows which of those it took. Without this, a message from before the
+   * delete would bring the customer back as a new contact, text and all. Keeps a salted hash of each
+   * number, never the number, and only while a sync can still reach messages from before the delete.
+   */
+  forgetPhones(phones: readonly string[], at: number): void {
+    if (!phones.length) return
+    for (const p of phones) this.forgottenAt.set(this.phoneHash(p), at)
+    this.dirty = true
+    this.flush()
+  }
+
+  /** A message from a deleted customer's number, sent before the delete: it stays deleted. */
+  forgotten(phone: string, t: number): boolean {
+    if (!this.forgottenAt.size) return false
+    const at = this.forgottenAt.get(this.phoneHash(phone))
+    return at !== undefined && t <= at
+  }
+
+  private phoneHash(phone: string): string {
+    this.salt ??= randomBytes(16).toString('hex')
+    return createHash('sha256').update(`${this.salt}:${phone}`, 'utf8').digest('hex')
+  }
+
+  /** Drops the numbers no sync can reach any more, and the oldest past the cap. */
+  private prune(): void {
+    const reach = Math.min(this.seenAt ?? 0, Date.now()) - SYNC_MARGIN_MS - 60_000
+    for (const [hash, at] of this.forgottenAt) if (at < reach) this.forgottenAt.delete(hash)
+    if (this.forgottenAt.size <= FORGOTTEN_MAX) return
+    const oldest = [...this.forgottenAt].sort((a, b) => a[1] - b[1]).slice(0, this.forgottenAt.size - FORGOTTEN_MAX)
+    for (const [hash] of oldest) this.forgottenAt.delete(hash)
   }
 }

@@ -104,6 +104,8 @@ export interface AuditEntry {
   hash: string
   /** Outbox key, when there is one. */
   key?: string
+  /** It went out with "Enviar mesmo assim": the player passed over a rule the gate lets them pass. */
+  override?: true
 }
 
 export interface AuditLog {

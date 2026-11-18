@@ -432,6 +432,30 @@ describe('Outbox: ritmo (relógio falso)', () => {
     expect(Math.abs(gap - seconds * SEC)).toBeLessThan(SEC)
   })
 
+  it('PARAR que chega durante o "digitando…" barra a oferta antes de sair (revisão de segurança, achado 2)', async () => {
+    decide = (i) =>
+      i.draft.category === 'offer' && i.customer?.consent.optOutAt ? { action: 'block', rule: 2, reason: 'Saiu das ofertas.' } : SEND
+    outbox.start()
+    const d = draft({ category: 'offer', text: 'Revisão com desconto esta semana.', by: { kind: 'player' }, replyTo: undefined })
+    outbox.enqueue(d, { approved: true })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(sender.presences).toHaveLength(1)
+    store.patchCustomer(maria.id, { optOut: true })
+    await vi.advanceTimersByTimeAsync(2 * MIN)
+    expect(sender.calls).toEqual([])
+    expect(only().state).toBe('canceled')
+    expect(log.draft(maria.id, d.id)?.decision?.rule).toBe(2)
+  })
+
+  it('"Enviar mesmo assim" fica na linha da auditoria do envio', async () => {
+    outbox.start()
+    outbox.enqueue(draft({ by: { kind: 'player' } }), { approved: true, override: true })
+    outbox.enqueue(draft({ by: { kind: 'player' } }), { approved: true })
+    await vi.advanceTimersByTimeAsync(2 * MIN)
+    const sent = lines().filter((l) => l.outcome === 'sent')
+    expect(sent.map((l) => l.override)).toEqual([true, undefined])
+  })
+
   it('"Testar" e a fila não mandam ao mesmo tempo', async () => {
     outbox.start()
     outbox.enqueue(draft(), { run: run() })

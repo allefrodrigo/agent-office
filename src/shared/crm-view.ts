@@ -556,7 +556,7 @@ export function deleteCustomerText(c: Customer, data: Pick<CrmData, 'deals' | 'p
     c.notes.length ? plural(c.notes.length, 'nota', 'notas') : '',
   ].filter(Boolean)
   const what = parts.length ? `Vão junto: ${joinPt(parts)}.` : 'Ele não tem negócios, pagamentos nem notas.'
-  return `${customerTitle(c)} sai do CRM. ${what} Os tickets ligados ficam no quadro. Não dá para desfazer: exporte os dados antes se precisar guardá-los. As cópias diárias de Configurações → Dados guardam o cliente por mais 14 dias.`
+  return `${customerTitle(c)} sai do CRM. ${what} Os tickets ligados ficam no quadro. Não dá para desfazer: exporte os dados antes se precisar guardá-los. As cópias diárias de Configurações → Dados guardam o cliente por mais 14 dias.${c.phones.length ? ' A conversa do WhatsApp sai do app, mas a Evolution guarda a própria cópia no banco dela.' : ''}`
 }
 
 /** ['a', 'b', 'c'] → 'a, b e c'. */

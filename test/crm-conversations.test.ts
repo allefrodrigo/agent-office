@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { ConversationItem, Draft } from '@shared/types'
 import { ConversationStore } from '../src/main/crm/conversations'
+import { SYNC_MARGIN_MS } from '@shared/crm-inbound'
 
 const unix = process.platform !== 'win32'
 const mode = (p: string) => statSync(p).mode & 0o777
@@ -263,5 +264,25 @@ describe('conversas', () => {
       .split('\n')
     expect(lines.length).toBeLessThan(60)
     expect(open().get(C, 'out-1')).toMatchObject({ text: 'versão 259' })
+  })
+})
+
+describe('números de clientes apagados', () => {
+  it('guarda só o hash; vale depois de reabrir; sai quando a busca não alcança mais o apagamento', () => {
+    const s = open()
+    s.markSeen(1_000_000)
+    s.forgetPhones(['5511900000001'], 2_000_000)
+    expect(s.forgotten('5511900000001', 2_000_000)).toBe(true)
+    expect(s.forgotten('5511900000001', 2_000_001)).toBe(false)
+    expect(s.forgotten('5511900000002', 1_000)).toBe(false)
+    const index = join(dir, 'crm', 'conversas', 'index.json')
+    expect(readFileSync(index, 'utf8')).not.toContain('5511900000001')
+    const again = open()
+    expect(again.forgotten('5511900000001', 1_500_000)).toBe(true)
+    // The last message seen passes the delete plus the sync margin: no sync reaches it any more.
+    again.markSeen(2_000_000 + SYNC_MARGIN_MS + 120_000)
+    again.flush()
+    expect(JSON.parse(readFileSync(index, 'utf8')).forgotten).toBeUndefined()
+    expect(open().forgotten('5511900000001', 1_500_000)).toBe(false)
   })
 })

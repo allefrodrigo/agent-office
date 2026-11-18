@@ -16,19 +16,19 @@ Toda mensagem do CRM, do bot ou sua, passa por um trecho de código que decide s
 
 ### 2. A entrada
 
-| Campo | O que é |
-|---|---|
-| `now` | Instante da decisão, ISO com deslocamento. O relógio de parede (janela, dia, feriado) é lido no fuso da máquina. |
-| `connected` | WhatsApp conectado agora. |
-| `settings` | As regras de `CrmSettings`: `rehearsal`, `autonomy`, `hours`, `holidays`, `perCustomer`, `offerEveryDays`, `globalCap`, `maxDiscountPct`, `allowedLinks`, `stopAll`, `payment`. |
-| `customer` | O cliente do destino, ou `null` se não existe: `id`, `phones`, `phoneChecked`, `group`, `consent` (`service`, `billing`, `offers`, `optOutAt`), `handedToPlayer`, `phoneReplyAt`. |
-| `payments` | Os pagamentos desse cliente (`id`, `amountCents`, `due`, `state`, `reference`). |
-| `history` | O que já saiu para esse cliente: `at`, `category`, `initiated`, `text` (já preenchido). Quem monta o histórico classifica `initiated`. |
-| `global` | `lastHour` e `today` (todos os envios do escritório, iniciados e respostas) e `oldestInHour` (o envio mais antigo da última hora). |
-| `run` | A rodada do bot: `{ kind: 'customer', customerId }`, `{ kind: 'schedule' }` ou `{ kind: 'suggestion', suggestionId, customerIds }`. `null` para mensagem sua ou do sistema. |
-| `draft` | `customerId`, `by` (`bot`, `player` ou `system`), `edited`, `category`, `text` (com os marcadores ainda por preencher), `replyTo` (`{ id, at }` da mensagem respondida, ou `null`), `paymentId`, `discountPct`, `validUntil`. |
-| `approved` | Você clicou "Enviar" no cartão do rascunho. |
-| `override` | Você confirmou "Enviar mesmo assim". |
+| Campo       | O que é                                                                                                                                                                                                                       |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `now`       | Instante da decisão, ISO com deslocamento. O relógio de parede (janela, dia, feriado) é lido no fuso da máquina.                                                                                                              |
+| `connected` | WhatsApp conectado agora.                                                                                                                                                                                                     |
+| `settings`  | As regras de `CrmSettings`: `rehearsal`, `autonomy`, `hours`, `holidays`, `perCustomer`, `offerEveryDays`, `globalCap`, `maxDiscountPct`, `allowedLinks`, `stopAll`, `payment`.                                               |
+| `customer`  | O cliente do destino, ou `null` se não existe: `id`, `phones`, `phoneChecked`, `group`, `consent` (`service`, `billing`, `offers`, `optOutAt`), `handedToPlayer`, `phoneReplyAt`.                                             |
+| `payments`  | Os pagamentos desse cliente (`id`, `amountCents`, `due`, `state`, `reference`).                                                                                                                                               |
+| `history`   | O que já saiu para esse cliente: `at`, `category`, `initiated`, `text` (já preenchido). Quem monta o histórico classifica `initiated`.                                                                                        |
+| `global`    | `lastHour` e `today` (todos os envios do escritório, iniciados e respostas) e `oldestInHour` (o envio mais antigo da última hora).                                                                                            |
+| `run`       | A rodada do bot: `{ kind: 'customer', customerId }`, `{ kind: 'schedule' }` ou `{ kind: 'suggestion', suggestionId, customerIds }`. `null` para mensagem sua ou do sistema.                                                   |
+| `draft`     | `customerId`, `by` (`bot`, `player` ou `system`), `edited`, `category`, `text` (com os marcadores ainda por preencher), `replyTo` (`{ id, at }` da mensagem respondida, ou `null`), `paymentId`, `discountPct`, `validUntil`. |
+| `approved`  | Você clicou "Enviar" no cartão do rascunho.                                                                                                                                                                                   |
+| `override`  | Você confirmou "Enviar mesmo assim".                                                                                                                                                                                          |
 
 ### 3. A saída
 
@@ -51,22 +51,22 @@ Nada passa por cima de: Parar tudo e conexão (1), cliente e número (2), rodada
 
 ### 5. As regras, na ordem
 
-| # | Regra | Vale para | Falhou | Enviar mesmo assim |
-|---|---|---|---|---|
-| 1 | Parar tudo desligado e WhatsApp conectado | todos | barra | não |
-| 2 | O cliente existe, tem telefone, o número foi conferido e não é grupo | todos | barra | não |
-| 3 | O destino está no escopo da rodada | bot | barra | não |
-| 4 | O cliente aceita a categoria | todos | barra | oferta: não; atendimento e cobrança: sim |
-| 5 | Cobrança com dados do sistema; nada com cara de cobrança fora da categoria | bot e sistema (você: só "há pagamento aberto") | barra | bot: não; você: sim |
-| 6 | Sem link fora da lista; sem dado de pagamento escrito pelo modelo | links: todos; dados: bot e sistema | barra | bot: não; você: sim |
-| 7 | Desconto dentro do teto e da validade | bot | espera você | não (aprovar resolve) |
-| 8 | Texto diferente do que saiu para o cliente nas últimas 24 h | todos | barra | sim |
-| 9 | Conversa não passada para você, sem resposta sua pelo celular em 12 h, mensagem respondida com menos de 2 h | bot e sistema | espera você | não (aprovar resolve) |
-| 10 | Dentro da janela de envio | todos | agenda para a próxima janela | sim |
-| 11 | Limites por cliente | todos, só o que nós iniciamos | espera você | sim |
-| 12 | Teto global por hora e por dia | todos, respostas incluídas | agenda para a vaga | não |
-| 13 | Modo ensaio desligado | bot e sistema, categoria em Autônomo | espera você, "teria sido enviada" | não (aprovar resolve) |
-| 14 | Categoria em Autônomo | bot e sistema | espera você | não (aprovar resolve) |
+| #   | Regra                                                                                                       | Vale para                                      | Falhou                            | Enviar mesmo assim                       |
+| --- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------- | --------------------------------- | ---------------------------------------- |
+| 1   | Parar tudo desligado e WhatsApp conectado                                                                   | todos                                          | barra                             | não                                      |
+| 2   | O cliente existe, tem telefone, o número foi conferido e não é grupo                                        | todos                                          | barra                             | não                                      |
+| 3   | O destino está no escopo da rodada                                                                          | bot                                            | barra                             | não                                      |
+| 4   | O cliente aceita a categoria                                                                                | todos                                          | barra                             | oferta: não; atendimento e cobrança: sim |
+| 5   | Cobrança com dados do sistema; nada com cara de cobrança fora da categoria                                  | bot e sistema (você: só "há pagamento aberto") | barra                             | bot: não; você: sim                      |
+| 6   | Sem link fora da lista; sem dado de pagamento escrito pelo modelo                                           | links: todos; dados: bot e sistema             | barra                             | bot: não; você: sim                      |
+| 7   | Desconto dentro do teto e da validade                                                                       | bot                                            | espera você                       | não (aprovar resolve)                    |
+| 8   | Texto diferente do que saiu para o cliente nas últimas 24 h                                                 | todos                                          | barra                             | sim                                      |
+| 9   | Conversa não passada para você, sem resposta sua pelo celular em 12 h, mensagem respondida com menos de 2 h | bot e sistema                                  | espera você                       | não (aprovar resolve)                    |
+| 10  | Dentro da janela de envio                                                                                   | todos                                          | agenda para a próxima janela      | sim                                      |
+| 11  | Limites por cliente                                                                                         | todos, só o que nós iniciamos                  | espera você                       | sim                                      |
+| 12  | Teto global por hora e por dia                                                                              | todos, respostas incluídas                     | agenda para a vaga                | não                                      |
+| 13  | Modo ensaio desligado                                                                                       | bot e sistema, categoria em Autônomo           | espera você, "teria sido enviada" | não (aprovar resolve)                    |
+| 14  | Categoria em Autônomo                                                                                       | bot e sistema                                  | espera você                       | não (aprovar resolve)                    |
 
 ### 6. Cada regra, em detalhe
 
@@ -137,12 +137,12 @@ O código está em `src/shared/crm-gate.ts`. Os testes: o corpus em `test/crm-ga
 
 **`fillPayment(text, payment, settings)`.** Uma passada só: o que entra não é lido de novo.
 
-| Marcador | Vira |
-|---|---|
-| `{valor}` | `R$ 480,00` |
-| `{vencimento}` | `20/11/2026` |
-| `{referente}` | o "referente a" do pagamento |
-| `{pagamento}` | uma linha por dado: `Chave PIX (CNPJ): …`, `Favorecido: …`, `Banco: …` e o texto fixo. Linha vazia sai; tipo de chave vazio sai sem rótulo. |
+| Marcador       | Vira                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `{valor}`      | `R$ 480,00`                                                                                                                                 |
+| `{vencimento}` | `20/11/2026`                                                                                                                                |
+| `{referente}`  | o "referente a" do pagamento                                                                                                                |
+| `{pagamento}`  | uma linha por dado: `Chave PIX (CNPJ): …`, `Favorecido: …`, `Banco: …` e o texto fixo. Linha vazia sai; tipo de chave vazio sai sem rótulo. |
 
 Marcador sem dado (sem pagamento; `{pagamento}` sem chave PIX) fica como está, e a regra 5 barra.
 
@@ -178,6 +178,23 @@ Marcador sem dado (sem pagamento; `{pagamento}` sem chave PIX) fica como está, 
 - Numa oferta, qualquer porcentagem é desconto ("80% dos clientes").
 - `palavra . palavra` com TLD de duas letras ("ok . vc") e "ponto com" no fim da frase viram link. No texto seu, isso custa um "Enviar mesmo assim".
 - Perfil com ponto e espaço antes da arroba ("insta @estudio.com") conta como e-mail.
+
+## Revisão de segurança da fase 2 (18/11/2026)
+
+A revisão só de leitura do diff da fase 2 achou um problema alto, três médios e dois baixos. Nenhum vaza token nem injeta HTML.
+
+**Corrigidos no mesmo dia**, cada um com teste que falha sem a correção:
+
+- **Alto: cliente apagado voltava depois de reabrir o app.** A busca relê os 30 min antes da última mensagem vista, e só a memória sabia o que já tinha entrado. Uma mensagem de antes do apagamento recriava o contato, com o texto. Agora "Apagar este cliente" guarda no `index.json` das conversas o sha256 do número, com sal aleatório, e a hora do apagamento. A busca ignora as mensagens desse número até essa hora. O registro sai quando a busca não alcança mais o apagamento. A confirmação de apagar avisa que a Evolution guarda a própria cópia no banco dela.
+- **Médio: oferta saía depois de um PARAR que chegou durante o "digitando…".** Entre o portão e o `sendText` passavam segundos (presença e novas tentativas), e só "Parar tudo" e a conexão eram conferidos de novo. Agora o portão inteiro roda de novo antes de cada tentativa: saída das ofertas, conversa com você e resposta pelo celular.
+- **Médio (latente): aprovar um rascunho de bot passava a regra 3.** A aprovação montava a rodada a partir da própria conversa. Rascunho de bot barrado pela regra 3 agora só sai descartado: o cartão mostra só "Descartar", e o main recusa "Enviar" e "Enviar mesmo assim".
+- **Baixo: "Enviar mesmo assim" não ficava na auditoria**, embora a tela dissesse que sim. A linha do envio leva `override: true`.
+
+**Ficam abertos:**
+
+- **Médio: oferta digitada à mão como Atendimento.** Para o texto seu, o portão confia na categoria que você escolhe. "30% off na revisão" marcado como Atendimento sai para quem mandou PARAR. A regra 4 permite atendimento a quem saiu das ofertas, então fechar isso é decisão de produto. Proposta: para quem saiu das ofertas, rodar o detector de desconto e oferta também no atendimento e pedir confirmação da categoria.
+- **Baixo: mensagem endereçada só por `@lid`** (sem `remoteJidAlt` nem `senderPn`) é descartada, inclusive um PARAR ou uma palavra de alerta; só a contagem vai ao log. Proposta: aviso "mensagem não identificada" na tela e um mapa lid → número aprendido dos registros que trazem os dois.
+- **Baixo, já aceito no PRD:** o texto dos itens da fila em `crm.json` fica em `crm.json.bak` e nas cópias diárias por 14 dias depois de apagar o cliente.
 
 ## Consequências
 
