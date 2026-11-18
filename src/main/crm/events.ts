@@ -521,10 +521,13 @@ export class EvolutionEvents implements ConnectionView {
     const age = this.now() - m.t
     if (age < FROM_ME_GRACE_MS) {
       if (!this.deferred.has(m.waId)) {
-        const timer = setTimeout(() => {
-          this.deferred.delete(m.waId)
-          if (this.handleRecord(raw) === true) this.deps.conversations.markSeen(m.t)
-        }, FROM_ME_GRACE_MS - age + 50)
+        const timer = setTimeout(
+          () => {
+            this.deferred.delete(m.waId)
+            if (this.handleRecord(raw) === true) this.deps.conversations.markSeen(m.t)
+          },
+          FROM_ME_GRACE_MS - age + 50,
+        )
         timer.unref?.()
         this.deferred.set(m.waId, timer)
       }
@@ -566,7 +569,10 @@ export class EvolutionEvents implements ConnectionView {
     this.seen.add(m.waId)
     if (created) conversations.setWaiting(customer.id, 'new-contact')
     // A message from the first phone proves it has WhatsApp (gate rule 2).
-    const saved = store.patchCustomer(customer.id, { lastContactAt: m.t, ...(customer.phones[0] === m.phone ? { phoneChecked: true } : {}) })
+    const saved = store.patchCustomer(customer.id, {
+      lastContactAt: m.t,
+      ...(customer.phones[0] === m.phone ? { phoneChecked: true } : {}),
+    })
     this.deps.broadcast({ type: 'crm', delta: saved.delta })
     this.emitItem(customer.id, item)
     try {

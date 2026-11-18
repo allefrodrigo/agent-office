@@ -116,7 +116,16 @@ const keySchema = z.object({
 })
 
 /** Seconds since 1970 (Baileys), as a number or a numeric string. */
-const tsSchema = z.union([z.number(), z.string().regex(/^\d{1,13}$/).transform(Number)]).optional().catch(undefined)
+const tsSchema = z
+  .union([
+    z.number(),
+    z
+      .string()
+      .regex(/^\d{1,13}$/)
+      .transform(Number),
+  ])
+  .optional()
+  .catch(undefined)
 
 const recordSchema = z.object({
   key: keySchema,
@@ -201,7 +210,8 @@ export function readWaMessage(raw: unknown, now: number): { ok: true; message: W
   if (!r.success || !WA_ID_RE.test(r.data.key.id)) return { ok: false, skip: 'invalid' }
   const { key } = r.data
   const side = keyPhoneJid(key)
-  if (side.kind === 'group' || side.kind === 'status' || side.kind === 'broadcast' || side.kind === 'newsletter') return { ok: false, skip: side.kind }
+  if (side.kind === 'group' || side.kind === 'status' || side.kind === 'broadcast' || side.kind === 'newsletter')
+    return { ok: false, skip: side.kind }
   if (side.kind === 'lid') return { ok: false, skip: 'lid' }
   const phone = jidPhone(side.jid)
   if (!phone) return { ok: false, skip: 'invalid' }
@@ -214,7 +224,15 @@ export function readWaMessage(raw: unknown, now: number): { ok: true; message: W
   const pushName = !fromMe && r.data.pushName ? cleanWaLine(r.data.pushName, CRM_LIMITS.name) : ''
   return {
     ok: true,
-    message: { waId: key.id, phone, fromMe, t, text: content.text, ...(content.media ? { media: content.media } : {}), ...(pushName ? { pushName } : {}) },
+    message: {
+      waId: key.id,
+      phone,
+      fromMe,
+      t,
+      text: content.text,
+      ...(content.media ? { media: content.media } : {}),
+      ...(pushName ? { pushName } : {}),
+    },
   }
 }
 
@@ -385,7 +403,11 @@ export function readSocketFrame(frame: string, instance: string): SocketFrame {
   if (engine === '0') {
     const o = obj(parseJson(frame.slice(1)))
     if (!o) return { type: 'other' }
-    return { type: 'open', pingInterval: numberIn(o.pingInterval, 25_000, 1_000, 300_000), pingTimeout: numberIn(o.pingTimeout, 20_000, 1_000, 300_000) }
+    return {
+      type: 'open',
+      pingInterval: numberIn(o.pingInterval, 25_000, 1_000, 300_000),
+      pingTimeout: numberIn(o.pingTimeout, 20_000, 1_000, 300_000),
+    }
   }
   if (frame === '2') return { type: 'ping' }
   if (frame === '1') return { type: 'close' }
@@ -466,12 +488,58 @@ export function connectionView(c: CrmConnection): { tone: ConnectionTone; label:
     case 'connecting':
       return { tone: 'busy', label: 'Esperando a leitura do QR code', detail }
     case 'close':
-      return { tone: 'off', label: 'WhatsApp desconectado', detail: c.error ?? (detail || 'Clique em Conectar e leia o QR code no celular.') }
+      return {
+        tone: 'off',
+        label: 'WhatsApp desconectado',
+        detail: c.error ?? (detail || 'Clique em Conectar e leia o QR code no celular.'),
+      }
     case 'error':
       return { tone: 'error', label: 'Sem conexão com a Evolution', detail: c.error ?? 'Confira se a Evolution está ligada e o endereço.' }
     default:
-      return { tone: 'off', label: 'WhatsApp não configurado', detail: 'Informe o endereço, a instância e o token da Evolution.' }
+      return {
+        tone: c.error ? 'error' : 'off',
+        label: 'WhatsApp não configurado',
+        detail: c.error ?? 'Informe o endereço, a instância e o token da Evolution.',
+      }
   }
+}
+
+/** The dot at the top of the CRM: green open, amber connecting, red close or error, grey off (red when off has an error). */
+export function connectionDotTone(c: CrmConnection): ConnectionTone {
+  switch (c.state) {
+    case 'open':
+      return 'on'
+    case 'connecting':
+      return 'busy'
+    case 'close':
+    case 'error':
+      return 'error'
+    default:
+      return c.error ? 'error' : 'off'
+  }
+}
+
+/**
+ * The open-port warning (CR-10): only when the local Evolution answered on the machine's network
+ * addresses too. The lines are the docker-compose.yml one to replace and its replacement.
+ */
+export function portWarning(c: CrmConnection, url: string): { port: number; from: string; to: string } | undefined {
+  if (c.lanExposed !== true) return undefined
+  const port = evolutionPort(url)
+  return { port, ...composePortFix(port) }
+}
+
+/** The QR code goes on screen only as a PNG data URL (an <img>, never HTML or another scheme). */
+export function qrImage(src: unknown): string | undefined {
+  return typeof src === 'string' && src.length <= MAX_FRAME && /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(src) ? src : undefined
+}
+
+/** The port of the Evolution address (the one docker-compose publishes); 8080 when unreadable. */
+export function evolutionPort(url: string): number {
+  const m = /^(https?):\/\/(?:\[[^\]]*\]|[^/:?#]*)(?::(\d{1,5}))?(?:[/?#]|$)/i.exec(url.trim())
+  if (!m) return 8080
+  if (m[2]) return Number(m[2]) || 8080
+  return m[1].toLowerCase() === 'https' ? 443 : 80
 }
 
 /** The docker-compose.yml line that opens the port to the network, and the one that keeps it on this machine. */

@@ -286,7 +286,15 @@ describe('mensagens que saem do número', () => {
     s.emit({ ...upsert(rec(id(1), NOW, { fromMe: true })), event: 'send.message' })
     // 2: the Outbox writes the waId a moment later.
     s.emit(upsert(rec(id(2), NOW, { fromMe: true })))
-    conversations.put(c.id, { id: 'out-2', t: NOW, kind: 'out', text: 'texto de teste', by: { kind: 'player' }, status: 'sent', waId: id(2) })
+    conversations.put(c.id, {
+      id: 'out-2',
+      t: NOW,
+      kind: 'out',
+      text: 'texto de teste',
+      by: { kind: 'player' },
+      status: 'sent',
+      waId: id(2),
+    })
     // 3: the player wrote from the phone.
     s.emit(upsert(rec(id(3), NOW, { fromMe: true })))
     expect(ofType('crm:item')).toHaveLength(0)

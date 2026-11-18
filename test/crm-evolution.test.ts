@@ -32,12 +32,22 @@ beforeEach(() => {
 
 describe('endereço da Evolution', () => {
   it('aceita esta máquina por http e o resto só por https', () => {
-    expect(evolutionBase('http://localhost:8080')).toEqual({ base: 'http://localhost:8080', host: 'localhost:8080', port: 8080, local: true })
+    expect(evolutionBase('http://localhost:8080')).toEqual({
+      base: 'http://localhost:8080',
+      host: 'localhost:8080',
+      port: 8080,
+      local: true,
+    })
     expect(evolutionBase(' http://127.0.0.1:8080/ ').local).toBe(true)
     expect(evolutionBase('http://127.10.0.1:9000').local).toBe(true)
     expect(evolutionBase('http://[::1]:8080').base).toBe('http://[::1]:8080')
     expect(evolutionBase('HTTP://LOCALHOST:8080').base).toBe('http://localhost:8080')
-    expect(evolutionBase('https://evo.exemplo.com.br')).toEqual({ base: 'https://evo.exemplo.com.br', host: 'evo.exemplo.com.br', port: 443, local: false })
+    expect(evolutionBase('https://evo.exemplo.com.br')).toEqual({
+      base: 'https://evo.exemplo.com.br',
+      host: 'evo.exemplo.com.br',
+      port: 443,
+      local: false,
+    })
     expect(evolutionBase('https://evo.exemplo.com.br/api/').base).toBe('https://evo.exemplo.com.br/api')
     expect(evolutionBase('http://localhost').port).toBe(80)
   })
@@ -145,7 +155,12 @@ describe('cliente da Evolution', () => {
     expect(err.maybeDelivered).toBe(true)
     expect(err.message).toMatch(/caiu ao enviar a mensagem/)
     // Unknown failure: on doubt, it may have gone out.
-    const odd = new EvolutionClient({ url: FAKE.url, instance: FAKE.instance, token: FAKE.token, fetch: async () => Promise.reject(new TypeError('fetch failed')) })
+    const odd = new EvolutionClient({
+      url: FAKE.url,
+      instance: FAKE.instance,
+      token: FAKE.token,
+      fetch: async () => Promise.reject(new TypeError('fetch failed')),
+    })
     expect((await failure(odd.state())).kind).toBe('network')
     // The answer began and broke midway: never "refused", even with a connect-like code.
     const broken = new EvolutionClient({
@@ -178,7 +193,9 @@ describe('cliente da Evolution', () => {
     evo.on('GET /instance/connectionState', { status: 200, body: { estado: 'aberto' } })
     const err = await failure(client().state())
     expect(err.kind).toBe('schema')
-    expect(err.message).toBe('A Evolution respondeu fora do esperado ao ler o estado. Confira se o servidor é a Evolution API 2.3 (a testada é a 2.3.7).')
+    expect(err.message).toBe(
+      'A Evolution respondeu fora do esperado ao ler o estado. Confira se o servidor é a Evolution API 2.3 (a testada é a 2.3.7).',
+    )
     evo.on('GET /instance/connectionState', { status: 200, raw: '<html>proxy</html>' })
     expect((await failure(client().state())).kind).toBe('schema')
     evo.on('POST /message/sendText', { status: 201, body: { key: { id: '../../etc' } } })
@@ -242,7 +259,14 @@ describe('cliente da Evolution', () => {
   })
 
   it('número só com dígitos e DDI; JID escolhido por fora não passa', async () => {
-    for (const n of ['5511900000001@s.whatsapp.net', '120363000000000001@g.us', '+5511900000001', '123', '55119000000011234', 'status@broadcast']) {
+    for (const n of [
+      '5511900000001@s.whatsapp.net',
+      '120363000000000001@g.us',
+      '+5511900000001',
+      '123',
+      '55119000000011234',
+      'status@broadcast',
+    ]) {
       const err = await failure(client().sendText(n, 'texto de teste'))
       expect(err.kind).toBe('config')
     }
@@ -270,7 +294,9 @@ describe('cliente da Evolution', () => {
   })
 
   it('sendDocument manda o PDF como documento, com nome limpo', async () => {
-    expect(await client().sendDocument(FAKE.customer, { fileName: '../../fatura <nov>.PDF', base64: 'JVBERi0xLjQ=', caption: 'texto de teste' })).toEqual({
+    expect(
+      await client().sendDocument(FAKE.customer, { fileName: '../../fatura <nov>.PDF', base64: 'JVBERi0xLjQ=', caption: 'texto de teste' }),
+    ).toEqual({
       waId: '3EB0B1B2C3D4E5F6A7B8C9',
     })
     expect(evo.callsTo('POST /message/sendMedia')[0].body).toEqual({
@@ -349,7 +375,12 @@ describe('cliente da Evolution', () => {
     const at = Date.now()
     const sec = Math.floor(at / 1000)
     const ours = (id: string, o: { jid?: string; alt?: string; fromMe?: boolean; text?: string; sec?: number } = {}) => ({
-      key: { remoteJid: o.jid ?? `${FAKE.customer}@s.whatsapp.net`, fromMe: o.fromMe ?? true, id, ...(o.alt ? { remoteJidAlt: o.alt } : {}) },
+      key: {
+        remoteJid: o.jid ?? `${FAKE.customer}@s.whatsapp.net`,
+        fromMe: o.fromMe ?? true,
+        id,
+        ...(o.alt ? { remoteJidAlt: o.alt } : {}),
+      },
       message: { conversation: o.text ?? 'texto de teste' },
       messageTimestamp: o.sec ?? sec,
     })
@@ -424,10 +455,12 @@ describe('cliente da Evolution', () => {
       opened.push({ url, headers })
       return {} as never
     })
-    new EvolutionClient({ url: 'https://evo.exemplo.com/api', instance: 'teste', token: FAKE.token, fetch: evo.fetch }).openEvents((url, headers) => {
-      opened.push({ url, headers })
-      return {} as never
-    })
+    new EvolutionClient({ url: 'https://evo.exemplo.com/api', instance: 'teste', token: FAKE.token, fetch: evo.fetch }).openEvents(
+      (url, headers) => {
+        opened.push({ url, headers })
+        return {} as never
+      },
+    )
     expect(opened).toEqual([
       { url: 'ws://localhost:8080/socket.io/?EIO=4&transport=websocket', headers: { apikey: FAKE.token } },
       { url: 'wss://evo.exemplo.com/api/socket.io/?EIO=4&transport=websocket', headers: { apikey: FAKE.token } },
@@ -527,7 +560,12 @@ describe('cofre', () => {
     expect(() => v.save({ url: FAKE.url, instance: 'teste', token: FAKE.token })).toThrow(NO_VAULT)
     expect(v.save({ url: FAKE.url, instance: 'teste' }).hasToken).toBe(false)
     expect(new CrmVault(dir, undefined).available()).toBe(false)
-    const broken = { ...sealer(), isEncryptionAvailable: () => { throw new Error('x') } }
+    const broken = {
+      ...sealer(),
+      isEncryptionAvailable: () => {
+        throw new Error('x')
+      },
+    }
     expect(new CrmVault(dir, broken).available()).toBe(false)
   })
 
@@ -542,7 +580,12 @@ describe('cofre', () => {
     writeFileSync(join(dir, VAULT_FILE), '{ não é json')
     expect(new CrmVault(dir, sealer()).settings()).toEqual({ url: DEFAULT_EVOLUTION_URL, instance: '', hasToken: false })
     writeFileSync(join(dir, VAULT_FILE), JSON.stringify({ url: FAKE.url, instance: 'teste', sealed: 'QUJD' }))
-    const failing = { ...sealer(), decryptString: () => { throw new Error('chave do cofre mudou') } }
+    const failing = {
+      ...sealer(),
+      decryptString: () => {
+        throw new Error('chave do cofre mudou')
+      },
+    }
     expect(new CrmVault(dir, failing).token()).toBeUndefined()
     expect(new CrmVault(dir, { ...sealer(), decryptString: () => 'com espaço' }).token()).toBeUndefined()
     writeFileSync(join(dir, VAULT_FILE), JSON.stringify({ url: 5, instance: ['x'], sealed: '<script>' }))
