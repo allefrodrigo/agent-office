@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { delimiter, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import type { CrmServerStatus } from '@shared/types'
 import {
@@ -306,7 +306,7 @@ describe('LocalServer', () => {
     expect(JSON.parse(readFileSync(file, 'utf8'))).toEqual({ project: 'evolution', folder: FOLDER })
     if (process.platform !== 'win32') expect(statSync(file).mode & 0o777).toBe(0o600)
     // the PATH carries Homebrew: an app opened from the Finder lacks it, and colima needs limactl
-    expect(fake.calls[0].path?.split(':')).toContain('/opt/homebrew/bin')
+    expect(fake.calls[0].path?.split(delimiter)).toContain('/opt/homebrew/bin')
   })
 
   it('sem docker instalado, diz isso e não roda nada', async () => {
