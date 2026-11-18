@@ -1696,6 +1696,82 @@
       }
     },
     {
+      "id": "R06-38",
+      "group": 6,
+      "title": "Domínio colado depois de sublinhado (x_golpe.io)",
+      "patch": {
+        "draft": {
+          "text": "Pague em x_golpe.io/pix"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-39",
+      "group": 6,
+      "title": "Domínio colado depois de hífens (--golpe.io)",
+      "patch": {
+        "draft": {
+          "text": "Pague em --golpe.io/pix"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-40",
+      "group": 6,
+      "title": "Domínio com sublinhado colado depois (golpe.io_pix)",
+      "patch": {
+        "draft": {
+          "text": "Acesse golpe.io_pix agora"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-41",
+      "group": 6,
+      "title": "Marcador colado no texto monta um link que só existe depois de preenchido",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}, {valor}, vence em {vencimento}. {pagamento} Comprovante em golpe{vencimento}.io",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
+      "id": "R06-42",
+      "group": 6,
+      "title": "Marcador colado no texto monta um e-mail que só existe depois de preenchido",
+      "patch": {
+        "draft": {
+          "category": "billing",
+          "text": "Oi, Maria! {referente}, {valor}, vence em {vencimento}. {pagamento} Comprovante para pix{vencimento}@golpe.io",
+          "replyTo": null,
+          "paymentId": "p1"
+        }
+      },
+      "expect": {
+        "action": "block",
+        "rule": 6
+      }
+    },
+    {
       "id": "R07-01",
       "group": 7,
       "title": "Oferta com 10% (teto 10%), validade em dia",

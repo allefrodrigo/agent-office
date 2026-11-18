@@ -160,6 +160,8 @@ interface Judged {
   filled: string
   /** The text with the markers taken out: the system's data is not read by rules 5 and 6. */
   bare: string
+  /** What the markers put in (the system's data): in the filled text, only these exact hits are skipped. */
+  inserted: string[]
 }
 
 /**
@@ -201,6 +203,7 @@ export function gate(input: GateInput): GateDecision {
     payment,
     filled: fillPayment(draft.text, payment, settings),
     bare: withoutMarkers(draft.text),
+    inserted: markerValues(draft.text, payment, settings),
   }
   return (
     consentRule(j) ??
@@ -293,15 +296,20 @@ function botBilling({ input, payment }: Judged): string | null {
 }
 
 /** Rule 6: links outside the list (everyone) and payment data written in the text (bot and system). */
-function contentRule({ input, bare, model }: Judged): GateDecision | null {
+function contentRule({ input, bare, filled, inserted, model }: Judged): GateDecision | null {
   const { settings } = input
-  const link = findLinks(bare).find((l) => !allowedHost(l.host, settings.allowedLinks))
+  // The text as it goes out, too: a marker glued to the text ("golpe{referente}.io") can make a
+  // link or a number that neither part has alone. Only a hit the system's data has by itself passes.
+  const sysLinks = new Set(inserted.flatMap((v) => findLinks(v).map((l) => l.host || l.text)))
+  const outside = (l: LinkHit) => !allowedHost(l.host, settings.allowedLinks)
+  const link = findLinks(bare).find(outside) ?? findLinks(filled).find((l) => outside(l) && !sysLinks.has(l.host || l.text))
   if (link && !(!model && input.override)) {
     const shown = (link.host || link.text).slice(0, 60)
     return decide('block', 6, `Link fora da lista (${shown}): só passam os domínios de Configurações → CRM.`, { overridable: !model })
   }
   if (model) {
-    const data = findPaymentData(bare)[0]
+    const sysData = new Set(inserted.flatMap((v) => findPaymentData(v).map((d) => d.text)))
+    const data = findPaymentData(bare)[0] ?? findPaymentData(filled).find((d) => !sysData.has(d.text))
     if (data)
       return decide(
         'block',
@@ -446,14 +454,28 @@ function paymentLines(p: GateSettings['payment']): string | null {
  * (no payment, no PIX key) stays as is, and the gate bars it (rule 5).
  */
 export function fillPayment(text: string, payment: GatePayment | null, settings: GateSettings): string {
-  const block = paymentLines(settings.payment)
-  return String(text ?? '').replace(/\{(valor|vencimento|referente|pagamento)\}/g, (marker, name: string) => {
-    if (name === 'pagamento') return block ?? marker
-    if (!payment) return marker
-    if (name === 'valor') return formatCents(payment.amountCents)
-    if (name === 'vencimento') return formatDay(payment.due)
-    return payment.reference.trim()
-  })
+  return String(text ?? '').replace(MARKER_FILL, (marker, name: string) => markerValue(name, payment, settings) ?? marker)
+}
+
+const MARKER_FILL = /\{(valor|vencimento|referente|pagamento)\}/g
+
+/** What one marker becomes, or null when its data is missing. */
+function markerValue(name: string, payment: GatePayment | null, settings: GateSettings): string | null {
+  if (name === 'pagamento') return paymentLines(settings.payment)
+  if (!payment) return null
+  if (name === 'valor') return formatCents(payment.amountCents)
+  if (name === 'vencimento') return formatDay(payment.due)
+  return payment.reference.trim()
+}
+
+/** The values fillPayment puts into this text, one per marker filled. */
+function markerValues(text: string, payment: GatePayment | null, settings: GateSettings): string[] {
+  const out: string[] = []
+  for (const m of String(text ?? '').matchAll(MARKER_FILL)) {
+    const v = markerValue(m[1], payment, settings)
+    if (v) out.push(v)
+  }
+  return out
 }
 
 // ---------- janela de envio ----------
@@ -578,10 +600,11 @@ const GTLDS =
   'casino|poker|bingo|lotto|dating|now|ooo|boutique|fashion|shopping|discount|coupons|free|bio|eco|energy'
 const TLD = `(?:${GTLDS}|[a-z]{2}|xn--[a-z0-9-]{2,59})`
 const LABEL = '[\\p{L}\\p{N}](?:[\\p{L}\\p{N}-]{0,61}[\\p{L}\\p{N}])?'
-const HOST_END = '(?![\\p{L}\\p{N}_@-])'
+// '_' and '-' are not part of a host: "x_golpe.io" and "golpe.io_pix" still hold golpe.io.
+const HOST_END = '(?![\\p{L}\\p{N}@])'
 /** A host, not glued to a word and not the local part of an e-mail: www. and any TLD, labels and a known TLD, or any TLD with a path. */
 const HOST_RE = new RegExp(
-  `(?<![\\p{L}\\p{N}._-])(?:www\\.(?:${LABEL}\\.)+[a-z]{2,24}${HOST_END}|(?:${LABEL}\\.)+(?:${TLD}${HOST_END}|[a-z]{2,24}(?=[/?#]\\S|:\\d)))`,
+  `(?<![\\p{L}\\p{N}.])(?:www\\.(?:${LABEL}\\.)+[a-z]{2,24}${HOST_END}|(?:${LABEL}\\.)+(?:${TLD}${HOST_END}|[a-z]{2,24}(?=[/?#]\\S|:\\d)))`,
   'gu',
 )
 /** "golpe ponto com" when it ends there (or goes on with another "ponto"), not "bater o ponto com atraso". */

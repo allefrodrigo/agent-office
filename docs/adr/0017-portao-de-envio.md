@@ -2,7 +2,7 @@
 
 - **Status:** aceito (2026-11-17). As 8 mudanças no spec e os falsos positivos das palavras de saída ("vou sair pra almoçar", "não quero que pare de mandar") foram aprovados pelo usuário antes do CR-11.
 - **Origem:** spike S-3 do [plano da Sala de CRM](../prd/sala-de-crm-plano.md); regras em [sala-de-crm.md](../prd/sala-de-crm.md), "O portão de envio".
-- **Corpus:** [`test/fixtures/crm-gate-cases.json`](../../test/fixtures/crm-gate-cases.json), 167 casos. `test/crm-gate-cases.test.ts` confere a forma do corpus; o portão em si é do CR-11.
+- **Corpus:** [`test/fixtures/crm-gate-cases.json`](../../test/fixtures/crm-gate-cases.json), 185 casos. `test/crm-gate-cases.test.ts` confere a forma do corpus; o portão em si é do CR-11.
 
 ## Contexto
 
@@ -166,7 +166,10 @@ Marcador sem dado (sem pagamento; `{pagamento}` sem chave PIX) fica como está, 
 5. Teto por hora: `at` é a vaga, mas no mínimo um minuto à frente. Sem janela nenhuma, o `at` fica como calculado (dia cheio: meia-noite seguinte).
 6. Hora da decisão ilegível barra com regra 0. Autor desconhecido vale como bot; categoria desconhecida vale como oferta na regra 4. Hora ilegível no histórico ou na resposta pelo celular conta como agora; na mensagem respondida, como muito antiga.
 
-**Corpus.** Passou de 167 para 180 casos com os achados da revisão: R05-22 a R05-25, R06-31 a R06-37, R07-12 e R07-13.
+**Corpus.** Passou de 167 para 180 casos com os achados da revisão: R05-22 a R05-25, R06-31 a R06-37, R07-12 e R07-13. A revisão de segurança automática do commit achou mais dois buracos na regra 6, e o corpus foi a 185 (R06-38 a R06-42), cada caso conferido como falha no portão anterior:
+
+- **Domínio colado em `_` ou `-`** (`x_golpe.io/pix`, `--golpe.io`, `golpe.io_pix`) não era lido como link. `_` e `-` deixam de esconder um host, antes e depois dele.
+- **Marcador colado no texto** (`golpe{vencimento}.io`, `pix{vencimento}@golpe.io`) montava um link ou um dado de pagamento que só existe depois de preenchido, e os detectores liam só o texto sem marcadores. Agora eles leem também o texto preenchido, como ele sai; passam só os achados que os dados do sistema têm sozinhos (a chave PIX de `{pagamento}`, por exemplo).
 
 **Falsos positivos conhecidos** (todos no texto do bot ou do sistema, salvo o de link):
 
