@@ -1,6 +1,7 @@
 import { formatBytes, serverView, type ServerTone } from '@shared/crm-server'
 import type { CrmServerAction, CrmServerStatus } from '@shared/types'
 import { h, icon } from '../dom'
+import { chipPopover } from './chip'
 import { crmError, type Toast } from './util'
 
 // "Servidor local": a Evolution que roda neste computador, em Docker (Colima ou Docker Desktop).
@@ -174,58 +175,24 @@ export function serverBox(opts: { toast: Toast; title?: boolean }): ServerBox {
  * popover. Hidden while the machine has no docker (a remote Evolution has nothing to turn off).
  */
 export function serverChip(opts: { toast: Toast }): { el: HTMLElement; dispose(): void } {
-  const dot = h('span', { class: 'dot dot-idle', 'aria-hidden': 'true' })
-  const btn = h(
-    'button',
-    { class: 'crm-server-chip', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Servidor local da Evolution' },
-    dot,
-    h('span', {}, 'Evolution'),
-  ) as HTMLButtonElement
-  const pop = h('div', { class: 'crm-server-pop', role: 'dialog', 'aria-label': 'Servidor local da Evolution', hidden: true })
-  const el = h('div', { class: 'crm-server-anchor', hidden: true }, btn, pop)
-  let box: ServerBox | null = null
-
+  const chip = chipPopover({
+    label: 'Evolution',
+    title: 'Servidor local da Evolution',
+    box: () => serverBox({ toast: opts.toast, title: true }),
+  })
+  chip.el.hidden = true
   const off = watchServer((s) => {
-    el.hidden = !s.docker
-    dot.className = `dot ${DOT[serverView(s).tone]}`
-    btn.setAttribute('aria-label', `Servidor local da Evolution: ${serverView(s).label}`)
+    chip.el.hidden = !s.docker
+    if (!s.docker) chip.close()
+    chip.dot.className = `dot ${DOT[serverView(s).tone]}`
+    chip.btn.setAttribute('aria-label', `Servidor local da Evolution: ${serverView(s).label}`)
   })
   void readServer().catch(() => undefined)
-
-  function close(): void {
-    pop.hidden = true
-    btn.setAttribute('aria-expanded', 'false')
-    box?.dispose()
-    box = null
-    pop.replaceChildren()
-  }
-
-  btn.addEventListener('click', () => {
-    if (!pop.hidden) return close()
-    box = serverBox({ toast: opts.toast, title: true })
-    pop.replaceChildren(box.el)
-    pop.hidden = false
-    btn.setAttribute('aria-expanded', 'true')
-    pop.querySelector<HTMLElement>('button:not(.hidden)')?.focus()
-  })
-  pop.addEventListener('keydown', (e) => {
-    if (e.key !== 'Escape') return
-    e.preventDefault()
-    e.stopPropagation()
-    close()
-    btn.focus()
-  })
-  const outside = (e: PointerEvent) => {
-    if (!pop.hidden && !el.contains(e.target as Node)) close()
-  }
-  document.addEventListener('pointerdown', outside, true)
-
   return {
-    el,
+    el: chip.el,
     dispose: () => {
-      close()
+      chip.dispose()
       off()
-      document.removeEventListener('pointerdown', outside, true)
     },
   }
 }

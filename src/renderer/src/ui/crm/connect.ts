@@ -2,12 +2,14 @@ import { connectionDotTone, connectionView, portWarning, qrImage, type Connectio
 import { CRM_LIMITS, type CrmConnection, type CrmQr, type CrmWhatsappDraft, type CrmWhatsappInfo } from '@shared/types'
 import { h, icon } from '../dom'
 import { confirmDialog, field } from '../modals'
+import { chipPopover } from './chip'
 import { crmError, type Toast } from './util'
 
 // Configurações → CRM → WhatsApp (CR-10): endereço da Evolution, instância e token (campo de senha,
 // nunca preenchido: o token não volta ao renderer), "Conectar" com o QR code, o estado com a via,
-// "Testar", "Desconectar", os dois avisos do spec e o da porta aberta na rede. connectionDot é o
-// ponto do topo da tela do CRM. Todo texto do servidor entra por textContent; o QR, só como PNG.
+// "Testar", "Desconectar", os dois avisos do spec e o da porta aberta na rede. whatsappChip é o
+// chip do topo da tela do CRM, que abre a mesma caixa. Todo texto do servidor entra por
+// textContent; o QR, só como PNG.
 
 const DEFAULT_URL = 'http://localhost:8080'
 /** The QR code on the server changes about every 20 s: read it again while it shows. */
@@ -445,17 +447,20 @@ export function connectBox(opts: { toast: Toast }): { el: HTMLElement; dispose()
 // ---------- o ponto no topo da tela do CRM ----------
 
 /** "WhatsApp" with a dot: green connected, amber waiting for the QR code, red closed or failing, grey not set up. */
-export function connectionDot(): { el: HTMLElement; dispose(): void } {
-  const dot = h('span', { class: 'dot dot-idle', 'aria-hidden': 'true' })
-  const el = h('span', { class: 'crm-connect-dot', role: 'status' }, dot, h('span', {}, 'WhatsApp'))
+/**
+ * The WhatsApp chip at the top of the CRM screen: the dot says how the link is, and a click opens
+ * the same box as Configurações → CRM → WhatsApp (Conectar, QR code, Testar, Desconectar).
+ */
+export function whatsappChip(opts: { toast: Toast }): { el: HTMLElement; dispose(): void } {
+  const chip = chipPopover({ label: 'WhatsApp', title: 'Conexão do WhatsApp', box: () => connectBox(opts), wide: true })
   let disposed = false
 
   const render = (c: CrmConnection) => {
     if (disposed) return
     const v = connectionView(c)
-    dot.className = `dot ${DOT[connectionDotTone(c)]}`
-    el.title = v.detail ? `${v.label}. ${v.detail}` : v.label
-    el.setAttribute('aria-label', `WhatsApp: ${v.label}`)
+    chip.dot.className = `dot ${DOT[connectionDotTone(c)]}`
+    chip.btn.title = v.detail ? `${v.label}. ${v.detail}` : v.label
+    chip.btn.setAttribute('aria-label', `WhatsApp: ${v.label}. Abrir a conexão`)
   }
   render({ state: 'off' })
   const off = watchConnection(render)
@@ -464,13 +469,14 @@ export function connectionDot(): { el: HTMLElement; dispose(): void } {
     .then((info) => !disposed && publish(info.connection))
     .catch((err) => {
       if (disposed) return
-      el.title = crmError(err)
+      chip.btn.title = crmError(err)
     })
 
   return {
-    el,
+    el: chip.el,
     dispose: () => {
       disposed = true
+      chip.dispose()
       off()
     },
   }

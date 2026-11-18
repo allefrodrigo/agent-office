@@ -205,8 +205,20 @@
 }
 
 .platform-darwin .crm-top {
-  /* os semáforos da janela ficam à esquerda */
-  padding-left: 86px;
+  /* os semáforos da janela ficam à esquerda (maiores a partir do macOS 26) */
+  padding-left: 104px;
+  /* No Mac, a faixa de 36 px do topo da janela (#ui::before) arrasta a janela e engolia o clique
+     nos controles da barra. A barra vira a alça, como uma barra de título; o que se clica nela,
+     as caixas que ela abre e a ficha do cliente ficam fora da alça. */
+  -webkit-app-region: drag;
+}
+
+.platform-darwin .crm-top > :not(.crm-title, .crm-toasts),
+.platform-darwin .crm-toasts > *,
+.platform-darwin .crm-chip-pop,
+.platform-darwin .crm-hits,
+.platform-darwin .crm-drawer-backdrop {
+  -webkit-app-region: no-drag;
 }
 
 .crm-title {
@@ -252,6 +264,17 @@
   background: var(--crm-accent);
 }
 
+/* the bar's buttons: 36 px, the same as the chips and the search */
+.crm-top > .btn,
+.crm-top > .crm-icon-btn {
+  height: 36px;
+  flex: none;
+}
+
+.crm-top > .crm-icon-btn {
+  width: 36px;
+}
+
 /* the office's toasts, in the free space of the bar (they used to cover the tables) */
 .crm-toasts {
   flex: 1;
@@ -275,41 +298,48 @@
   text-overflow: ellipsis;
 }
 
-/* ---------- servidor local da Evolution (chip no topo e a caixa) ---------- */
+/* ---------- chips do topo (WhatsApp, Evolution) e a caixa que cada um abre ---------- */
 
-.crm-server-anchor {
+.crm-chip-anchor {
   position: relative;
   flex: none;
 }
 
-.crm-server-chip {
+.crm-chip {
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 11px;
+  gap: 8px;
+  height: 36px;
+  padding: 0 13px;
   border: 1px solid var(--crm-line-strong);
   border-radius: 8px;
   background: transparent;
   color: var(--crm-muted);
   font: 600 13px var(--font);
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.crm-server-chip:hover,
-.crm-server-chip[aria-expanded='true'] {
+.crm-chip:hover,
+.crm-chip[aria-expanded='true'] {
   background: var(--crm-raise);
   color: var(--crm-text);
 }
 
-.crm-server-pop {
+.crm-chip-pop {
   position: absolute;
-  top: 42px;
+  top: 44px;
   right: 0;
   z-index: 8;
   width: 360px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
   border-radius: 12px;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.crm-chip-pop.wide {
+  width: min(440px, 90vw);
 }
 
 .crm-server-head {
@@ -343,13 +373,15 @@
   color: var(--dim);
 }
 
-.crm-screen .crm-server {
+.crm-screen .crm-server,
+.crm-screen .crm-connect {
   border-color: var(--crm-line-strong);
   background: var(--crm-raise);
   color: var(--crm-text);
 }
 
-.crm-screen .crm-server .field-hint {
+.crm-screen .crm-server .field-hint,
+.crm-screen .crm-connect .field-hint {
   color: var(--crm-muted);
 }
 
@@ -489,28 +521,13 @@
   display: none;
 }
 
-/* the dot at the top of the CRM screen, beside the server chip */
-.crm-connect-dot {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 11px;
-  border: 1px solid var(--crm-line-strong);
-  border-radius: 8px;
-  color: var(--crm-muted);
-  font: 600 13px var(--font);
-  white-space: nowrap;
-}
-
 .crm-search {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
   width: min(360px, 32vw);
-  height: 34px;
+  height: 36px;
   padding: 0 10px;
   border: 1px solid var(--crm-line-strong);
   border-radius: 8px;
@@ -1530,7 +1547,7 @@
 /* ---------- Parar tudo (CR-14) ---------- */
 
 .crm-screen .crm-stop {
-  height: 30px;
+  height: 36px;
   padding: 0 12px;
   gap: 6px;
   background: rgba(239, 91, 91, 0.1);

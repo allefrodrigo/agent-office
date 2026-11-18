@@ -5,7 +5,7 @@ import type { State } from '../../state'
 import { modalA11y } from '../a11y'
 import { h, icon } from '../dom'
 import { confirmDialog } from '../modals'
-import { connectionDot } from './connect'
+import { whatsappChip } from './connect'
 import { ConversationsView } from './conversations'
 import { closeCustomerCard, openCustomerCard, refreshCustomerCard } from './customer-card'
 import { CustomersView } from './customers'
@@ -119,7 +119,7 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
   // The office's toasts land here, in the free space of the bar, instead of over the tables.
   const toastSlot = h('div', { class: 'crm-toasts', role: 'status', 'aria-live': 'polite' })
   const server = serverChip({ toast: opts.toast })
-  const whatsapp = connectionDot()
+  const whatsapp = whatsappChip({ toast: opts.toast })
   const stopBtn = h('button', { class: 'btn crm-stop', type: 'button' }) as HTMLButtonElement
   const box = h(
     'div',
