@@ -435,6 +435,31 @@ describe('logs sem dados do cliente', () => {
     expect(lines).not.toMatch(/maria/i)
   })
 
+  it('apagar o cliente leva antes a conversa e a fila (fase 2); se isso falhar, o cliente fica', async () => {
+    const c = await newCustomer()
+    const forgot: string[] = []
+    h.handlers.clear()
+    registerCrmIpc({ crmStore: store, store: { settings: { projects: [] } }, broadcast: (e: OfficeEvent) => events.push(e), win: () => null } as unknown as Parameters<typeof registerCrmIpc>[0], {
+      onCustomerDeleted: (id) => {
+        forgot.push(id)
+        expect(store.customer(id)).toBeDefined()
+        return { outboxRemoved: ['k1'] }
+      },
+    })
+    await call('deleteCustomer', c.id)
+    expect(forgot).toEqual([c.id])
+    expect(lastDelta()).toMatchObject({ removed: { customers: [c.id] }, outboxRemoved: ['k1'] })
+    const d = await newCustomer({ phones: ['(11) 91234-5678'] })
+    h.handlers.clear()
+    registerCrmIpc({ crmStore: store, store: { settings: { projects: [] } }, broadcast: (e: OfficeEvent) => events.push(e), win: () => null } as unknown as Parameters<typeof registerCrmIpc>[0], {
+      onCustomerDeleted: () => {
+        throw new Error('disco cheio')
+      },
+    })
+    await expect(call('deleteCustomer', d.id)).rejects.toThrow('Não consegui apagar a conversa deste cliente')
+    expect(store.customer(d.id)).toBeDefined()
+  })
+
   it('apagar e importar logam contagens, não nomes', async () => {
     const info = vi.spyOn(log, 'info')
     const c = await newCustomer()

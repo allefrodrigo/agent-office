@@ -55,6 +55,11 @@ export interface CrmApiDeps {
   broadcast(e: OfficeEvent): void
   dialogs: CrmDialogs
   now?: () => number
+  /**
+   * Phase 2: what else goes with a deleted customer (the conversation, the queue items, the
+   * audit's names). Runs before the customer leaves crm.json: a throw keeps the customer.
+   */
+  onCustomerDeleted?(customerId: string): CrmDelta
 }
 
 const FILE_MODE = 0o600
@@ -110,10 +115,21 @@ export function crmApi(d: CrmApiDeps) {
 
     deleteCustomer: (raw: unknown): void => {
       const customerId = cleanCrmId(raw, 'Esse cliente não existe mais.')
+      if (!store.customer(customerId)) throw new Error('Esse cliente não existe mais.')
+      // The conversation, the queue and the audit first: if that fails, the customer stays and the player can try again.
+      let forgot: CrmDelta | undefined
+      try {
+        forgot = d.onCustomerDeleted?.(customerId)
+      } catch (err) {
+        log.error(`CRM: não apaguei a conversa do cliente ${customerId}; ele continua no CRM: ${(err as Error).message}`)
+        throw new Error('Não consegui apagar a conversa deste cliente, então ele continua no CRM. Feche o CRM e tente de novo.', {
+          cause: err,
+        })
+      }
       const delta = store.deleteCustomer(customerId)
       const n = (k: 'deals' | 'payments' | 'recurrences') => delta.removed?.[k]?.length ?? 0
       log.info(`CRM: cliente ${customerId} apagado com ${n('deals')} negócio(s), ${n('payments')} pagamento(s) e ${n('recurrences')} recorrência(s)`)
-      send(delta)
+      send(forgot ? { ...delta, ...forgot } : delta)
     },
 
     addCrmNote: (rawId: unknown, rawText: unknown): Customer => {

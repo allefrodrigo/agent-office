@@ -590,6 +590,15 @@ export class CrmStore {
     return { item, delta: { outbox: [item] } }
   }
 
+  /** "Apagar este cliente": the customer's queue items leave (they carry the text). Answers their keys. */
+  dropOutbox(customerId: string): string[] {
+    const keys = this.data.outbox.filter((x) => x.customerId === customerId).map((x) => x.key)
+    if (!keys.length) return keys
+    this.data.outbox = this.data.outbox.filter((x) => x.customerId !== customerId)
+    this.save()
+    return keys
+  }
+
   /** Removes the customer with its deals, payments (attachments too) and recurrences. */
   deleteCustomer(customerId: string): CrmDelta {
     const c = this.must('customers', customerId)

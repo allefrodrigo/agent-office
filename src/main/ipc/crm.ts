@@ -1,7 +1,7 @@
 // Every argument from the renderer passes through validate.ts first (in crm/api.ts).
 import { app, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
-import { crmApi, type CrmApi, type CrmDialogs } from '../crm/api'
+import { crmApi, type CrmApi, type CrmApiDeps, type CrmDialogs } from '../crm/api'
 import type { IpcContext } from './context'
 
 /** Sala de CRM, phase 1: the channels the preload uses, by name. Exported for the tests. */
@@ -48,12 +48,16 @@ function electronDialogs(win: IpcContext['win']): CrmDialogs {
 }
 
 /** Registers the CRM's handlers; index.ts keeps the api for the daily recurrences (tick). */
-export function registerCrmIpc(ctx: Pick<IpcContext, 'crmStore' | 'store' | 'broadcast' | 'win'>): CrmApi {
+export function registerCrmIpc(
+  ctx: Pick<IpcContext, 'crmStore' | 'store' | 'broadcast' | 'win'>,
+  extra: Pick<CrmApiDeps, 'onCustomerDeleted'> = {},
+): CrmApi {
   const api = crmApi({
     store: ctx.crmStore,
     floors: () => ctx.store.settings.projects.map((p) => ({ id: p.id, name: p.name })),
     broadcast: ctx.broadcast,
     dialogs: electronDialogs(ctx.win),
+    ...extra,
   })
   for (const [channel, handler] of Object.entries(crmHandlers(api))) ipcMain.handle(channel, (_e, ...args: unknown[]) => handler(...args))
   return api

@@ -41,7 +41,7 @@ import { meetingLive, onMeetingLive, setMeetingLive } from './meetings/live'
 import { doNotDisturb, waitingSummary } from '@shared/meeting-map'
 import { CHAT_DEFAULTS, CRM_APP_DEFAULTS } from '@shared/types'
 import { chatShowsAgent, chatStore, mountChat, openChat } from './ui/chat'
-import { closeCrm, crmScreenOpen, crmStore, mountCrm, openCrm } from './ui/crm'
+import { closeCrm, crmChatStore, crmScreenOpen, crmStore, mountCrm, openCrm } from './ui/crm'
 import { botOf, onBotsIndex } from './ui/chat/bots-index'
 import { badgeText, countsAsUnread } from '@shared/bots-view'
 
@@ -229,18 +229,22 @@ async function boot(): Promise<void> {
   })
   // The CRM screen opens on openCrm (V, this button); the linked ticket opens on the board, under it.
   mountCrm(ui, state, { toast, toastHost: (el) => hud.setToastHost(el), openTicket: (id) => board.open(id) })
-  crmStore.on(() => {
-    const n = crmOn() ? crmStore.waiting() : 0
+  const crmBadgeSync = () => {
+    const n = crmOn() ? crmStore.waiting() + crmChatStore.waiting() : 0
     crmBadge.hidden = n === 0
     crmBadge.textContent = badgeText(n)
     crmLaunch.setAttribute('aria-label', n ? `Sala de CRM, ${n} ${n === 1 ? 'item esperando você' : 'itens esperando você'}` : 'Sala de CRM')
-  })
+  }
+  crmStore.on(crmBadgeSync)
+  crmChatStore.on(crmBadgeSync)
   /** "CRM (prévia)" turned on or off in Configurações: the button, the key and the store follow. */
   const syncCrm = () => {
     const on = crmOn()
     crmLaunch.hidden = !on
-    if (on) void crmStore.start()
-    else {
+    if (on) {
+      void crmStore.start()
+      void crmChatStore.start()
+    } else {
       crmBadge.hidden = true
       if (crmScreenOpen()) closeCrm()
     }

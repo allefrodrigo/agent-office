@@ -614,6 +614,8 @@ export interface CrmDelta {
   suggestions?: Suggestion[]
   /** Phase 2: queue items to put in place (same key = replace). */
   outbox?: OutboxItem[]
+  /** Phase 2: queue keys that left (their customer was deleted). */
+  outboxRemoved?: string[]
   removed?: Partial<Record<CrmCollection, string[]>>
   settings?: CrmSettings
   reload?: boolean

@@ -4,6 +4,8 @@ import { CRM_TAB_LABEL, type CrmHit, type CrmTab } from '@shared/types'
 import type { State } from '../../state'
 import { modalA11y } from '../a11y'
 import { h, icon } from '../dom'
+import { confirmDialog } from '../modals'
+import { ConversationsView } from './conversations'
 import { closeCustomerCard, openCustomerCard, refreshCustomerCard } from './customer-card'
 import { CustomersView } from './customers'
 import { DealsView } from './deals'
@@ -11,21 +13,27 @@ import { OPEN_CRM_EVENT, type OpenCrmDetail } from './open'
 import { PaymentsView } from './payments'
 import { serverChip } from './server'
 import { crmStore } from './store'
-import { todayIso, type CrmCtx, type Toast } from './util'
+import { crmError, todayIso, type CrmCtx, type Toast } from './util'
 
 export { openCrm, OPEN_CRM_EVENT } from './open'
 export { crmStore } from './store'
+export { crmChatStore } from './chat-store'
 
-// Sala de CRM (CR-04 a CR-06): tela cheia no molde do Chat. Abas no topo (na fase 1, Clientes,
-// Negócios e Pagamentos; Conversas e Sugestões chegam nas fases 2 e 4), à direita a busca e
-// "＋ Novo" (cria o que a aba mostra). Esc fecha; abre na última aba vista. Spec:
-// docs/prd/sala-de-crm.md ("Experiência").
+// Sala de CRM (CR-04 a CR-06, CR-14): tela cheia no molde do Chat. Abas no topo (Conversas,
+// Clientes, Negócios e Pagamentos; Sugestões chega na fase 4), à direita o servidor local, "Parar
+// tudo", a busca e "＋ Novo" (cria o que a aba mostra). Esc fecha; abre na última aba vista.
+// Spec: docs/prd/sala-de-crm.md ("Experiência").
 
-/** The tabs of phase 1. Conversas (phase 2) and Sugestões (phase 4) join when they exist: no empty tab. */
-const TABS: readonly CrmTab[] = ['customers', 'deals', 'payments']
+/** The tabs so far. Sugestões (phase 4) joins when it exists: no empty tab. */
+const TABS: readonly CrmTab[] = ['conversations', 'customers', 'deals', 'payments']
 /** localStorage: the last tab seen, where the CRM opens. */
 const TAB_KEY = 'agent-office:crm-aba'
-const NEW_LABEL: Partial<Record<CrmTab, string>> = { customers: 'Novo cliente', deals: 'Novo negócio', payments: 'Novo pagamento' }
+const NEW_LABEL: Partial<Record<CrmTab, string>> = {
+  conversations: 'Nova conversa',
+  customers: 'Novo cliente',
+  deals: 'Novo negócio',
+  payments: 'Novo pagamento',
+}
 const HIT_KIND: Record<CrmHit['kind'], string> = { customer: 'Cliente', deal: 'Negócio', payment: 'Pagamento' }
 /** Hits the search shows under the field. */
 const HITS = 8
@@ -110,10 +118,11 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
   // The office's toasts land here, in the free space of the bar, instead of over the tables.
   const toastSlot = h('div', { class: 'crm-toasts', role: 'status', 'aria-live': 'polite' })
   const server = serverChip({ toast: opts.toast })
+  const stopBtn = h('button', { class: 'btn crm-stop', type: 'button' }) as HTMLButtonElement
   const box = h(
     'div',
     { class: 'crm-screen' },
-    h('header', { class: 'crm-top' }, title, tabs, toastSlot, server.el, search, newBtn, closeBtn),
+    h('header', { class: 'crm-top' }, title, tabs, toastSlot, server.el, stopBtn, search, newBtn, closeBtn),
     panel,
   )
   const el = h('div', { class: 'backdrop crm-backdrop' }, box)
@@ -129,6 +138,7 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
     openCustomer: (id) => openCustomerCard(box, ctx, id),
   }
   const views: Record<string, View> = {
+    conversations: new ConversationsView(ctx),
     customers: new CustomersView(ctx),
     deals: new DealsView(ctx),
     payments: new PaymentsView(ctx),
@@ -299,9 +309,43 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
     }
   })
 
+  // ---------- Parar tudo ----------
+  // Red and immediate: cancels the queue and blocks every send. Turning it back on asks first.
+  function renderStop(): void {
+    const on = !!crmStore.data?.settings.stopAll
+    stopBtn.classList.toggle('on', on)
+    stopBtn.replaceChildren(icon(on ? 'play' : 'stop', 14), on ? 'Envios parados · Religar' : 'Parar tudo')
+    stopBtn.title = on ? 'Nada sai pelo WhatsApp até você religar' : 'Cancela a fila e bloqueia todo envio até você religar'
+    stopBtn.setAttribute('aria-pressed', String(on))
+    stopBtn.disabled = !crmStore.data
+  }
+  stopBtn.addEventListener('click', async () => {
+    const on = !!crmStore.data?.settings.stopAll
+    if (on) {
+      const ok = await confirmDialog(el, {
+        title: 'Religar os envios?',
+        text: 'As mensagens voltam a sair pela fila, com o portão de sempre. O que "Parar tudo" cancelou não volta sozinho: reenvie pelo fio, se ainda fizer sentido.',
+        confirm: 'Religar os envios',
+        cancel: 'Continuar parado',
+      })
+      if (!ok) return
+    }
+    stopBtn.disabled = true
+    try {
+      const settings = await window.office.crmStopAll(!on)
+      crmStore.put({ settings })
+      opts.toast(on ? 'Envios religados.' : 'Parar tudo ligado: a fila foi cancelada e nada sai até você religar.', on ? 'ok' : 'info')
+    } catch (err) {
+      opts.toast(crmError(err), 'err')
+    } finally {
+      renderStop()
+    }
+  })
+
   // ---------- data ----------
   const offStore = crmStore.on(() => {
     if (closed) return
+    renderStop()
     if (!crmStore.data) return renderState()
     if (!panel.contains(view().el)) showView()
     else view().render()
@@ -339,21 +383,29 @@ function openCrmScreen(root: HTMLElement, state: State, opts: CrmOptions, detail
     e.stopPropagation()
   })
 
+  /** A customer from outside (a notification, the map): the conversation on Conversas, the card elsewhere. */
+  function showCustomer(customerId: string): void {
+    if (tab === 'conversations') {
+      if (!views.conversations.reveal(customerId)) opts.toast('Esse cliente não existe mais.', 'err')
+    } else openCustomerCard(box, ctx, customerId)
+  }
+
   screen = {
     close,
     open: (d) => {
       if (isTab(d.tab)) setTab(d.tab, true)
-      if (d.customerId) openCustomerCard(box, ctx, d.customerId)
+      if (d.customerId) showCustomer(d.customerId)
     },
   }
 
   // ---------- first paint ----------
+  renderStop()
   renderTabs()
   showView()
   void crmStore.ensure().then(() => {
     if (closed) return
     showView()
-    if (detail.customerId) openCustomerCard(box, ctx, detail.customerId)
+    if (detail.customerId) showCustomer(detail.customerId)
     else view().focus()
   })
 }

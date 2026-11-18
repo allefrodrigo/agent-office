@@ -72,9 +72,10 @@ export function applyCrmDelta(data: CrmData, delta: CrmDelta): CrmData {
     lists[k] = mergeById(lists[k] ?? [], items, gone)
   }
   // The queue is keyed by `key`, not `id` (phase 2).
-  if (delta.outbox?.length) {
+  if (delta.outbox?.length || delta.outboxRemoved?.length) {
     const byKey = new Map((next.outbox ?? []).map((x) => [x.key, x]))
-    for (const x of delta.outbox) byKey.set(x.key, x)
+    for (const x of delta.outbox ?? []) byKey.set(x.key, x)
+    for (const k of delta.outboxRemoved ?? []) byKey.delete(k)
     next.outbox = [...byKey.values()]
   }
   if (delta.settings) next.settings = delta.settings

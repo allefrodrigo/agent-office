@@ -60,6 +60,8 @@ const MIN_RESCHEDULE = MINUTE
 const MAX_SLEEP = HOUR
 /** "Testar" in the audit: not a customer id (CRM ids have no parentheses). */
 const SELF_TEST_ID = '(teste)'
+/** The audit line of a send whose customer was deleted while it went out. */
+const FORGOTTEN_ID = '(apagado)'
 
 export const SELF_TEST_TEXT = 'Teste do Agent Office: a conexão com o WhatsApp está funcionando.'
 
@@ -72,7 +74,7 @@ export interface GatePort {
 /** What the Outbox reads and writes in crm.json. */
 export type OutboxStore = Pick<
   CrmStore,
-  'customer' | 'payments' | 'settings' | 'outbox' | 'putOutbox' | 'patchCustomer' | 'setSettings' | 'flush'
+  'customer' | 'payments' | 'settings' | 'outbox' | 'putOutbox' | 'dropOutbox' | 'patchCustomer' | 'setSettings' | 'flush'
 >
 
 export interface OutboxDeps {
@@ -253,6 +255,18 @@ export class Outbox {
     }
     this.clearTimer()
     log.warn(`CRM: Parar tudo cancelou ${n} envio(s) da fila`)
+  }
+
+  // ---------- LGPD ----------
+
+  /**
+   * "Apagar este cliente": the customer's queue items leave crm.json (they carry the text). A send
+   * already going out ends, but writes nothing more about the customer (put and putItem skip it).
+   */
+  forget(customerId: string): CrmDelta {
+    const keys = this.deps.store.dropOutbox(customerId)
+    if (keys.length) log.info(`CRM: ${keys.length} item(ns) da fila saíram com o cliente apagado`)
+    return keys.length ? { outboxRemoved: keys } : {}
   }
 
   // ---------- "Testar" ----------
@@ -621,6 +635,8 @@ export class Outbox {
 
   /** Puts the queue item in place; `durable` writes crm.json now (before and after a send). */
   private put(item: OutboxItem, durable: boolean): OutboxItem {
+    // The customer was deleted meanwhile (a send in flight): nothing more about them on disk.
+    if (!this.deps.store.customer(item.customerId)) return item
     const saved = this.deps.store.putOutbox(compact(item))
     if (durable) this.deps.store.flush()
     this.emit(saved.delta)
@@ -657,6 +673,7 @@ export class Outbox {
   }
 
   private putItem(customerId: string, item: ConversationItem): void {
+    if (!this.deps.store.customer(customerId)) return
     this.deps.conversations.put(customerId, item)
     this.deps.broadcast?.({ type: 'crm:item', customerId, item })
   }
@@ -669,7 +686,17 @@ export class Outbox {
     key?: string,
   ): void {
     this.deps.audit.record(
-      compact({ t: this.now(), customerId: who.customerId, category: who.category, by: who.by, outcome, rule, hash: textHash(text), key }),
+      compact({
+        t: this.now(),
+        // A customer deleted while the message went out: the line keeps only date, category and hash.
+        customerId: this.deps.store.customer(who.customerId) ? who.customerId : FORGOTTEN_ID,
+        category: who.category,
+        by: who.by,
+        outcome,
+        rule,
+        hash: textHash(text),
+        key,
+      }),
     )
   }
 

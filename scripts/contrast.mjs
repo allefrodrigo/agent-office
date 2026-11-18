@@ -211,6 +211,12 @@ Object.assign(BG, {
   'crm: gaveta + item': stack(CRM_DRAWER, css('.crm-mini:hover')),
   'crm: janela': MODAL,
   'crm: janela + item': stack(MODAL, css('.crm-mini:hover')),
+  // Conversas (CR-14)
+  'crm: conversa atual': stack(CRM, css('.crm-conv-list'), css('.crm-conv-row.on')),
+  'crm: balão recebido': stack(CRM, css('.crm-msg-bubble')),
+  'crm: balão enviado': stack(CRM, css('.crm-msg.out .crm-msg-bubble')),
+  'crm: rascunho': stack(CRM, css('.crm-draft')),
+  'crm: aviso no fio': stack(CRM, css('.crm-notice')),
 })
 
 // Etiqueta "bot" no nome do agente (CB-11): texto escuro sobre a cor do bot, uma por BOT_COLORS
@@ -537,6 +543,34 @@ const PAIRS = [
   ['CRM: recorrência (detalhe)', '.crm-mini-meta', 'crm: janela + item'],
   ['CRM: ticket do negócio (chave)', '.crm-ticket-key', 'crm: janela'],
   ['CRM: rótulo do pagamento', '.crm-dl-modal dt', 'crm: janela'],
+  // Conversas e Parar tudo (CR-14)
+  ['CRM: Parar tudo', '.crm-screen .crm-stop', ['.crm-screen .crm-stop:hover', 'crm: topo']],
+  ['CRM: Parar tudo ligado', '.crm-screen .crm-stop.on', ['.crm-screen .crm-stop.on', 'crm: topo']],
+  ['CRM: grupo da lista', '.crm-conv-group', 'crm: conversa atual'],
+  ['CRM: nome na lista', '.crm-conv-row', 'crm: conversa atual'],
+  ['CRM: hora na lista', '.crm-conv-time', 'crm: conversa atual'],
+  ['CRM: prévia na lista', '.crm-conv-sub', 'crm: conversa atual'],
+  ['CRM: esperando você na lista', '.crm-conv-sub.waiting', 'crm: conversa atual'],
+  ['CRM: não lidas', '.crm-conv-unread', ['.crm-conv-unread', 'crm: conversa atual']],
+  ['CRM: bot na conversa', '.crm-conv-bot', 'crm: fundo'],
+  ['CRM: conversa com você', '.crm-conv-bot.handed', 'crm: fundo'],
+  ['CRM: dia no fio', '.crm-thread-day', 'crm: fundo'],
+  ['CRM: hora da mensagem', '.crm-msg-meta', 'crm: fundo'],
+  ['CRM: envio que falhou', '.crm-msg.out.failed .crm-msg-meta', 'crm: fundo'],
+  ['CRM: mensagem recebida', '.crm-screen', 'crm: balão recebido'],
+  ['CRM: anexo recebido', '.crm-msg-media', 'crm: balão recebido'],
+  ['CRM: link na mensagem', '.crm-msg-link', 'crm: balão enviado'],
+  ['CRM: domínio do link', '.crm-msg-host', ['.crm-msg-host', 'crm: balão enviado']],
+  ['CRM: aviso no fio', '.crm-notice', 'crm: aviso no fio'],
+  ['CRM: aviso de alerta no fio', '.crm-notice.t-warn', 'crm: aviso no fio'],
+  ['CRM: aviso de erro no fio', '.crm-notice.t-error', 'crm: aviso no fio'],
+  ['CRM: rascunho (cabeçalho)', '.crm-draft-head', 'crm: rascunho'],
+  ['CRM: rascunho (motivo)', '.crm-draft-note', 'crm: rascunho'],
+  ['CRM: rascunho esperando (motivo)', '.crm-draft.t-held .crm-draft-note', 'crm: rascunho'],
+  ['CRM: rascunho barrado (motivo)', '.crm-draft.t-blocked .crm-draft-note', 'crm: rascunho'],
+  ['CRM: aviso da caixa de escrever', '.crm-composer-note', 'crm: fundo'],
+  ['CRM: título da ficha curta', '.crm-side-block h4', 'crm: fundo'],
+  ['CRM: número conferido', '.crm-side-ok', 'crm: fundo'],
   // a etiqueta "bot" no nome do agente, em cada cor de bot
   ...BOT_COLORS.map((c) => [`Etiqueta bot ${c}`, '.tag-bot', `etiqueta bot ${c}`]),
 ]
