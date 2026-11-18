@@ -391,12 +391,13 @@ describe('Outbox.enqueue: a decisão', () => {
     expect(store.outbox).toEqual([])
   })
 
-  it('sem o portão escrito, enqueue falha fechado: nada na fila, nada na conversa', () => {
+  it('com o portão de verdade e a configuração padrão, o rascunho do bot espera você: nada na fila', () => {
     const real = new Outbox({ store, conversations: log, sender, connection, audit })
     const d = draft()
-    expect(() => real.enqueue(d, { run: run() })).toThrow('portão ainda não escrito')
+    const saved = real.enqueue(d, { run: run() })
+    expect(saved).toMatchObject({ status: 'held', decision: { action: 'hold', rule: 14 } })
     expect(store.outbox).toEqual([])
-    expect(log.draft(maria.id, d.id)).toBeUndefined()
+    expect(log.draft(maria.id, d.id)?.decision?.rule).toBe(14)
   })
 })
 

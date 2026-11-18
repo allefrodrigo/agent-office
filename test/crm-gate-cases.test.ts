@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
+import { gate, type GateInput } from '@shared/crm-gate'
 
-// S-3: the send gate's decision table (docs/adr/0017-portao-de-envio.md). The gate itself is
-// CR-11 (phase 2); this only keeps the corpus coherent so CR-11 can run it as is.
+// S-3 e CR-11: a tabela de decisão do portão de envio (docs/adr/0017-portao-de-envio.md). Primeiro
+// confere a forma do corpus; depois roda cada caso contra gate(), no fuso do caso.
 
 type Json = null | boolean | number | string | Json[] | { [k: string]: Json }
 type Obj = { [k: string]: Json }
@@ -120,5 +121,24 @@ describe('corpus do portão de envio (S-3)', () => {
       const by = (ctx.draft as Obj).by
       if (by === 'player' || by === 'system') expect(ctx.run, id).toBeNull()
     }
+  })
+})
+
+describe('o portão contra o corpus (CR-11)', () => {
+  const before = process.env.TZ
+  afterEach(() => {
+    process.env.TZ = before
+  })
+
+  it.each(cases.map((c) => [`${c.id} · ${c.title}`, c] as const))('%s', (_name, c) => {
+    // O relógio de parede (janela, dia, feriado) é lido no fuso da máquina: o do caso.
+    process.env.TZ = c.tz ?? doc.tz
+    const d = gate(c.ctx as unknown as GateInput)
+    expect({ action: d.action, rule: d.rule }).toEqual({ action: c.expect.action, rule: c.expect.rule })
+    expect(d.overridable ?? false, 'overridable').toBe(c.expect.overridable ?? false)
+    expect(d.rehearsal ?? false, 'rehearsal').toBe(c.expect.rehearsal ?? false)
+    if (c.expect.at) expect(d.at === undefined ? undefined : new Date(d.at).toISOString()).toBe(new Date(c.expect.at).toISOString())
+    else expect(d.at).toBeUndefined()
+    expect(d.reason.length).toBeGreaterThan(0)
   })
 })
