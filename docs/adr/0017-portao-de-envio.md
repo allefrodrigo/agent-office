@@ -1,6 +1,6 @@
 # 0017 — Portão de envio do CRM
 
-- **Status:** proposto (2026-11-17). Espera revisão antes do CR-11, como o plano pede.
+- **Status:** aceito (2026-11-17). As 8 mudanças no spec e os falsos positivos das palavras de saída ("vou sair pra almoçar", "não quero que pare de mandar") foram aprovados pelo usuário antes do CR-11.
 - **Origem:** spike S-3 do [plano da Sala de CRM](../prd/sala-de-crm-plano.md); regras em [sala-de-crm.md](../prd/sala-de-crm.md), "O portão de envio".
 - **Corpus:** [`test/fixtures/crm-gate-cases.json`](../../test/fixtures/crm-gate-cases.json), 167 casos. `test/crm-gate-cases.test.ts` confere a forma do corpus; o portão em si é do CR-11.
 
