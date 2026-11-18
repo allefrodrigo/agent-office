@@ -1,0 +1,16 @@
+{
+  "event": "connection.update",
+  "instance": "teste",
+  "data": {
+    "instance": "teste",
+    "wuid": "5511900000002@s.whatsapp.net",
+    "profileName": "Empresa Teste",
+    "profilePictureUrl": null,
+    "state": "open",
+    "statusReason": 200
+  },
+  "server_url": "http://localhost:8080",
+  "date_time": "2026-11-17T09:00:00.000Z",
+  "sender": "5511900000002@s.whatsapp.net",
+  "apikey": null
+}

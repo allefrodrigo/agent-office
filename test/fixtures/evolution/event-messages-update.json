@@ -1,0 +1,17 @@
+{
+  "event": "messages.update",
+  "instance": "teste",
+  "data": {
+    "messageId": "cm0000000000000000000a8c9",
+    "keyId": "3EB0A1B2C3D4E5F6A7B8C9",
+    "remoteJid": "5511900000001@s.whatsapp.net",
+    "fromMe": true,
+    "participant": null,
+    "status": "DELIVERY_ACK",
+    "instanceId": "00000000-0000-4000-8000-000000000001"
+  },
+  "server_url": "http://localhost:8080",
+  "date_time": "2026-11-17T09:00:00.000Z",
+  "sender": "5511900000002@s.whatsapp.net",
+  "apikey": null
+}

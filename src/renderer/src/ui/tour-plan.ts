@@ -79,6 +79,13 @@ export function tourSteps(platform: string): TourStep[] {
       place: 'top',
     },
     {
+      id: 'crm',
+      title: 'Sala de CRM',
+      text: 'Aperte V para ver clientes, negócios e pagamentos. O CRM ainda é uma prévia e liga em Configurações.',
+      targets: [{ hud: 'crm' }],
+      place: 'bottom',
+    },
+    {
       id: 'resume',
       title: 'Central de resume',
       text: 'O relógio lista suas sessões recentes do Claude Code. Chame uma de volta e ela continua de onde parou.',

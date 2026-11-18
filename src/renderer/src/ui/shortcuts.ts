@@ -2,7 +2,7 @@ import { h } from './dom'
 import { modal } from './modals'
 
 /** Tecla ? (AO-38): todos os atalhos do app numa janela, e o tour guiado de novo. Pressionar ? de novo fecha. */
-export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?: () => void } = {}): void {
+export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?: () => void; crm?: boolean } = {}): void {
   const open = root.querySelector('.backdrop-shortcuts')
   if (open) return void open.remove()
   const mod = platform === 'darwin' ? '⌘' : 'Ctrl+'
@@ -19,7 +19,9 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
         ['I', 'Caixa de entrada: pedidos e resultados esperando você'],
         ['G', 'Sala de reunião do andar em que você está'],
         ['C', 'Chat dos bots: as conversas com os seus bots'],
-        ['L', 'Apagar ou acender as luzes (modo noturno)'],
+        // Sala de CRM (CR-04): a tecla só existe com "CRM (prévia)" ligado em Configurações
+        ...(opts.crm ? [['V', 'Sala de CRM: clientes, negócios e pagamentos'] as [string, string]] : []),
+        ['L','Apagar ou acender as luzes (modo noturno)'],
         ['W A S D ou ← ↑ → ↓', 'Andar pelo escritório'],
         ['F3', 'Painel de desempenho (fps, draw calls, memória)'],
         ['?', 'Esta lista e o botão Rever o tour'],
@@ -51,6 +53,21 @@ export function openShortcuts(root: HTMLElement, platform: string, opts: { tour?
         ['Esc', 'Fechar a busca ou o menu; depois, fechar o Chat'],
       ],
     ],
+    ...(opts.crm
+      ? ([
+          [
+            'Sala de CRM',
+            [
+              ['← →', 'Trocar de aba (Clientes, Negócios, Pagamentos)'],
+              [`${mod}K`, 'Buscar cliente, negócio ou fatura'],
+              ['↑ ↓', 'Na tabela: andar pelas linhas (↓ num filtro vai para as linhas)'],
+              ['Enter', 'Abrir a ficha, o negócio ou o pagamento escolhido'],
+              [`${alt}← ${alt}→`, 'Nos negócios: mover o cartão para a etapa ao lado'],
+              ['Esc', 'Fechar a janela ou a ficha; depois, fechar o CRM'],
+            ],
+          ],
+        ] as [string, [string, string][]][])
+      : []),
     [
       'Listas e quadro',
       [

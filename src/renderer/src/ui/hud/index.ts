@@ -460,10 +460,23 @@ export class Hud {
     this.actions.openItem(agentId, itemId)
   }
 
+  /**
+   * A full screen (the CRM) may take the toasts into its own bar, so they never cover its
+   * content; null gives them back to the corner of the office.
+   */
+  private toastHost: HTMLElement | null = null
+
+  setToastHost(host: HTMLElement | null): void {
+    this.toastHost = host
+  }
+
   toast(text: string, kind: 'info' | 'ok' | 'err' = 'info'): void {
-    const el = h('div', { class: `toast toast-${kind}` }, text)
-    this.toasts.append(el)
-    setTimeout(() => el.classList.add('out'), 3800)
-    setTimeout(() => el.remove(), 4300)
+    const host = this.toastHost?.isConnected ? this.toastHost : null
+    const el = h('div', { class: `toast toast-${kind}`, ...(host ? { title: text } : {}) }, text)
+    // In a host only the newest shows: it sits in a row, not in a stack.
+    if (host) host.replaceChildren(el)
+    else this.toasts.append(el)
+    setTimeout(() => el.classList.add('out'), host && kind === 'err' ? 7800 : 3800)
+    setTimeout(() => el.remove(), host && kind === 'err' ? 8300 : 4300)
   }
 }

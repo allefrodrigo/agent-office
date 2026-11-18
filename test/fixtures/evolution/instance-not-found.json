@@ -1,0 +1,9 @@
+{
+  "status": 404,
+  "error": "Not Found",
+  "response": {
+    "message": [
+      "The \"outra\" instance does not exist"
+    ]
+  }
+}

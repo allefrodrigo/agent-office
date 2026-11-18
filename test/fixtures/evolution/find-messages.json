@@ -1,0 +1,95 @@
+{
+  "messages": {
+    "total": 4,
+    "pages": 1,
+    "currentPage": 1,
+    "records": [
+      {
+        "id": "cm00000000000000000006c7e",
+        "key": {
+          "remoteJid": "5511900000001@s.whatsapp.net",
+          "fromMe": true,
+          "id": "3A5F0C1D2E3F4A5B6C7E"
+        },
+        "pushName": "Você",
+        "messageType": "conversation",
+        "message": {
+          "conversation": "texto de teste"
+        },
+        "messageTimestamp": 1794916860,
+        "instanceId": "00000000-0000-4000-8000-000000000001",
+        "source": "ios",
+        "contextInfo": null,
+        "MessageUpdate": [
+          {
+            "status": "SERVER_ACK"
+          }
+        ]
+      },
+      {
+        "id": "cm00000000000000000006c80",
+        "key": {
+          "remoteJid": "status@broadcast",
+          "fromMe": false,
+          "id": "3A5F0C1D2E3F4A5B6C80",
+          "participant": "5511900000001@s.whatsapp.net"
+        },
+        "pushName": "Cliente Teste",
+        "messageType": "conversation",
+        "message": {
+          "conversation": "texto de teste"
+        },
+        "messageTimestamp": 1794916840,
+        "instanceId": "00000000-0000-4000-8000-000000000001",
+        "source": "android",
+        "contextInfo": null,
+        "MessageUpdate": []
+      },
+      {
+        "id": "cm00000000000000000006c7f",
+        "key": {
+          "remoteJid": "120363000000000001@g.us",
+          "fromMe": false,
+          "id": "3A5F0C1D2E3F4A5B6C7F",
+          "participant": "5511900000001@s.whatsapp.net"
+        },
+        "pushName": "Cliente Teste",
+        "messageType": "conversation",
+        "message": {
+          "conversation": "texto de teste"
+        },
+        "messageTimestamp": 1794916830,
+        "instanceId": "00000000-0000-4000-8000-000000000001",
+        "source": "android",
+        "contextInfo": null,
+        "MessageUpdate": []
+      },
+      {
+        "id": "cm00000000000000000006c7d",
+        "key": {
+          "remoteJid": "5511900000001@s.whatsapp.net",
+          "fromMe": false,
+          "id": "3A5F0C1D2E3F4A5B6C7D"
+        },
+        "pushName": "Cliente Teste",
+        "messageType": "conversation",
+        "message": {
+          "conversation": "texto de teste",
+          "messageContextInfo": {
+            "deviceListMetadata": {},
+            "deviceListMetadataVersion": 2
+          }
+        },
+        "messageTimestamp": 1794916800,
+        "instanceId": "00000000-0000-4000-8000-000000000001",
+        "source": "ios",
+        "contextInfo": null,
+        "MessageUpdate": [
+          {
+            "status": "DELIVERY_ACK"
+          }
+        ]
+      }
+    ]
+  }
+}

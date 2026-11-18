@@ -1,0 +1,14 @@
+{
+  "id": "cm00000000000000000000ws1",
+  "enabled": true,
+  "events": [
+    "MESSAGES_UPSERT",
+    "MESSAGES_UPDATE",
+    "SEND_MESSAGE",
+    "CONNECTION_UPDATE",
+    "QRCODE_UPDATED"
+  ],
+  "createdAt": "2026-11-17T08:00:00.000Z",
+  "updatedAt": "2026-11-17T08:00:00.000Z",
+  "instanceId": "00000000-0000-4000-8000-000000000001"
+}

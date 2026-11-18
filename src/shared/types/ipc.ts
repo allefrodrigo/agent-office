@@ -36,6 +36,37 @@ import type {
 } from './meetings'
 import type { DelegateTarget, Ticket, TicketDraft, TicketPatch, TicketStatus } from './tickets'
 import type { AutomationDraft, Bot, BotDraft, BotEventTrigger, BotSpend, BotTriggerDraft, Channel, ChannelDraft, ThreadHit, ThreadItem, ThreadPage } from './bots'
+import type {
+  ConversationItem,
+  ConversationPage,
+  ConversationSummary,
+  CrmConnection,
+  CrmQr,
+  CrmSendInput,
+  CrmServerAction,
+  CrmServerStatus,
+  CrmWhatsappDraft,
+  CrmWhatsappInfo,
+  Draft,
+  DraftAction,
+  CrmCsvKind,
+  CrmData,
+  CrmDelta,
+  CrmHit,
+  CrmSettings,
+  Customer,
+  CustomerDraft,
+  CustomerImportPreview,
+  CustomerImportResult,
+  Deal,
+  DealDraft,
+  ImportChoice,
+  Payment,
+  PaymentDraft,
+  Pipeline,
+  Recurrence,
+  RecurrenceDraft,
+} from './crm'
 
 /** CPU (% of the whole machine) and memory (bytes), as in Activity Monitor. */
 export interface SystemStats {
@@ -94,6 +125,8 @@ export interface OfficeState {
   forceTour?: boolean
   /** AGENT_OFFICE_VIEW=2d|iso: this run draws the office that way, whatever the settings say (screenshots, bench). */
   forceView?: ViewMode
+  /** AGENT_OFFICE_DEMO=1|crm: the CRM shows with its demo data even with "CRM (prévia)" off (nothing is saved). */
+  forceCrm?: boolean
 }
 
 /** A data file that did not parse: what happened, for the warning in the renderer. */
@@ -192,6 +225,16 @@ export type OfficeEvent =
   | { type: 'botTriggers'; triggers: BotEventTrigger[] }
   /** A system notification of a bot was clicked: open the Chat on that thread. */
   | { type: 'bot:open'; threadId: string }
+  /** Sala de CRM: what changed in crm.json (items in place, ids removed, the rules, or reload everything). */
+  | { type: 'crm'; delta: CrmDelta }
+  /** Sala de CRM, phase 2: a conversation item was added or updated (same id = update). */
+  | { type: 'crm:item'; customerId: string; item: ConversationItem }
+  /** Sala de CRM, phase 2: the WhatsApp link changed. */
+  | { type: 'crm:connection'; connection: CrmConnection }
+  /** Sala de CRM, phase 2: a row of the Conversas list changed (new message, read, waiting). */
+  | { type: 'crm:summary'; summary: ConversationSummary }
+  /** Sala de CRM, phase 2: the local Evolution server (Docker, Colima) changed after an action. */
+  | { type: 'crm:server'; status: CrmServerStatus }
 
 /** window.onerror / unhandledrejection, as the page reports them to the log. */
 export interface RendererError {
@@ -540,6 +583,72 @@ export interface OfficeAPI {
   postToChannel(channelId: string, text: string, attachments?: AttachmentInput[]): Promise<void>
   /** "→ Bot · trocar": sends that message to another member instead. */
   rerouteChannelMessage(channelId: string, itemId: string, botId: string): Promise<void>
+  // ---------- Sala de CRM (docs/prd/sala-de-crm.md), phase 1 ----------
+  /** Everything in crm.json: customers, deals, pipelines, payments, recurrences, suggestions and the rules. */
+  crmList(): Promise<CrmData>
+  /** Creates (no id) or replaces a customer; throws a message for the form (phone of another customer, no name). */
+  saveCustomer(draft: CustomerDraft): Promise<Customer>
+  /** Removes the customer with its deals, payments, recurrences and notes. The screen confirms first. */
+  deleteCustomer(id: string): Promise<void>
+  /** Adds a note to the customer (by the player). */
+  addCrmNote(customerId: string, text: string): Promise<Customer>
+  /** Creates (no id) or replaces a deal; a stage change goes into its history. */
+  saveDeal(draft: DealDraft): Promise<Deal>
+  /** Moves the deal to a stage, before `beforeId` (or to the end of the column). */
+  moveDeal(id: string, stageId: string, beforeId?: string): Promise<Deal>
+  deleteDeal(id: string): Promise<void>
+  /** Creates or replaces a pipeline (its stages); refuses one without a won and a lost stage, or that drops a stage in use. */
+  savePipeline(pipeline: Pipeline): Promise<Pipeline>
+  /** Creates (no id) or replaces a payment; the invoice number comes from the main process. */
+  savePayment(draft: PaymentDraft): Promise<Payment>
+  /** Marks the payment paid on that date ('AAAA-MM-DD'); its dunning stops. */
+  markPaid(id: string, paidOn: string): Promise<Payment>
+  deletePayment(id: string): Promise<void>
+  /** Creates or replaces a recurrence, then makes the payments already due (leadDays before the date). */
+  saveRecurrence(draft: RecurrenceDraft): Promise<Recurrence>
+  deleteRecurrence(id: string): Promise<void>
+  /** Customers, deals and payments matching the text (name, company, phone, tag, invoice); best first. */
+  crmSearch(query: string): Promise<CrmHit[]>
+  /** Asks where to save and writes a CSV of those ids (cells starting with = + - @ get a '). Null = cancelled. */
+  exportCrmCsv(kind: CrmCsvKind, ids: string[]): Promise<string | null>
+  /** Picks a customers CSV (native dialog) and reads it into rows with their conflicts. Null = cancelled. */
+  pickCustomersCsv(): Promise<CustomerImportPreview | null>
+  /** Imports the rows; a phone that already exists follows its choice (default skip). Offers arrive off. */
+  importCustomersCsv(rows: { draft: CustomerDraft; onConflict?: ImportChoice }[]): Promise<CustomerImportResult>
+  /** LGPD: asks where to save and writes everything about the customer as JSON. Null = cancelled. */
+  exportCustomerData(id: string): Promise<string | null>
+  /** Configurações → CRM: the rules in crm.json. Unknown keys are dropped; a bad value keeps the current one. */
+  saveCrmSettings(patch: Partial<CrmSettings>): Promise<CrmSettings>
+  // ---------- Sala de CRM, phase 2 (WhatsApp; docs/prd/sala-de-crm-plano.md, CR-08 a CR-14) ----------
+  /** Configurações → CRM → WhatsApp: address, instance, whether a token is stored, and the link. Never the token. */
+  crmWhatsapp(): Promise<CrmWhatsappInfo>
+  /**
+   * Saves address, instance and, when given, the instance token (sealed by the OS vault). Refuses
+   * http:// off this machine and the server's global key, with what to do.
+   */
+  saveCrmWhatsapp(draft: CrmWhatsappDraft): Promise<CrmWhatsappInfo>
+  /** "Conectar": the QR code to read on the phone, or the state when already connected. */
+  connectCrmWhatsapp(): Promise<CrmQr>
+  /** "Testar": a fixed message to the connected number itself, through the Outbox. Answers what happened, pt-BR. */
+  testCrmWhatsapp(): Promise<string>
+  /** "Desconectar": logs the number out of the instance; the token stays stored. */
+  disconnectCrmWhatsapp(): Promise<void>
+  /** "Servidor local": reads, or turns on and off, the Evolution's containers (and Colima). One action at a time. */
+  crmServer(action: CrmServerAction): Promise<CrmServerStatus>
+  /** The Conversas list: one row per customer with a conversation, newest first. */
+  crmConversations(): Promise<ConversationSummary[]>
+  /** A page of one conversation, newest last; `before` = the id to page back from. Opening marks it read. */
+  crmConversation(customerId: string, before?: string): Promise<ConversationPage>
+  /** The player writes and sends; the gate decides. The draft comes back with the decision (held, blocked, scheduled, sent). */
+  crmSend(input: CrmSendInput): Promise<Draft>
+  /** A draft card: Enviar, Enviar mesmo assim or Descartar; `text` = the player edited it first. */
+  crmDraft(customerId: string, draftId: string, action: DraftAction, text?: string): Promise<Draft>
+  /** "Passar para mim" (true) or "Devolver ao bot" (false). */
+  crmHandOff(customerId: string, toPlayer: boolean): Promise<Customer>
+  /** "Conferir no WhatsApp": asks the server whether the first phone has WhatsApp; sets phoneChecked. */
+  crmCheckPhone(customerId: string): Promise<Customer>
+  /** "Parar tudo" (true) cancels the queue and blocks every send until it is turned off (false). */
+  crmStopAll(on: boolean): Promise<CrmSettings>
   onEvent(cb: (e: OfficeEvent) => void): () => void
 }
 

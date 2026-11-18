@@ -1,0 +1,9 @@
+{
+  "status": 200,
+  "message": "Welcome to the Evolution API, it is working!",
+  "version": "2.3.7",
+  "clientName": "evolution_spike",
+  "manager": "http://localhost:8080/manager",
+  "documentation": "https://doc.evolution-api.com",
+  "whatsappWebVersion": "2.3000.1055059001"
+}

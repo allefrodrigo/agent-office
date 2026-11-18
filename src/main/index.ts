@@ -10,7 +10,7 @@ import { badgePixels, encodePng } from './badge'
 import { dockBadge, taskbarOverlay } from '@shared/meeting-tray'
 import { Bridge } from './bridge'
 import { TicketDesk } from './delegate'
-import { prepareStress, startBotDemo, startDemo, startRoutineDemo, startStress } from './demo'
+import { prepareStress, startBotDemo, startCrmDemo, startCrmLoad, startDemo, startRoutineDemo, startStress } from './demo'
 import { CostBook } from './ledger'
 import { flushOnExit, setupData } from './data'
 import { guardWindow, installFatalHandlers, onFatalFlush } from './crash'
@@ -59,6 +59,11 @@ import { ChannelService, runnerHost } from './bots/channels'
 import { makeRouter } from './bots/router'
 import { channelTools } from './bots/mcp-channels'
 import { registerBotChannelsIpc } from './ipc/bots-channels'
+import { CrmStore } from './crm/store'
+import { registerCrmIpc } from './ipc/crm'
+import { registerCrmServerIpc } from './ipc/crm-server'
+import { registerCrmWhatsappIpc, type CrmWhatsapp } from './ipc/crm-whatsapp'
+import { wireCrmChat, type CrmChatWiring } from './ipc/crm-chat'
 import { handleMediaScheme, registerMediaScheme } from './creative/protocol'
 import { stopAllWhisper } from './meetings/whisper'
 import { PetMode } from './pet'
@@ -305,6 +310,12 @@ app.whenReady().then(async () => {
   // Chat dos bots: bots.json and each bot's folder (thread, memory).
   const botStore = new BotStore(app.getPath('userData'))
   const botTools = new BotTools(botStore)
+  // Sala de CRM: crm.json (customers, deals, payments, recurrences and the rules).
+  const crmStore = new CrmStore(app.getPath('userData'))
+  // Sala de CRM, phase 2: the WhatsApp link and the conversations (registered with the IPC below).
+  let crmWhatsapp: CrmWhatsapp | null = null
+  // CR-14: the send queue, the audit and the Conversas tab, tied to the WhatsApp side.
+  let crmChat: CrmChatWiring | null = null
   // A meeting the app closed on while recording keeps its audio on disk: it shows as interrupted.
   meetingStore.recoverInterrupted()
   // A fatal error saves what is in memory before asking what to do.
@@ -314,6 +325,8 @@ app.whenReady().then(async () => {
     routineStore.flush()
     meetingStore.flush()
     botStore.flush()
+    crmStore.flush()
+    crmWhatsapp?.flush()
   })
   manager.officeTools = (agent) => board.toolsFor(agent, () => store.settings.projects, meetingStore, botTools)
   const desk = new TicketDesk(board, manager, () => store.settings)
@@ -525,6 +538,8 @@ app.whenReady().then(async () => {
       routineStore.flush()
       meetingStore.flush()
       botStore.flush()
+      crmStore.flush()
+      crmWhatsapp?.flush()
     },
     broadcast,
   })
@@ -560,6 +575,8 @@ app.whenReady().then(async () => {
     routineStore.flush()
     meetingStore.flush()
     botStore.flush()
+    crmStore.flush()
+    crmWhatsapp?.flush()
   }
   flushOnExit({ flush: flushAll, stopAll: () => stopAll() })
   setupData({
@@ -575,6 +592,7 @@ app.whenReady().then(async () => {
       routineStore.lock()
       meetingStore.lock()
       botStore.lock()
+      crmStore.lock()
     },
   })
 
@@ -609,6 +627,7 @@ app.whenReady().then(async () => {
       routines.removeForBot(id)
       triggers.removeForBot(id)
     },
+    crmStore,
     broadcast,
     updateBadge,
     nameOf,
@@ -632,6 +651,24 @@ app.whenReady().then(async () => {
   registerCreativeLibraryIpc(ipc)
   registerMeetingsIpc(ipc)
   registerBotsIpc(ipc)
+  // Sala de CRM, phase 1: customers, deals, payments; the api also runs the recurrences once a day.
+  // Deleting a customer takes their conversation, queue items and audit names first (LGPD).
+  const crm = registerCrmIpc(ipc, { onCustomerDeleted: (id) => crmChat?.chat.forget(id) ?? {} })
+  // Sala de CRM, phase 2: the local Evolution (Docker or Colima), turned on and off from the app.
+  registerCrmServerIpc(ipc, app.getPath('userData'))
+  // Sala de CRM, phase 2: the WhatsApp (Evolution), its events and the conversations (CR-08 a CR-10).
+  crmWhatsapp = registerCrmWhatsappIpc(
+    {
+      ...ipc,
+      broadcast: (e) => {
+        ipc.broadcast(e)
+        // The link opened: the queue sends what waited for it.
+        if (e.type === 'crm:connection' && e.connection.state === 'open') crmChat?.connected()
+      },
+    },
+    app.getPath('userData'),
+  )
+  crmChat = wireCrmChat({ crmStore, broadcast: ipc.broadcast, dir: app.getPath('userData'), whatsapp: crmWhatsapp })
   registerBotAutomationsIpc({
     triggers,
     routines,
@@ -718,9 +755,18 @@ app.whenReady().then(async () => {
     startDemo(manager, squadDefs())
     startRoutineDemo(manager, routines)
     startBotDemo(manager, botStore, bots)
+    startCrmDemo(crmStore)
   }
+  // `npm run bench -- --crm`: the CRM with 2 000 customers, in memory only.
+  if (process.env.AGENT_OFFICE_DEMO === 'crm') startCrmLoad(crmStore)
   // After the demo is in place: what was due while the app was closed runs (or is skipped) now.
   routines.start()
+  // Recurrences make the payments already due: now, then on each new local day (checked hourly and on wake).
+  crm.tick()
+  setInterval(() => crm.tick(), 3_600_000).unref()
+  powerMonitor.on('resume', () => crm.tick())
+  // The WhatsApp link starts with the CRM on (and a token in the vault); never in the demo.
+  if (store.settings.crm?.enabled && !process.env.AGENT_OFFICE_DEMO) crmWhatsapp.start()
   // Bot agents restored from office.json go back to their bots; idle ones leave after a while.
   bots.start()
   macJobs.start()
@@ -750,6 +796,8 @@ app.whenReady().then(async () => {
     book.stop()
     routines.stop()
     bots.dispose()
+    crmChat?.stop()
+    crmWhatsapp?.stop()
     macJobs.stop()
     void stopAllWhisper()
     store.flush()
@@ -757,6 +805,8 @@ app.whenReady().then(async () => {
     routineStore.flush()
     meetingStore.flush()
     botStore.flush()
+    crmStore.flush()
+    crmWhatsapp?.flush()
   }
   app.on('before-quit', (e) => {
     // Agents working: the quit dialog decides (wait, interrupt or stay); stopAll runs on the way out.

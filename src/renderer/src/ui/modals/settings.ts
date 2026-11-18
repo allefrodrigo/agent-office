@@ -16,8 +16,9 @@ import { BOT_LIMITS, CHAT_DEFAULTS, type ChatSettings } from '@shared/types'
 import { cleanError, field, modal } from './common'
 import { brainFields, meterField, MODES } from './brain'
 import { brandFields } from './brand'
+import { crmFields } from './settings-crm'
 
-// Configurações: player, defaults, floors, accounts, data, video, meetings, the Chat and the terminal bridge.
+// Configurações: player, defaults, floors, accounts, data, video, meetings, the Chat, the CRM and the terminal bridge.
 
 /** `section: 'bridge'` opens scrolled to the terminal sessions box (the dock's gear does it when the bridge fails). */
 export function openSettings(root: HTMLElement, state: State, toast: (t: string, k?: 'info' | 'ok' | 'err') => void, opts: { section?: 'bridge'; tour?: () => void } = {}): void {
@@ -82,6 +83,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
   const video = videoFields(state)
   const meetings = meetingFields(state, toast)
   const chat = chatFields(state)
+  const crm = crmFields(state, toast)
 
   const b = state.bridge
   const bridgeStatus = h(
@@ -160,11 +162,14 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       video: video.value(),
       meetings: meetings.value(),
       chat: chat.value(),
+      crm: crm.value(),
       projects: floors.map((p) => ({ ...p, name: p.name.trim() || floorNameFor(p.cwd) })),
     })
   save.addEventListener('click', async () => {
     try {
       await saveAll()
+      // The CRM's own rules (crm.json) save after the switch, so a refused stage keeps the window open.
+      await crm.save()
       close()
     } catch (err) {
       toast(cleanError(err), 'err')
@@ -197,6 +202,7 @@ export function openSettings(root: HTMLElement, state: State, toast: (t: string,
       video.el,
       meetings.el,
       chat.el,
+      crm.el,
       h(
         'div',
         { class: 'bridge-box' },

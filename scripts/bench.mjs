@@ -4,6 +4,8 @@
 // AGENT_OFFICE_BENCH_S sets the seconds; AGENT_OFFICE_BENCH_OUT the report path.
 // AGENT_OFFICE_DEMO= (empty) benches an empty, still office; AGENT_OFFICE_BENCH_LIVE=1 keeps
 // the loop's own pacing (idle and fps limit) instead of drawing every frame.
+// `npm run bench -- --crm` benches the Sala de CRM instead: 2 000 demo customers, the time to load
+// and open the screen, and the frames while its table scrolls (CR-07).
 import { spawn } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -15,7 +17,14 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const out = resolve(root, process.env.AGENT_OFFICE_BENCH_OUT ?? 'out/bench.json')
 const data = mkdtempSync(join(tmpdir(), 'agent-office-bench-'))
 
-const env = { ...process.env, AGENT_OFFICE_DATA_DIR: data, AGENT_OFFICE_DEMO: process.env.AGENT_OFFICE_DEMO ?? 'stress', AGENT_OFFICE_BENCH: out }
+const crm = process.argv.includes('--crm')
+const env = {
+  ...process.env,
+  AGENT_OFFICE_DATA_DIR: data,
+  AGENT_OFFICE_DEMO: process.env.AGENT_OFFICE_DEMO ?? (crm ? 'crm' : 'stress'),
+  AGENT_OFFICE_BENCH: out,
+  ...(crm ? { AGENT_OFFICE_BENCH_CRM: '1' } : {}),
+}
 // the built bundle, not a dev server
 delete env.ELECTRON_RENDERER_URL
 

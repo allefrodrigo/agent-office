@@ -1,0 +1,74 @@
+# Spike S-1 da Sala de CRM: uma Evolution API v2 só para esta máquina.
+# Passo a passo em README.md. Os segredos vêm do arquivo .env ao lado (nunca vai para o git).
+#
+# Escolhas de segurança:
+# - A API publica a porta só em 127.0.0.1: some da rede do escritório ou do café.
+# - O Postgres não publica porta nenhuma: só a API o alcança, pela rede interna do compose.
+# - A chave global e a senha do banco não têm padrão: sem o .env, o compose não sobe.
+# - WebSocket desligado. Se ele não exigir apikey (pergunta 3 do S-1), quem alcança a porta lê
+#   todas as mensagens. Ligue só durante o teste das perguntas 2 e 3 e desligue em seguida.
+# - Sem Redis (cache local), sem webhook, sem painel web: menos serviço, menos porta.
+
+services:
+  evolution-api:
+    container_name: evolution_api
+    # Fixe a versão depois da primeira subida (README, passo 3): EVOLUTION_TAG no .env.
+    image: evoapicloud/evolution-api:${EVOLUTION_TAG:-latest}
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      SERVER_URL: http://localhost:8080
+      AUTHENTICATION_API_KEY: ${AUTHENTICATION_API_KEY:?Defina AUTHENTICATION_API_KEY no .env (openssl rand -hex 32)}
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env (openssl rand -hex 24)}@postgres:5432/evolution?schema=evolution_api
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_spike
+      # findMessages (pergunta 5) precisa das mensagens guardadas no banco.
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      CACHE_REDIS_ENABLED: "false"
+      CACHE_LOCAL_ENABLED: "true"
+      WEBSOCKET_ENABLED: ${WEBSOCKET_ENABLED:-false}
+      WEBSOCKET_GLOBAL_EVENTS: "false"
+      # S-1 (ADR 0015): o WebSocket deixa entrar sem chave quem vem de um endereço desta lista
+      # (padrão: 127.0.0.1 e ::1, vistos de dentro do contêiner). Nenhum endereço real se chama
+      # "nenhum": todo cliente precisa do token.
+      WEBSOCKET_ALLOWED_HOSTS: nenhum
+      # S-1 (ADR 0015): por padrão cada evento leva o token da instância no campo apikey, e o
+      # token de uma instância entra no canal de qualquer outra. Desligado, o evento não leva token.
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      DEL_INSTANCE: "false"
+      CONFIG_SESSION_PHONE_CLIENT: Agent Office (teste)
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      # Sem DEBUG: o log de depuração pode levar o texto das mensagens.
+      LOG_LEVEL: ERROR,WARN,INFO
+      LOG_BAILEYS: error
+      LOG_COLOR: "false"
+      # As duas fontes oficiais divergem no nome; as duas ficam desligadas.
+      TELEMETRY: "false"
+      TELEMETRY_ENABLED: "false"
+    volumes:
+      # A sessão do WhatsApp (as chaves do aparelho conectado). Apagar o volume desconecta o número.
+      - evolution_instances:/evolution/instances
+
+  postgres:
+    container_name: evolution_postgres
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: evolution
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env (openssl rand -hex 24)}
+    volumes:
+      - evolution_pg:/var/lib/postgresql/data
+
+volumes:
+  evolution_instances:
+  evolution_pg:

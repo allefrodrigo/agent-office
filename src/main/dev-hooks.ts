@@ -92,7 +92,11 @@ export function runBench(w: BrowserWindow, file: string): void {
         const paced = process.env.AGENT_OFFICE_BENCH_LIVE === '1'
         // the first call starts the CPU counters; the second reads the average over the run
         app.getAppMetrics()
-        const report = await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000}, ${paced})`)
+        // `npm run bench -- --crm`: the Sala de CRM with 2 000 customers instead of the office scene
+        const crm = process.env.AGENT_OFFICE_BENCH_CRM === '1'
+        const report = crm
+          ? { crm: await w.webContents.executeJavaScript(`window.__crmBench(${seconds * 1000})`) }
+          : await w.webContents.executeJavaScript(`window.__perf.record(${seconds * 1000}, ${paced})`)
         const gpu = app.getGPUFeatureStatus()
         // RAM and CPU of every Electron process (the 3D view's cost lives mostly in the GPU process)
         const processes: Record<string, { mb: number; cpu: number }> = {}
@@ -116,7 +120,10 @@ export function runBench(w: BrowserWindow, file: string): void {
           ...report,
         }
         writeFileSync(file, JSON.stringify(out, null, 2) + '\n')
-        console.log(`bench: ${out.frames} frames, ${out.frameMs.mean} ms/frame (p95 ${out.frameMs.p95}), ${out.drawCalls.mean} draw calls, ${out.memoryMB} MB -> ${file}`)
+        if (crm) {
+          const c = out.crm
+          console.log(`bench crm: ${c.customers} clientes, carga ${c.loadMs} ms, abrir ${c.openMs} ms, ${c.domRows} linhas no DOM, ${c.frames} frames, ${c.frameMs.mean} ms/frame (p95 ${c.frameMs.p95}), ${out.memoryMB} MB -> ${file}`)
+        } else console.log(`bench: ${out.frames} frames, ${out.frameMs.mean} ms/frame (p95 ${out.frameMs.p95}), ${out.drawCalls.mean} draw calls, ${out.memoryMB} MB -> ${file}`)
       } catch (err) {
         console.error('bench failed:', err)
         process.exitCode = 1

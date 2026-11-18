@@ -12,6 +12,9 @@
  *
  * O Chat dos bots (CB-08) tem o tema próprio em ui/chat/chat.css, com os tokens --ch-* em
  * .chat-screen: o script lê esse arquivo também. A tela é opaca, então o mundo não entra.
+ *
+ * A Sala de CRM (CR-04) faz o mesmo em ui/crm/crm.css, com os tokens --crm-* em .crm-screen (e
+ * nas janelas sobre ela, .backdrop-crm-form). Também opaca.
  */
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -44,17 +47,20 @@ function parseRules(css) {
 }
 
 const CHAT_CSS = join(CSS_DIR, '../ui/chat/chat.css')
-const rules = [...parseRules(readStyles('index.css')), ...parseRules(readFileSync(CHAT_CSS, 'utf8'))]
-/** :root, plus the Chat tokens (all --ch-*, so they never shadow the app's). */
+const CRM_CSS = join(CSS_DIR, '../ui/crm/crm.css')
+const rules = [...parseRules(readStyles('index.css')), ...parseRules(readFileSync(CHAT_CSS, 'utf8')), ...parseRules(readFileSync(CRM_CSS, 'utf8'))]
+/** :root, plus the Chat tokens (all --ch-*) and the CRM's (all --crm-*), so they never shadow the app's. */
 const vars = Object.fromEntries(
-  rules.filter(([s]) => s.includes(':root') || s.includes('.chat-screen')).flatMap(([, d]) => Object.entries(d).filter(([k]) => k.startsWith('--'))),
+  rules
+    .filter(([s]) => s.includes(':root') || s.includes('.chat-screen') || s.includes('.crm-screen'))
+    .flatMap(([, d]) => Object.entries(d).filter(([k]) => k.startsWith('--'))),
 )
 
 /** The last value a selector sets for a property (later rules win, like the cascade). */
 function prop(selector, name) {
   let v
   for (const [sels, decls] of rules) if (sels.includes(selector) && decls[name] !== undefined) v = decls[name]
-  if (v === undefined) throw new Error(`${selector} não define ${name} nos estilos (styles/ e ui/chat/chat.css)`)
+  if (v === undefined) throw new Error(`${selector} não define ${name} nos estilos (styles/, ui/chat/chat.css e ui/crm/crm.css)`)
   return v
 }
 
@@ -174,6 +180,43 @@ Object.assign(BG, {
   'chat: ficha que já passou': stack(WEEK, css('.ch-wchip.past:not(.paused)')),
   'chat: perfil + automação': stack(CHAT, css('.ch-profile'), css('.ch-auto-link:hover')),
   'chat: conexão': stack(CHAT, css('.ch-conn-row')),
+})
+
+// Sala de CRM (CR-04): fundos opacos. O mais claro de cada lugar é o pior caso (hover, linha atual).
+const CRM = css('.crm-screen')
+const CRM_TOP = css('.crm-top')
+const CRM_HEAD = css('.crm-thead')
+const CRM_COL = css('.crm-col')
+const CRM_DEAL = stack(CRM_COL, css('.crm-deal:hover'))
+const CRM_DRAWER = css('.crm-drawer')
+const CRM_HITS = css('.crm-hits')
+const CRM_MENU = css('.crm-menu')
+const CRM_SUBTAB = stack(CRM, css('.crm-subtab.on'))
+const MODAL = stack(WHITE, css('.modal'))
+Object.assign(BG, {
+  'crm: fundo': CRM,
+  'crm: topo': CRM_TOP,
+  'crm: campo de busca': stack(CRM_TOP, css('.crm-search')),
+  'crm: busca': CRM_HITS,
+  'crm: busca + atual': stack(CRM_HITS, css('.crm-hit.on')),
+  'crm: cabeçalho': CRM_HEAD,
+  'crm: filtro': stack(CRM_HEAD, css('.crm-filter')),
+  'crm: linha + hover': stack(CRM, css('.crm-row:hover')),
+  'crm: menu + hover': stack(CRM_MENU, css('.crm-menu-check:hover')),
+  'crm: aba de pagamentos': CRM_SUBTAB,
+  'crm: campo': stack(CRM, css('.crm-input')),
+  'crm: coluna': CRM_COL,
+  'crm: cartão + hover': CRM_DEAL,
+  'crm: gaveta': CRM_DRAWER,
+  'crm: gaveta + item': stack(CRM_DRAWER, css('.crm-mini:hover')),
+  'crm: janela': MODAL,
+  'crm: janela + item': stack(MODAL, css('.crm-mini:hover')),
+  // Conversas (CR-14)
+  'crm: conversa atual': stack(CRM, css('.crm-conv-list'), css('.crm-conv-row.on')),
+  'crm: balão recebido': stack(CRM, css('.crm-msg-bubble')),
+  'crm: balão enviado': stack(CRM, css('.crm-msg.out .crm-msg-bubble')),
+  'crm: rascunho': stack(CRM, css('.crm-draft')),
+  'crm: aviso no fio': stack(CRM, css('.crm-notice')),
 })
 
 // Etiqueta "bot" no nome do agente (CB-11): texto escuro sobre a cor do bot, uma por BOT_COLORS
@@ -421,6 +464,113 @@ const PAIRS = [
   ['Chat: pergunta sem resposta', '.ch-aside.s-failed .ch-aside-status', 'chat: fio'],
   ['Chat: lista do @ (nome)', '.ch-mention-opt', ['.ch-mention-opt.on', 'chat: menu']],
   ['Chat: lista do @ (frase)', '.ch-mention-line', ['.ch-mention-opt.on', 'chat: menu']],
+  // Sala de CRM (CR-04 a CR-06): o botão do HUD, o topo, a tabela, o quadro, a ficha e as janelas
+  ['Botão CRM: esperando você', '.crm-launch-badge', ['.crm-launch-badge', 'card']],
+  ['CRM: título', '.crm-title', 'crm: topo'],
+  ['CRM: aba', '.crm-tab', 'crm: topo'],
+  ['CRM: aba atual', '.crm-tab.on', 'crm: topo'],
+  ['CRM: busca (dica)', '.crm-search-input::placeholder', 'crm: campo de busca'],
+  ['CRM: busca (texto)', '.crm-search-input', 'crm: campo de busca'],
+  ['CRM: achado (tipo)', '.crm-hit-kind', 'crm: busca + atual'],
+  ['CRM: achado (nome)', '.crm-hit-title', 'crm: busca + atual'],
+  ['CRM: achado (detalhe)', '.crm-hit-detail', 'crm: busca + atual'],
+  ['CRM: nada achado', '.crm-hit-none', 'crm: busca'],
+  ['CRM: ＋ Novo', '.crm-screen .crm-btn-accent', ['.crm-screen .crm-btn-accent', 'crm: topo']],
+  ['CRM: ＋ Novo (hover)', '.crm-screen .crm-btn-accent', ['.crm-screen .crm-btn-accent:hover', 'crm: topo']],
+  ['CRM: botão de ícone', '.crm-icon-btn', 'crm: topo'],
+  ['CRM: botão', '.crm-screen .btn', ['.crm-screen .btn', 'crm: fundo']],
+  ['CRM: botão (hover)', '.crm-screen .btn', ['.crm-screen .btn:hover', 'crm: fundo']],
+  ['CRM: botão discreto', '.crm-screen .crm-btn-quiet', 'crm: fundo'],
+  ['CRM: botão de perigo', '.crm-screen .crm-btn-danger', ['.crm-screen .crm-btn-danger', 'crm: gaveta']],
+  ['CRM: cabeçalho da coluna', '.crm-sort', 'crm: cabeçalho'],
+  ['CRM: seta da ordenação', '.crm-sort-mark', 'crm: cabeçalho'],
+  ['CRM: filtro (dica)', '.crm-filter::placeholder', 'crm: filtro'],
+  ['CRM: filtro (texto)', '.crm-filter', 'crm: filtro'],
+  ['CRM: célula', '.crm-td', 'crm: linha + hover'],
+  ['CRM: célula cancelada', '.crm-row.s-canceled .crm-td', 'crm: linha + hover'],
+  ['CRM: rodapé da tabela', '.crm-table-foot', 'crm: fundo'],
+  ['CRM: Colunas', '.crm-menu-check', 'crm: menu + hover'],
+  ['CRM: Colunas (sempre)', '.crm-menu-check small', 'crm: menu + hover'],
+  ['CRM: vazio', '.crm-empty', 'crm: fundo'],
+  ['CRM: vazio (título)', '.crm-empty-title', 'crm: fundo'],
+  ['CRM: aba de pagamentos', '.crm-subtab', 'crm: fundo'],
+  ['CRM: aba de pagamentos atual', '.crm-subtab.on', 'crm: aba de pagamentos'],
+  ['CRM: contagem da aba', '.crm-subtab-count', ['.crm-subtab-count', 'crm: aba de pagamentos']],
+  ['CRM: contagem de atrasados', '.crm-subtab.alert .crm-subtab-count', ['.crm-subtab.alert .crm-subtab-count', 'crm: fundo']],
+  ['CRM: campo (texto)', '.crm-input', 'crm: campo'],
+  ['CRM: campo (dica)', '.crm-input::placeholder', 'crm: campo'],
+  ['CRM: contagem do quadro', '.crm-board-count', 'crm: fundo'],
+  ['CRM: dica do teclado', '.crm-keys-hint', 'crm: fundo'],
+  ['CRM: etapa', '.crm-col-name', 'crm: coluna'],
+  ['CRM: etapa (quantos)', '.crm-col-count', 'crm: coluna'],
+  ['CRM: etapa (soma)', '.crm-col-total', 'crm: coluna'],
+  ['CRM: etapa vazia', '.crm-col-empty', 'crm: coluna'],
+  ['CRM: cartão (cliente)', '.crm-deal-who', 'crm: cartão + hover'],
+  ['CRM: cartão (serviço)', '.crm-deal-title', 'crm: cartão + hover'],
+  ['CRM: cartão (valor)', '.crm-deal-value', 'crm: cartão + hover'],
+  ['CRM: cartão (dias)', '.crm-deal-age', 'crm: cartão + hover'],
+  ['CRM: cartão parado', '.crm-deal.still .crm-deal-age', 'crm: cartão + hover'],
+  ['CRM: cartão (próximo passo)', '.crm-deal-next', 'crm: cartão + hover'],
+  ['CRM: cartão (andar, tickets)', '.crm-chip', ['.crm-chip', 'crm: cartão + hover']],
+  ['CRM: ficha (nome)', '.crm-card-name', 'crm: gaveta'],
+  ['CRM: ficha (tipo)', '.crm-card-sub', 'crm: gaveta'],
+  ['CRM: ficha (seção)', '.crm-sec-title', 'crm: gaveta'],
+  ['CRM: ficha (rótulo)', '.crm-dl dt', 'crm: gaveta'],
+  ['CRM: ficha (dado)', '.crm-dl dd', 'crm: gaveta'],
+  ['CRM: etiqueta', '.crm-tag', ['.crm-tag', 'crm: gaveta']],
+  ['CRM: permissão', '.crm-consent-label', 'crm: gaveta'],
+  ['CRM: permissão (detalhe)', '.crm-consent-detail', 'crm: gaveta'],
+  ['CRM: permissão negada', '.crm-consent-mark', 'crm: gaveta'],
+  ['CRM: permissão dada', '.crm-consent-row.on .crm-consent-mark', 'crm: gaveta'],
+  ['CRM: pediu para sair', '.crm-consent-row.out .crm-consent-detail', 'crm: gaveta'],
+  ['CRM: aviso', '.crm-warn', ['.crm-warn', 'crm: gaveta']],
+  ['CRM: item da ficha', '.crm-mini', 'crm: gaveta + item'],
+  ['CRM: item da ficha (detalhe)', '.crm-mini-meta', 'crm: gaveta + item'],
+  ['CRM: item da ficha (valor)', '.crm-mini-value', 'crm: gaveta + item'],
+  ['CRM: nada na seção', '.crm-none', 'crm: gaveta'],
+  ['CRM: ticket (chave)', '.crm-ticket-key', 'crm: gaveta'],
+  ['CRM: ticket (título)', '.crm-ticket-title', 'crm: gaveta'],
+  ['CRM: linha do tempo (quando)', '.crm-tl-when', 'crm: gaveta'],
+  ['CRM: linha do tempo (texto)', '.crm-tl-text', 'crm: gaveta'],
+  ['CRM: linha do tempo (pago)', '.crm-tl.k-paid .crm-tl-text', 'crm: gaveta'],
+  ['CRM: erro do campo', '.crm-field-error', 'crm: janela'],
+  ['CRM: erro do formulário', '.crm-form-error', ['.crm-form-error', 'crm: janela']],
+  ['CRM: grupo do formulário', '.crm-fieldset legend', 'crm: janela'],
+  ['CRM: explicação da opção', '.crm-check small', 'crm: janela'],
+  ['CRM: prévia da recorrência', '.crm-preview', ['.crm-preview', 'crm: janela']],
+  ['CRM: linha que fica de fora', '.crm-import-skip', 'crm: janela'],
+  ['CRM: recorrência na lista', '.crm-mini', 'crm: janela + item'],
+  ['CRM: recorrência (detalhe)', '.crm-mini-meta', 'crm: janela + item'],
+  ['CRM: ticket do negócio (chave)', '.crm-ticket-key', 'crm: janela'],
+  ['CRM: rótulo do pagamento', '.crm-dl-modal dt', 'crm: janela'],
+  // Conversas e Parar tudo (CR-14)
+  ['CRM: Parar tudo', '.crm-screen .crm-stop', ['.crm-screen .crm-stop:hover', 'crm: topo']],
+  ['CRM: Parar tudo ligado', '.crm-screen .crm-stop.on', ['.crm-screen .crm-stop.on', 'crm: topo']],
+  ['CRM: grupo da lista', '.crm-conv-group', 'crm: conversa atual'],
+  ['CRM: nome na lista', '.crm-conv-row', 'crm: conversa atual'],
+  ['CRM: hora na lista', '.crm-conv-time', 'crm: conversa atual'],
+  ['CRM: prévia na lista', '.crm-conv-sub', 'crm: conversa atual'],
+  ['CRM: esperando você na lista', '.crm-conv-sub.waiting', 'crm: conversa atual'],
+  ['CRM: não lidas', '.crm-conv-unread', ['.crm-conv-unread', 'crm: conversa atual']],
+  ['CRM: bot na conversa', '.crm-conv-bot', 'crm: fundo'],
+  ['CRM: conversa com você', '.crm-conv-bot.handed', 'crm: fundo'],
+  ['CRM: dia no fio', '.crm-thread-day', 'crm: fundo'],
+  ['CRM: hora da mensagem', '.crm-msg-meta', 'crm: fundo'],
+  ['CRM: envio que falhou', '.crm-msg.out.failed .crm-msg-meta', 'crm: fundo'],
+  ['CRM: mensagem recebida', '.crm-screen', 'crm: balão recebido'],
+  ['CRM: anexo recebido', '.crm-msg-media', 'crm: balão recebido'],
+  ['CRM: link na mensagem', '.crm-msg-link', 'crm: balão enviado'],
+  ['CRM: domínio do link', '.crm-msg-host', ['.crm-msg-host', 'crm: balão enviado']],
+  ['CRM: aviso no fio', '.crm-notice', 'crm: aviso no fio'],
+  ['CRM: aviso de alerta no fio', '.crm-notice.t-warn', 'crm: aviso no fio'],
+  ['CRM: aviso de erro no fio', '.crm-notice.t-error', 'crm: aviso no fio'],
+  ['CRM: rascunho (cabeçalho)', '.crm-draft-head', 'crm: rascunho'],
+  ['CRM: rascunho (motivo)', '.crm-draft-note', 'crm: rascunho'],
+  ['CRM: rascunho esperando (motivo)', '.crm-draft.t-held .crm-draft-note', 'crm: rascunho'],
+  ['CRM: rascunho barrado (motivo)', '.crm-draft.t-blocked .crm-draft-note', 'crm: rascunho'],
+  ['CRM: aviso da caixa de escrever', '.crm-composer-note', 'crm: fundo'],
+  ['CRM: título da ficha curta', '.crm-side-block h4', 'crm: fundo'],
+  ['CRM: número conferido', '.crm-side-ok', 'crm: fundo'],
   // a etiqueta "bot" no nome do agente, em cada cor de bot
   ...BOT_COLORS.map((c) => [`Etiqueta bot ${c}`, '.tag-bot', `etiqueta bot ${c}`]),
 ]
